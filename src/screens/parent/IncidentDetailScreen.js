@@ -50,10 +50,18 @@ export default function IncidentDetailScreen({ route, navigation }) {
       return;
     }
     setAcknowledging(true);
-    const { error } = await acknowledgeReport(incident.id, ackName.trim());
+    const { error, queued } = await acknowledgeReport(incident.id, ackName.trim());
     setAcknowledging(false);
     if (error) {
       Alert.alert('Error', error.message);
+      return;
+    }
+    if (queued) {
+      Alert.alert(
+        'Saved — will sync',
+        "You're offline right now. Your acknowledgment has been saved and will be submitted automatically when you reconnect.",
+        [{ text: 'OK', onPress: () => navigation.goBack() }]
+      );
       return;
     }
     Alert.alert('Acknowledged ✓', 'Thank you. This report has been marked as reviewed.', [

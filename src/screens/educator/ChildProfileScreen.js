@@ -205,20 +205,29 @@ export default function ChildProfileScreen({ route, navigation }) {
       .single();
 
     if (existing) {
-      // Already has an account — link directly
+      // Already has an account — link directly. DO NOTHING (not DO UPDATE):
+      // Phase 2 restricts UPDATE on parent_children to consent_given_at only.
       const { error } = await supabase
         .from('parent_children')
-        .upsert({ parent_id: existing.id, child_id: child.id }, { onConflict: 'parent_id,child_id' });
+        .upsert(
+          { parent_id: existing.id, child_id: child.id },
+          { onConflict: 'parent_id,child_id', ignoreDuplicates: true }
+        );
       setInviting(false);
       if (error) { Alert.alert('Error', error.message); return; }
       setInviteEmail('');
       await loadParents();
       Alert.alert('Linked ✓', `${existing.full_name} has been linked to ${child.first_name}.`);
     } else {
-      // Send magic link invite
+      // Send magic link invite — pending_child_id is processed by the
+      // handle_new_user trigger to auto-link parent → child on signup
       const { error } = await supabase.auth.signInWithOtp({
         email: inviteEmail.trim().toLowerCase(),
-        options: { data: { role: 'parent' }, shouldCreateUser: true },
+        options: {
+          data: { role: 'parent', pending_child_id: child.id },
+          shouldCreateUser: true,
+          emailRedirectTo: 'dailylog://auth',
+        },
       });
       setInviting(false);
       if (error) { Alert.alert('Error', error.message); return; }
@@ -292,8 +301,16 @@ export default function ChildProfileScreen({ route, navigation }) {
           text: 'Remove', style: 'destructive',
           onPress: async () => {
             setRemoving(true);
-            await supabase.from('children').delete().eq('id', child.id);
+            // Soft delete — archiving preserves logs, incidents and parent links
+            const { error } = await supabase
+              .from('children')
+              .update({ archived_at: new Date().toISOString() })
+              .eq('id', child.id);
             setRemoving(false);
+            if (error) {
+              Alert.alert('Error', error.message);
+              return;
+            }
             navigation.goBack();
           },
         },

@@ -5,6 +5,7 @@ import { supabase } from '../../lib/supabase';
 import { useDailyLog } from '../../hooks/useDailyLog';
 import { LoadingScreen, Badge, EmptyState, Divider } from '../../components/ui';
 import { PhotoSection } from '../../components/PhotoSection';
+import ConsentScreen from '../shared/ConsentScreen';
 import { colors, spacing, radius } from '../../theme';
 import { format, subDays, addDays, isToday } from 'date-fns';
 
@@ -22,23 +23,31 @@ export default function ParentHomeScreen({ navigation }) {
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [loadingChildren, setLoadingChildren] = useState(true);
   const [pendingIncidents, setPendingIncidents] = useState([]);
+  const [pendingConsentChild, setPendingConsentChild] = useState(null); // COPPA/PIPEDA consent gate
 
   const {
     log, meals, diapers, sleeps, activities, supplies, loading,
-  } = useDailyLog(selectedChild?.id, selectedDate);
+  } = useDailyLog(selectedChild?.id, selectedDate); // read-only: parents never create logs
+
+  async function fetchChildren() {
+    const { data } = await supabase
+      .from('parent_children')
+      .select('consent_given_at, child:children(*)')
+      .eq('parent_id', profile.id);
+
+    const links = data || [];
+    const kids = links.map(r => r.child).filter(Boolean);
+    setChildren(kids);
+    if (kids.length > 0) setSelectedChild(prev => prev && kids.find(k => k.id === prev.id) ? prev : kids[0]);
+
+    // First child lacking consent → show the consent flow before anything else
+    const needsConsent = links.find(r => r.child && !r.consent_given_at)?.child || null;
+    setPendingConsentChild(needsConsent);
+
+    setLoadingChildren(false);
+  }
 
   useEffect(() => {
-    async function fetchChildren() {
-      const { data } = await supabase
-        .from('parent_children')
-        .select('child:children(*)')
-        .eq('parent_id', profile.id);
-
-      const kids = data?.map(r => r.child) || [];
-      setChildren(kids);
-      if (kids.length > 0) setSelectedChild(kids[0]);
-      setLoadingChildren(false);
-    }
     if (profile) fetchChildren();
   }, [profile]);
 
@@ -76,6 +85,17 @@ export default function ParentHomeScreen({ navigation }) {
       <View style={styles.container}>
         <EmptyState icon="👶" message="No children linked to your account yet.\nAsk your daycare to add you." />
       </View>
+    );
+  }
+
+  // COPPA/PIPEDA: require consent per child before showing their data
+  if (pendingConsentChild) {
+    return (
+      <ConsentScreen
+        childId={pendingConsentChild.id}
+        childName={pendingConsentChild.first_name}
+        onDone={fetchChildren}
+      />
     );
   }
 

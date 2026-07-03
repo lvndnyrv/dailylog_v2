@@ -6,6 +6,9 @@ import {
 } from 'react-native';
 import { useAuth } from '../../hooks/useAuth';
 import { supabase } from '../../lib/supabase';
+import { mutate } from '../../lib/offlineQueue';
+import { newId } from '../../lib/uuid';
+import { toastError } from '../../components/Toast';
 import { colors, spacing, radius } from '../../theme';
 import { format, isToday, isYesterday } from 'date-fns';
 
@@ -28,7 +31,7 @@ export default function MessagingScreen({ route, navigation }) {
   useEffect(() => {
     loadMessages();
 
-    // Real-time subscription
+    // Real-time subscription — dedupes against optimistic sends by id
     const channel = supabase
       .channel(`messages:${childId}`)
       .on('postgres_changes', {
@@ -37,7 +40,9 @@ export default function MessagingScreen({ route, navigation }) {
         table: 'messages',
         filter: `child_id=eq.${childId}`,
       }, payload => {
-        setMessages(prev => [...prev, payload.new]);
+        setMessages(prev => prev.some(m => m.id === payload.new.id)
+          ? prev.map(m => (m.id === payload.new.id ? { ...m, ...payload.new } : m))
+          : [...prev, payload.new]);
         setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 100);
       })
       .subscribe();
@@ -61,11 +66,28 @@ export default function MessagingScreen({ route, navigation }) {
     if (!trimmed || sending) return;
     setSending(true);
     setText('');
-    await supabase.from('messages').insert({
+
+    // Optimistic append with a client-generated id (works offline too)
+    const row = {
+      id: newId(),
       child_id: childId,
       sender_id: profile.id,
       body: trimmed,
-    });
+    };
+    setMessages(prev => [...prev, {
+      ...row,
+      created_at: new Date().toISOString(),
+      sender: { full_name: profile.full_name, role: profile.role },
+    }]);
+    setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 50);
+
+    const { error } = await mutate({ type: 'insert', table: 'messages', data: row });
+    if (error) {
+      // Hard failure — roll back and restore the draft
+      setMessages(prev => prev.filter(m => m.id !== row.id));
+      setText(trimmed);
+      toastError('Message not sent', error);
+    }
     setSending(false);
   }
 

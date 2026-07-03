@@ -3,13 +3,14 @@ import {
   View, Text, ScrollView, TouchableOpacity,
   StyleSheet, Alert, TextInput, Modal, Linking
 } from 'react-native';
+import { useAuth } from '../../hooks/useAuth';
 import { useDailyLog, copyYesterdayLog } from '../../hooks/useDailyLog';
 import { notifyParents } from '../../hooks/usePushNotifications';
 import { supabase } from '../../lib/supabase';
 import { Section, Chip, Button, LoadingScreen, Badge } from '../../components/ui';
 import { PhotoSection } from '../../components/PhotoSection';
 import { colors, spacing, radius } from '../../theme';
-import { format } from 'date-fns';
+import { format, isToday as checkIsToday } from 'date-fns';
 
 const MOODS = [
   { label: 'Happy', emoji: '😊' },
@@ -263,16 +264,20 @@ function calcDuration(start, end) {
 
 // ---- MAIN SCREEN ----
 export default function DailyLogScreen({ route, navigation }) {
-  const { child } = route.params;
+  const { child, date } = route.params;
+  const { profile } = useAuth();
+  // Date comes from the roster's date navigation (defaults to today)
+  const logDate = date ? new Date(`${date}T00:00:00`) : new Date();
+  const isToday = checkIsToday(logDate);
   const {
-    log, meals, diapers, sleeps, activities, supplies, loading,
+    log, meals, diapers, sleeps, activities, supplies, loading, error,
     updateMoods, updateNotes,
     addMeal, updateMeal, deleteMeal,
     addDiaper, updateDiaper, deleteDiaper,
     addSleep, updateSleep, deleteSleep,
     toggleActivity, toggleSupply,
     sendToParents,
-  } = useDailyLog(child.id);
+  } = useDailyLog(child.id, logDate, { createIfMissing: true, educatorId: profile?.id });
 
   const [notes, setNotes] = useState('');
   const [comments, setComments] = useState('');
@@ -287,6 +292,18 @@ export default function DailyLogScreen({ route, navigation }) {
   }, [log?.id]);
 
   if (loading) return <LoadingScreen />;
+
+  if (!log) {
+    return (
+      <View style={styles.errorWrap}>
+        <Text style={styles.errorIcon}>⚠️</Text>
+        <Text style={styles.errorText}>
+          Couldn't open this log{error ? `:\n${error}` : '.'}
+        </Text>
+        <Button label="← Back to roster" onPress={() => navigation.goBack()} variant="ghost" />
+      </View>
+    );
+  }
 
   const selectedMoods = log?.moods || [];
   const selectedActivities = activities.map(a => a.activity_name);
@@ -330,22 +347,22 @@ export default function DailyLogScreen({ route, navigation }) {
   async function handleCopyYesterday() {
     if (!log) return;
     Alert.alert(
-      'Copy yesterday\'s log?',
-      'This will copy yesterday\'s meals and activities into today\'s log. Existing entries won\'t be replaced.',
+      'Copy previous day\'s log?',
+      'This will copy the previous day\'s meals and activities into this log. Existing entries won\'t be replaced.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Copy',
           onPress: async () => {
             setCopying(true);
-            const result = await copyYesterdayLog(child.id, log.id);
+            const result = await copyYesterdayLog(child.id, log.id, logDate);
             setCopying(false);
             if (!result.copied) {
               Alert.alert('Nothing to copy', result.reason);
             } else {
               Alert.alert(
                 'Copied ✓',
-                `Copied ${result.mealCount} meals and ${result.activityCount} activities from yesterday.`
+                `Copied ${result.mealCount} meals and ${result.activityCount} activities from the previous day.`
               );
             }
           },
@@ -357,8 +374,21 @@ export default function DailyLogScreen({ route, navigation }) {
   async function handleSend() {
     setSending(true);
     await updateNotes(notes, comments);
-    await sendToParents();
-    await notifyParents(child.id, child.first_name, format(new Date(), 'yyyy-MM-dd'));
+    const { error: sendError, offline } = await sendToParents();
+    if (offline) {
+      setSending(false);
+      Alert.alert(
+        "You're offline",
+        'Sending to parents needs a connection so they get notified. Your entries are saved — try again once you\'re back online.'
+      );
+      return;
+    }
+    if (sendError) {
+      setSending(false);
+      Alert.alert('Could not send', sendError.message);
+      return;
+    }
+    await notifyParents(child.id, child.first_name, format(logDate, 'yyyy-MM-dd'));
     setSending(false);
     Alert.alert('Sent! ✓', `${child.first_name}'s daily log has been sent to parents.`, [
       { text: 'OK', onPress: () => navigation.goBack() }
@@ -373,9 +403,11 @@ export default function DailyLogScreen({ route, navigation }) {
         <TouchableOpacity onPress={() => navigation.goBack()}>
           <Text style={styles.back}>← Roster</Text>
         </TouchableOpacity>
-        <View style={styles.childPill}>
+        <View style={[styles.childPill, !isToday && styles.childPillPast]}>
           <Text style={styles.childName}>{child.first_name} {child.last_name}</Text>
-          <Text style={styles.headerDate}>{format(new Date(), 'MMM d')}</Text>
+          <Text style={styles.headerDate}>
+            {isToday ? format(logDate, 'MMM d') : `📅 ${format(logDate, 'EEE, MMM d')}`}
+          </Text>
         </View>
         <View style={styles.headerActions}>
           <TouchableOpacity onPress={handleCallParents} style={styles.headerBtn}>
@@ -526,9 +558,21 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primaryLight, borderRadius: radius.full,
     paddingHorizontal: spacing.lg, paddingVertical: spacing.sm, alignItems: 'center',
   },
+  childPillPast: { backgroundColor: colors.amberLight },
   childName: { fontSize: 15, fontWeight: '600', color: colors.primary },
   headerDate: { fontSize: 12, color: colors.primaryDark },
   chipWrap: { flexDirection: 'row', flexWrap: 'wrap' },
+
+  // Error state
+  errorWrap: {
+    flex: 1, justifyContent: 'center', alignItems: 'center',
+    backgroundColor: colors.bg, padding: spacing.xl,
+  },
+  errorIcon: { fontSize: 40, marginBottom: spacing.md },
+  errorText: {
+    fontSize: 14, color: colors.textSecondary, textAlign: 'center',
+    lineHeight: 20, marginBottom: spacing.xl,
+  },
 
   // Time button
   timeBtn: {
@@ -623,24 +667,3 @@ const styles = StyleSheet.create({
   headerBtnText: { fontSize: 16 },
 });
 
-// Time picker styles
-const tp = StyleSheet.create({
-  overlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' },
-  sheet: { backgroundColor: colors.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingBottom: 40 },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: spacing.lg, borderBottomWidth: 1, borderBottomColor: colors.border },
-  title: { fontSize: 16, fontWeight: '600', color: colors.textPrimary },
-  cancel: { fontSize: 16, color: colors.textSecondary },
-  done: { fontSize: 16, color: colors.primary, fontWeight: '600' },
-  pickerRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'center', padding: spacing.lg },
-  col: { width: 100, alignItems: 'center' },
-  colLabel: { fontSize: 12, color: colors.textMuted, marginBottom: spacing.sm, fontWeight: '500', textTransform: 'uppercase' },
-  scroll: { height: 200 },
-  item: { paddingVertical: spacing.sm, paddingHorizontal: spacing.lg, borderRadius: radius.md, width: '100%', alignItems: 'center' },
-  itemSelected: { backgroundColor: colors.primaryLight },
-  itemText: { fontSize: 22, color: colors.textSecondary, fontWeight: '400' },
-  itemTextSelected: { color: colors.primary, fontWeight: '700' },
-  colon: { fontSize: 28, fontWeight: '700', color: colors.textPrimary, marginTop: 48, marginHorizontal: spacing.md },
-  quickRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, paddingHorizontal: spacing.lg, paddingTop: spacing.sm },
-  quick: { backgroundColor: colors.bg, borderRadius: radius.full, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderWidth: 1, borderColor: colors.border },
-  quickText: { fontSize: 13, color: colors.textSecondary, fontWeight: '500' },
-});

@@ -6,13 +6,25 @@ import { colors, spacing } from '../theme';
 export function OfflineBanner() {
   const { isOnline, pendingCount } = useNetworkStatus();
 
-  if (isOnline) return null;
+  // Online and nothing queued — no banner
+  if (isOnline && pendingCount === 0) return null;
 
+  if (!isOnline) {
+    return (
+      <View style={[styles.banner, styles.offline]}>
+        <Text style={styles.text}>
+          📵  You're offline — changes are saved and will sync when you reconnect
+          {pendingCount > 0 ? ` (${pendingCount} pending)` : ''}
+        </Text>
+      </View>
+    );
+  }
+
+  // Online with a backlog still syncing
   return (
-    <View style={styles.banner}>
+    <View style={[styles.banner, styles.syncing]}>
       <Text style={styles.text}>
-        📵  You're offline — changes will sync when you reconnect
-        {pendingCount > 0 ? ` (${pendingCount} pending)` : ''}
+        🔄  Syncing {pendingCount} pending change{pendingCount === 1 ? '' : 's'}…
       </Text>
     </View>
   );
@@ -20,11 +32,12 @@ export function OfflineBanner() {
 
 const styles = StyleSheet.create({
   banner: {
-    backgroundColor: colors.amber,
     paddingVertical: spacing.sm,
     paddingHorizontal: spacing.lg,
     alignItems: 'center',
   },
+  offline: { backgroundColor: colors.amber },
+  syncing: { backgroundColor: colors.purple },
   text: {
     fontSize: 12,
     color: '#fff',

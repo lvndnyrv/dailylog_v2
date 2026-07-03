@@ -27,8 +27,11 @@ export default function SettingsScreen({ navigation }) {
           style: 'destructive',
           onPress: async () => {
             setDeleting(true);
-            await deleteAccount();
+            const { error } = await deleteAccount();
             setDeleting(false);
+            if (error) {
+              Alert.alert('Deletion failed', error.message);
+            }
           },
         },
       ]

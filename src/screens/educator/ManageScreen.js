@@ -97,7 +97,9 @@ function InviteParentForm({ classroomId, children }) {
         .from('parent_children')
         .upsert(
           { parent_id: existing.id, child_id: childId },
-          { onConflict: 'parent_id,child_id' }
+          // DO NOTHING (not DO UPDATE): Phase 2 restricts UPDATE on
+          // parent_children to consent_given_at only.
+          { onConflict: 'parent_id,child_id', ignoreDuplicates: true }
         );
       setSending(false);
       if (error) { Alert.alert('Error', error.message); return; }
@@ -107,7 +109,11 @@ function InviteParentForm({ classroomId, children }) {
     } else {
       const { error } = await supabase.auth.signInWithOtp({
         email: email.trim().toLowerCase(),
-        options: { data: { pending_child_id: childId, role: 'parent' }, shouldCreateUser: true },
+        options: {
+          data: { pending_child_id: childId, role: 'parent' },
+          shouldCreateUser: true,
+          emailRedirectTo: 'dailylog://auth',
+        },
       });
       setSending(false);
       if (error) { Alert.alert('Error', error.message); return; }
@@ -175,6 +181,7 @@ export default function ManageScreen({ navigation }) {
       .from('children')
       .select('*')
       .eq('classroom_id', profile.classroom_id)
+      .is('archived_at', null)
       .order('first_name');
 
     setChildren(kids || []);
@@ -205,7 +212,12 @@ export default function ManageScreen({ navigation }) {
       [
         { text: 'Cancel', style: 'cancel' },
         { text: 'Remove', style: 'destructive', onPress: async () => {
-          await supabase.from('children').delete().eq('id', child.id);
+          // Soft delete — archiving preserves logs, incidents and parent links
+          const { error } = await supabase
+            .from('children')
+            .update({ archived_at: new Date().toISOString() })
+            .eq('id', child.id);
+          if (error) Alert.alert('Error', error.message);
           load();
         }},
       ]

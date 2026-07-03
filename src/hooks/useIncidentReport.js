@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
-import { enqueue } from '../lib/offlineQueue';
-import NetInfo from '@react-native-community/netinfo';
+import { mutate } from '../lib/offlineQueue';
+import { newId } from '../lib/uuid';
 
 /**
  * Hook for managing incident reports.
@@ -76,38 +76,24 @@ export function useIncidentForm(incidentId = null) {
 
   async function createDraft(data) {
     setSaving(true);
-    const { data: created, error } = await supabase
-      .from('incident_reports')
-      .insert(data)
-      .select()
-      .single();
+    // Client-generated id → drafts can be created offline (e.g. on the
+    // playground) and replay idempotently when back online.
+    const row = { id: newId(), ...data };
+    const { error, queued } = await mutate({ type: 'insert', table: 'incident_reports', data: row });
     setSaving(false);
     if (error) return { error };
-    setReport(created);
-    return { data: created };
+    setReport(row);
+    return { data: row, queued };
   }
 
   async function updateReport(id, updates) {
     setSaving(true);
-
-    const net = await NetInfo.fetch();
-    if (!net.isConnected) {
-      await enqueue({ type: 'update', table: 'incident_reports', id, data: updates });
-      setReport(prev => prev ? { ...prev, ...updates } : prev);
-      setSaving(false);
-      return { data: { ...report, ...updates } };
-    }
-
-    const { data, error } = await supabase
-      .from('incident_reports')
-      .update(updates)
-      .eq('id', id)
-      .select()
-      .single();
+    const { error, queued } = await mutate({ type: 'update', table: 'incident_reports', id, data: updates });
     setSaving(false);
     if (error) return { error };
-    setReport(data);
-    return { data };
+    const merged = { ...(report || {}), ...updates };
+    setReport(merged);
+    return { data: merged, queued };
   }
 
   async function submitReport(id) {
@@ -117,12 +103,28 @@ export function useIncidentForm(incidentId = null) {
     });
   }
 
+  // Phase 2 security: parents have no UPDATE grant on incident_reports.
+  // Acknowledgment goes through the column-safe acknowledge_incident() RPC,
+  // which validates the parent↔child link server-side and only touches
+  // status / parent_acknowledged_at / parent_acknowledge_name. Idempotent
+  // (only acts on status='submitted'), so offline replay is safe.
   async function acknowledgeReport(id, fullName) {
-    return updateReport(id, {
+    setSaving(true);
+    const { error, queued } = await mutate({
+      type: 'rpc',
+      fn: 'acknowledge_incident',
+      args: { p_incident_id: id, p_full_name: fullName },
+    });
+    setSaving(false);
+    if (error) return { error };
+    const merged = {
+      ...(report || {}),
       status: 'acknowledged',
       parent_acknowledged_at: new Date().toISOString(),
       parent_acknowledge_name: fullName,
-    });
+    };
+    setReport(merged);
+    return { data: merged, queued };
   }
 
   async function uploadPhoto(incidentId, childId, uri) {

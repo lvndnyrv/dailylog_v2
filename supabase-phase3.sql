@@ -21,7 +21,10 @@ CREATE INDEX IF NOT EXISTS idx_sleep_entries_open
 
 -- ────────────────────────────────────────────────────────────────────────────────
 -- 3. Enhanced roster status RPC — now includes log_id and nap_active
+--    Must DROP first because the return type signature changed.
 -- ────────────────────────────────────────────────────────────────────────────────
+DROP FUNCTION IF EXISTS get_classroom_log_status(uuid, date);
+
 CREATE OR REPLACE FUNCTION get_classroom_log_status(
   p_classroom_id uuid,
   p_date date
@@ -131,4 +134,5 @@ BEGIN
       )';
   END IF;
 END $$;
+
 

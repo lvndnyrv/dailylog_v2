@@ -83,6 +83,19 @@ export function Badge({ label, color = colors.primary, bg }) {
   );
 }
 
+// ---- ALLERGY BADGE ----
+// Compact warning badge shown wherever a child with allergies appears.
+export function AllergyBadge({ allergies, compact }) {
+  if (!allergies?.length) return null;
+  return (
+    <View style={styles.allergyBadge} accessibilityLabel={`Allergies: ${allergies.join(', ')}`}>
+      <Text style={styles.allergyBadgeText} numberOfLines={1}>
+        ⚠️ {compact ? allergies.length : allergies.join(', ')}
+      </Text>
+    </View>
+  );
+}
+
 // ---- EMPTY STATE ----
 export function EmptyState({ icon, message }) {
   return (
@@ -183,6 +196,21 @@ const styles = StyleSheet.create({
   badgeText: {
     fontSize: 12,
     fontWeight: '500',
+  },
+  allergyBadge: {
+    backgroundColor: colors.dangerLight,
+    borderWidth: 1,
+    borderColor: colors.danger + '55',
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+    borderRadius: radius.full,
+    alignSelf: 'flex-start',
+    maxWidth: 180,
+  },
+  allergyBadgeText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: colors.danger,
   },
   empty: {
     alignItems: 'center',

@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import { useAuth } from '../../hooks/useAuth';
 import { useIncidentForm } from '../../hooks/useIncidentReport';
+import { exportIncidentPdf } from '../../lib/export';
 import { ChildAvatar } from '../../components/ChildAvatar';
 import { Button } from '../../components/ui';
 import { colors, spacing, radius } from '../../theme';
@@ -69,6 +70,14 @@ export default function IncidentDetailScreen({ route, navigation }) {
     ]);
   }
 
+  async function handleExportPdf() {
+    try {
+      await exportIncidentPdf({ incident, child });
+    } catch (err) {
+      Alert.alert('Export failed', err.message);
+    }
+  }
+
   return (
     <View style={styles.container}>
       {/* Header */}
@@ -77,7 +86,9 @@ export default function IncidentDetailScreen({ route, navigation }) {
           <Text style={styles.back}>← Back</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Incident report</Text>
-        <View style={{ width: 60 }} />
+        <TouchableOpacity onPress={handleExportPdf} accessibilityLabel="Export as PDF" style={{ width: 60, alignItems: 'flex-end' }}>
+          <Text style={{ fontSize: 18 }}>📄</Text>
+        </TouchableOpacity>
       </View>
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>

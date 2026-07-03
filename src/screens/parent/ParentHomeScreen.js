@@ -24,6 +24,8 @@ export default function ParentHomeScreen({ navigation }) {
   const [loadingChildren, setLoadingChildren] = useState(true);
   const [pendingIncidents, setPendingIncidents] = useState([]);
   const [pendingConsentChild, setPendingConsentChild] = useState(null); // COPPA/PIPEDA consent gate
+  const [attendanceRec, setAttendanceRec] = useState(null);
+  const [announcements, setAnnouncements] = useState([]);
 
   const {
     log, meals, diapers, sleeps, activities, supplies, loading,
@@ -77,6 +79,35 @@ export default function ParentHomeScreen({ navigation }) {
 
     return () => supabase.removeChannel(channel);
   }, [selectedChild?.id]);
+
+  // Attendance record for the selected child + date
+  useEffect(() => {
+    async function fetchAttendance() {
+      if (!selectedChild?.id) { setAttendanceRec(null); return; }
+      const { data } = await supabase
+        .from('attendance_records')
+        .select('checked_in_at, checked_out_at')
+        .eq('child_id', selectedChild.id)
+        .eq('date', format(selectedDate, 'yyyy-MM-dd'))
+        .maybeSingle();
+      setAttendanceRec(data || null);
+    }
+    fetchAttendance();
+  }, [selectedChild?.id, selectedDate]);
+
+  // Recent announcements (last 5, newest first — pinned first)
+  useEffect(() => {
+    async function fetchAnnouncements() {
+      const { data } = await supabase
+        .from('announcements')
+        .select('id, title, body, pinned, created_at, classroom_id')
+        .order('pinned', { ascending: false })
+        .order('created_at', { ascending: false })
+        .limit(5);
+      setAnnouncements(data || []);
+    }
+    if (profile) fetchAnnouncements();
+  }, [profile]);
 
   if (loadingChildren || loading) return <LoadingScreen />;
 
@@ -174,6 +205,30 @@ export default function ParentHomeScreen({ navigation }) {
         </TouchableOpacity>
       </View>
 
+      {/* Announcements */}
+      {announcements.length > 0 && (
+        <TouchableOpacity
+          style={styles.annCard}
+          onPress={() => navigation.navigate('Announcements')}
+          activeOpacity={0.8}
+        >
+          <Text style={styles.annTitle}>📢 Announcements</Text>
+          {announcements.map((a, i) => (
+            <View key={a.id}>
+              {i > 0 && <Divider />}
+              <View style={styles.annRow}>
+                {a.pinned && <Text style={styles.annPin}>📌</Text>}
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.annRowTitle}>{a.title}</Text>
+                  <Text style={styles.annRowBody} numberOfLines={3}>{a.body}</Text>
+                  <Text style={styles.annRowDate}>{format(new Date(a.created_at), 'MMM d, h:mm a')}</Text>
+                </View>
+              </View>
+            </View>
+          ))}
+        </TouchableOpacity>
+      )}
+
       {/* Header card */}
       <View style={styles.heroCard}>
         <View>
@@ -184,6 +239,13 @@ export default function ParentHomeScreen({ navigation }) {
               ? <Badge label="In progress..." color={colors.amber} bg={colors.amberLight} />
               : <Badge label="Not filled" color={colors.textMuted} bg={colors.bg} />
           }
+          {/* Attendance times */}
+          {attendanceRec?.checked_in_at && (
+            <Text style={styles.attendanceText}>
+              📍 Arrived {format(new Date(attendanceRec.checked_in_at), 'h:mm a')}
+              {attendanceRec.checked_out_at && ` · Left ${format(new Date(attendanceRec.checked_out_at), 'h:mm a')}`}
+            </Text>
+          )}
         </View>
         {hasMoods && (
           <Text style={styles.moodDisplay}>
@@ -215,6 +277,16 @@ export default function ParentHomeScreen({ navigation }) {
         >
           <Text style={styles.actionIcon}>💬</Text>
           <Text style={styles.actionText}>Message educator</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.actionBtn}
+          onPress={() => navigation.navigate('Medication', {
+            child: selectedChild,
+          })}
+          activeOpacity={0.7}
+        >
+          <Text style={styles.actionIcon}>💊</Text>
+          <Text style={styles.actionText}>Medications</Text>
         </TouchableOpacity>
       </View>
 
@@ -459,4 +531,20 @@ const styles = StyleSheet.create({
   incidentAlertTitle: { fontSize: 14, fontWeight: '600', color: colors.danger },
   incidentAlertSub: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
   incidentAlertChevron: { fontSize: 22, color: colors.danger },
+
+  // Announcements
+  annCard: {
+    backgroundColor: colors.amberLight, borderRadius: radius.lg,
+    borderWidth: 1, borderColor: colors.amber + '44',
+    padding: spacing.lg, marginBottom: spacing.md,
+  },
+  annTitle: { fontSize: 15, fontWeight: '700', color: colors.amber, marginBottom: spacing.sm },
+  annRow: { flexDirection: 'row', gap: spacing.sm, paddingVertical: spacing.xs },
+  annPin: { fontSize: 14 },
+  annRowTitle: { fontSize: 14, fontWeight: '600', color: colors.textPrimary },
+  annRowBody: { fontSize: 13, color: colors.textSecondary, marginTop: 2, lineHeight: 18 },
+  annRowDate: { fontSize: 11, color: colors.textMuted, marginTop: 4 },
+
+  // Attendance
+  attendanceText: { fontSize: 12, color: colors.primaryDark, marginTop: spacing.sm, fontWeight: '500' },
 });

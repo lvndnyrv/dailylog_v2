@@ -139,7 +139,7 @@ Missing table-stakes for "one of the best daycare apps": **attendance/check-in-o
 
 > Produced with the planning agent from these findings; each phase is independently shippable.
 >
-> **Status (July 3, 2026): ✅ Phase 0 implemented + all §8 quick wins — see `PHASE0_NOTES.md` for the change map and required manual steps (run `supabase-phase0-reconciliation.sql`, `eas init`, add `dailylog://auth` redirect URL, rebuild dev client). ✅ Phase 1 implemented — see `PHASE1_NOTES.md` (no manual steps). ✅ Phase 2 implemented — see `PHASE2_NOTES.md` (manual step: run `supabase-phase2-security.sql`). ✅ Phase 3 implemented — see `PHASE3_NOTES.md` (manual step: run `supabase-phase3.sql`). Next: Phase 4.**
+> **Status (July 3, 2026): ✅ Phase 0 implemented + all §8 quick wins — see `PHASE0_NOTES.md` for the change map and required manual steps (run `supabase-phase0-reconciliation.sql`, `eas init`, add `dailylog://auth` redirect URL, rebuild dev client). ✅ Phase 1 implemented — see `PHASE1_NOTES.md` (no manual steps). ✅ Phase 2 implemented — see `PHASE2_NOTES.md` (manual step: run `supabase-phase2-security.sql`). ✅ Phase 3 implemented — see `PHASE3_NOTES.md` (manual step: run `supabase-phase3.sql`). ✅ Phase 4 implemented — see `PHASE4_NOTES.md` (manual step: run `supabase-phase4.sql`). Next: Phase 5 (optional platform hygiene).**
 
 ### Phase 0 — Stabilize (schema, RLS, push, auth) — **L** ✅ DONE
 1. **Schema reconciliation migration**: create `messages`, `photos` + `daily-log-photos` bucket, `educator_classrooms`, `profiles.phone`, `children.archived_at`.
@@ -161,7 +161,7 @@ Scope storage reads by daycare/linkage (path convention `daycareId/childId/...`)
 ### Phase 3 — Educator & parent UX — **L** ✅ DONE
 Educator inbox + `read_at` + message push; roster status RPC (kill N+1) + batched BulkLog + avatar URL cache; native date/time pickers; safe-area overhaul; nap timer; weekly child switcher; classroom incident list; roster quick-actions; accessibility labels. *Acceptance:* roster loads in 1–2 queries; educators never miss a parent message.
 
-### Phase 4 — Differentiating features — **L**
+### Phase 4 — Differentiating features — **L** ✅ DONE
 Attendance/check-in-out (roster + parent visibility) → medical/allergy/emergency-contact profiles (badges on log/bulk screens) → admin role UI → announcements w/ push fan-out → PDF/CSV export (`expo-print`/`expo-sharing`) → medication tracking. Each independently shippable with RLS.
 
 ### Phase 5 — Platform hygiene — **L**

@@ -7,6 +7,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { useDailyLog, copyYesterdayLog } from '../../hooks/useDailyLog';
 import { notifyParents } from '../../hooks/usePushNotifications';
 import { supabase } from '../../lib/supabase';
+import { exportDailyLogPdf } from '../../lib/export';
 import { Section, Chip, Button, LoadingScreen, Badge } from '../../components/ui';
 import { PhotoSection } from '../../components/PhotoSection';
 import { colors, spacing, radius } from '../../theme';
@@ -395,6 +396,17 @@ export default function DailyLogScreen({ route, navigation }) {
     ]);
   }
 
+  async function handleExportPdf() {
+    try {
+      await exportDailyLogPdf({
+        child, log, meals, diapers, sleeps, activities, supplies,
+        dateStr: format(logDate, 'EEEE, MMMM d, yyyy'),
+      });
+    } catch (err) {
+      Alert.alert('Export failed', err.message);
+    }
+  }
+
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
 
@@ -410,6 +422,9 @@ export default function DailyLogScreen({ route, navigation }) {
           </Text>
         </View>
         <View style={styles.headerActions}>
+          <TouchableOpacity onPress={handleExportPdf} style={styles.headerBtn} accessibilityLabel="Export as PDF">
+            <Text style={styles.headerBtnText}>📄</Text>
+          </TouchableOpacity>
           <TouchableOpacity onPress={handleCallParents} style={styles.headerBtn}>
             <Text style={styles.headerBtnText}>📞</Text>
           </TouchableOpacity>
@@ -421,6 +436,15 @@ export default function DailyLogScreen({ route, navigation }) {
           </TouchableOpacity>
         </View>
       </View>
+
+      {/* Allergy warning banner */}
+      {child.allergies?.length > 0 && (
+        <View style={styles.allergyBanner}>
+          <Text style={styles.allergyBannerText}>
+            ⚠️ Allergies: {child.allergies.join(', ')}
+          </Text>
+        </View>
+      )}
 
       {/* Copy yesterday shortcut */}
       {!log?.sent_to_parents && (
@@ -658,6 +682,12 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: colors.danger + '33',
   },
   incidentBtnText: { fontSize: 14, color: colors.danger, fontWeight: '600' },
+  allergyBanner: {
+    backgroundColor: colors.dangerLight, borderRadius: radius.md,
+    padding: spacing.md, marginBottom: spacing.md,
+    borderWidth: 1.5, borderColor: colors.danger,
+  },
+  allergyBannerText: { fontSize: 13, color: colors.danger, fontWeight: '700', textAlign: 'center' },
   headerActions: { flexDirection: 'row', gap: spacing.sm },
   headerBtn: {
     width: 36, height: 36, borderRadius: 18,

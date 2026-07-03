@@ -40,6 +40,14 @@ export default function ChildProfileScreen({ route, navigation }) {
   // Incidents history
   const [incidents, setIncidents] = useState([]);
 
+  // Medical profile
+  const [allergies, setAllergies]           = useState(child.allergies || []);
+  const [newAllergy, setNewAllergy]         = useState('');
+  const [medicalNotes, setMedicalNotes]     = useState(child.medical_notes || '');
+  const [contacts, setContacts]             = useState(child.emergency_contacts || []);
+  const [newContact, setNewContact]         = useState({ name: '', relation: '', phone: '' });
+  const [savingMedical, setSavingMedical]   = useState(false);
+
   const hasChanges =
     firstName.trim() !== (child.first_name   || '') ||
     lastName.trim()  !== (child.last_name    || '') ||
@@ -163,6 +171,49 @@ export default function ChildProfileScreen({ route, navigation }) {
       .order('occurred_at', { ascending: false })
       .limit(5);
     setIncidents(data || []);
+  }
+
+  // ─── MEDICAL PROFILE ──────────────────────────────────────────────────────
+  async function saveMedical(updates) {
+    setSavingMedical(true);
+    const { error } = await supabase
+      .from('children')
+      .update(updates)
+      .eq('id', child.id);
+    setSavingMedical(false);
+    if (error) Alert.alert('Error', error.message);
+  }
+
+  function addAllergy() {
+    const a = newAllergy.trim();
+    if (!a || allergies.includes(a)) { setNewAllergy(''); return; }
+    const next = [...allergies, a];
+    setAllergies(next);
+    setNewAllergy('');
+    saveMedical({ allergies: next });
+  }
+
+  function removeAllergy(a) {
+    const next = allergies.filter(x => x !== a);
+    setAllergies(next);
+    saveMedical({ allergies: next });
+  }
+
+  function addContact() {
+    if (!newContact.name.trim() || !newContact.phone.trim()) {
+      Alert.alert('Required', 'Please enter at least a name and phone number.');
+      return;
+    }
+    const next = [...contacts, { ...newContact, name: newContact.name.trim(), phone: newContact.phone.trim() }];
+    setContacts(next);
+    setNewContact({ name: '', relation: '', phone: '' });
+    saveMedical({ emergency_contacts: next });
+  }
+
+  function removeContact(idx) {
+    const next = contacts.filter((_, i) => i !== idx);
+    setContacts(next);
+    saveMedical({ emergency_contacts: next });
   }
 
   async function handleSave() {
@@ -482,6 +533,127 @@ export default function ChildProfileScreen({ route, navigation }) {
         )}
       </View>
 
+      {/* Medical profile */}
+      <View style={styles.card}>
+        <Text style={styles.cardTitle}>🏥 Medical & emergency info</Text>
+
+        {/* Allergies */}
+        <Text style={styles.medLabel}>Allergies</Text>
+        {allergies.length > 0 && (
+          <View style={styles.allergyWrap}>
+            {allergies.map(a => (
+              <TouchableOpacity
+                key={a}
+                style={styles.allergyChip}
+                onLongPress={() => Alert.alert('Remove allergy', `Remove "${a}"?`, [
+                  { text: 'Cancel', style: 'cancel' },
+                  { text: 'Remove', style: 'destructive', onPress: () => removeAllergy(a) },
+                ])}
+              >
+                <Text style={styles.allergyChipText}>⚠️ {a}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
+        <View style={styles.medAddRow}>
+          <Input
+            value={newAllergy}
+            onChangeText={setNewAllergy}
+            placeholder="e.g. Peanuts"
+            style={{ flex: 1, marginBottom: 0 }}
+          />
+          <TouchableOpacity
+            onPress={addAllergy}
+            disabled={!newAllergy.trim()}
+            style={[styles.medAddBtn, !newAllergy.trim() && styles.medAddBtnDisabled]}
+          >
+            <Text style={styles.medAddBtnText}>Add</Text>
+          </TouchableOpacity>
+        </View>
+        {allergies.length > 0 && (
+          <Text style={styles.medHint}>Hold an allergy chip to remove it.</Text>
+        )}
+
+        <Divider />
+
+        {/* Emergency contacts */}
+        <Text style={styles.medLabel}>Emergency contacts</Text>
+        {contacts.map((c, idx) => (
+          <View key={idx} style={styles.contactRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.contactName}>{c.name}{c.relation ? ` · ${c.relation}` : ''}</Text>
+              <TouchableOpacity onPress={() => Linking.openURL(`tel:${c.phone}`)}>
+                <Text style={styles.contactPhone}>📞 {c.phone}</Text>
+              </TouchableOpacity>
+            </View>
+            <TouchableOpacity onPress={() => removeContact(idx)} style={styles.unlinkBtn}>
+              <Text style={styles.unlinkBtnText}>Remove</Text>
+            </TouchableOpacity>
+          </View>
+        ))}
+        <Input
+          value={newContact.name}
+          onChangeText={t => setNewContact(p => ({ ...p, name: t }))}
+          placeholder="Contact name"
+        />
+        <View style={styles.medAddRow}>
+          <Input
+            value={newContact.relation}
+            onChangeText={t => setNewContact(p => ({ ...p, relation: t }))}
+            placeholder="Relation (e.g. Grandma)"
+            style={{ flex: 1, marginBottom: 0 }}
+          />
+          <Input
+            value={newContact.phone}
+            onChangeText={t => setNewContact(p => ({ ...p, phone: t }))}
+            placeholder="Phone"
+            keyboardType="phone-pad"
+            style={{ flex: 1, marginBottom: 0 }}
+          />
+        </View>
+        <TouchableOpacity
+          onPress={addContact}
+          style={[styles.medAddBtn, { alignSelf: 'flex-start', marginTop: spacing.sm }]}
+        >
+          <Text style={styles.medAddBtnText}>+ Add contact</Text>
+        </TouchableOpacity>
+
+        <Divider />
+
+        {/* Medical notes */}
+        <Text style={styles.medLabel}>Medical notes</Text>
+        <Input
+          value={medicalNotes}
+          onChangeText={setMedicalNotes}
+          placeholder="e.g. Carries EpiPen; inhaler in cubby"
+          multiline
+        />
+        <TouchableOpacity
+          onPress={() => saveMedical({ medical_notes: medicalNotes.trim() || null })}
+          disabled={savingMedical}
+          style={[styles.medAddBtn, { alignSelf: 'flex-start' }]}
+        >
+          {savingMedical
+            ? <ActivityIndicator color={colors.white} size="small" />
+            : <Text style={styles.medAddBtnText}>Save notes</Text>}
+        </TouchableOpacity>
+
+        <Divider />
+
+        {/* Medications link */}
+        <TouchableOpacity
+          onPress={() => navigation.navigate('Medication', { child: { ...child, first_name: firstName, last_name: lastName } })}
+          style={styles.medLink}
+        >
+          <Text style={styles.medLinkIcon}>💊</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.medLinkTitle}>Medications</Text>
+            <Text style={styles.medLinkSub}>Authorizations & administration log</Text>
+          </View>
+          <Text style={styles.moveRoomArrow}>→</Text>
+        </TouchableOpacity>
+      </View>
+
       {/* Linked parents */}
       <View style={styles.card}>
         <Text style={styles.cardTitle}>👨‍👩‍👧 Linked parents</Text>
@@ -713,4 +885,35 @@ const styles = StyleSheet.create({
     fontSize: 12, color: colors.textMuted, lineHeight: 17,
     paddingHorizontal: spacing.xl, paddingVertical: spacing.md,
   },
+
+  // Medical section
+  medLabel: { fontSize: 13, fontWeight: '600', color: colors.textSecondary, marginBottom: spacing.sm },
+  allergyWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.sm },
+  allergyChip: {
+    backgroundColor: colors.dangerLight, borderWidth: 1, borderColor: colors.danger + '55',
+    paddingHorizontal: spacing.md, paddingVertical: spacing.xs + 2, borderRadius: radius.full,
+  },
+  allergyChipText: { fontSize: 13, color: colors.danger, fontWeight: '600' },
+  medAddRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  medAddBtn: {
+    backgroundColor: colors.primary, paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm + 2, borderRadius: radius.md,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  medAddBtnDisabled: { backgroundColor: colors.border },
+  medAddBtnText: { fontSize: 13, color: colors.white, fontWeight: '600' },
+  medHint: { fontSize: 11, color: colors.textMuted, marginTop: spacing.xs },
+  contactRow: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  contactName: { fontSize: 14, fontWeight: '600', color: colors.textPrimary },
+  contactPhone: { fontSize: 13, color: colors.primary, marginTop: 2, fontWeight: '500' },
+  medLink: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  medLinkIcon: { fontSize: 22 },
+  medLinkTitle: { fontSize: 14, fontWeight: '600', color: colors.textPrimary },
+  medLinkSub: { fontSize: 12, color: colors.textSecondary, marginTop: 1 },
 });

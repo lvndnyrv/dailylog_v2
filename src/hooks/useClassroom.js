@@ -13,10 +13,26 @@ export function ClassroomProvider({ children }) {
   useEffect(() => {
     if (profile?.role === 'educator' && profile?.daycare_id) {
       loadClassrooms();
+    } else if (profile?.role === 'admin' && profile?.daycare_id) {
+      loadAllClassrooms();
     } else {
       setLoading(false);
     }
   }, [profile?.id]);
+
+  // Admins see every classroom in the daycare (no junction membership needed)
+  async function loadAllClassrooms() {
+    setLoading(true);
+    const { data } = await supabase
+      .from('classrooms')
+      .select('id, name, age_group')
+      .eq('daycare_id', profile.daycare_id)
+      .order('name');
+    const rooms = data || [];
+    setClassrooms(rooms);
+    setActive(rooms.find(r => r.id === profile.classroom_id) || rooms[0] || null);
+    setLoading(false);
+  }
 
   async function loadClassrooms() {
     setLoading(true);

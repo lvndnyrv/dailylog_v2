@@ -298,6 +298,20 @@ export default function ManageScreen({ navigation }) {
 
       <ClassroomSwitcher />
 
+      {/* Announcements shortcut */}
+      <TouchableOpacity
+        style={styles.announcementsBtn}
+        onPress={() => navigation.navigate('Announcements')}
+        activeOpacity={0.7}
+      >
+        <Text style={styles.announcementsBtnIcon}>📢</Text>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.announcementsBtnTitle}>Announcements</Text>
+          <Text style={styles.announcementsBtnSub}>Broadcast to all parents or one room</Text>
+        </View>
+        <Text style={styles.announcementsBtnChevron}>›</Text>
+      </TouchableOpacity>
+
       {/* Classroom Settings Card */}
       {activeClassroom && (
         <View style={styles.classroomCard}>
@@ -508,6 +522,18 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
   content: { padding: spacing.xl },
   pageTitle: { fontSize: 24, fontWeight: '700', color: colors.textPrimary, marginBottom: spacing.sm },
+
+  // Announcements shortcut
+  announcementsBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.md,
+    backgroundColor: colors.amberLight, borderRadius: radius.lg,
+    borderWidth: 1, borderColor: colors.amber + '44',
+    padding: spacing.lg, marginBottom: spacing.lg,
+  },
+  announcementsBtnIcon: { fontSize: 22 },
+  announcementsBtnTitle: { fontSize: 15, fontWeight: '600', color: colors.textPrimary },
+  announcementsBtnSub: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
+  announcementsBtnChevron: { fontSize: 22, color: colors.textMuted },
   tabs: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.lg, marginTop: spacing.lg },
   tab: {
     flex: 1, paddingVertical: spacing.sm, borderRadius: radius.lg,

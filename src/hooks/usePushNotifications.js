@@ -110,9 +110,12 @@ export function usePushNotifications(userId) {
     responseListener.current = Notifications.addNotificationResponseReceivedListener(
       (response) => {
         const data = response?.notification?.request?.content?.data || {};
-        // Incident + daily-log notifications land on the parent home,
-        // where the incident banner / day view is shown.
-        if (data.type === 'incident' || data.childId) {
+        if (data.type === 'announcement') {
+          // Announcements screen exists in every role's stack
+          navigate('Announcements');
+        } else if (data.type === 'incident' || data.type === 'medication' || data.childId) {
+          // Incident / medication / daily-log notifications land on the
+          // parent home, where banners and the day view are shown.
           navigate('ParentTabs', { screen: 'ParentHome' });
         }
       }
@@ -127,11 +130,40 @@ export function usePushNotifications(userId) {
 
 async function sendExpoPush(messages) {
   if (!messages.length) return;
-  await fetch('https://exp.host/--/api/v2/push/send', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify(messages),
-  });
+  // Expo push API accepts max 100 messages per request — chunk the fan-out
+  for (let i = 0; i < messages.length; i += 100) {
+    const chunk = messages.slice(i, i + 100);
+    await fetch('https://exp.host/--/api/v2/push/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify(chunk),
+    });
+  }
+}
+
+/**
+ * Broadcast an announcement push to all parents in the daycare
+ * (or a single classroom when classroomId is provided).
+ */
+export async function notifyAnnouncement(daycareId, classroomId, title, body, announcementId) {
+  try {
+    const { data: tokens, error } = await supabase.rpc('get_announcement_push_tokens', {
+      p_daycare_id: daycareId,
+      p_classroom_id: classroomId || null,
+    });
+    if (error || !tokens?.length) return;
+    const messages = tokens.map(({ token }) => ({
+      to: token,
+      sound: 'default',
+      title: `📢 ${title}`,
+      body: body?.length > 160 ? `${body.slice(0, 157)}...` : body,
+      data: { type: 'announcement', announcementId },
+      channelId: 'default',
+    }));
+    await sendExpoPush(messages);
+  } catch (err) {
+    console.log('Announcement push error:', err.message);
+  }
 }
 
 export async function notifyParents(childId, childName, logDate) {
@@ -182,3 +214,23 @@ export async function notifyIncident(childId, childName, severity) {
     console.log('Incident push notification error:', err.message);
   }
 }
+
+/** Notify parents when a medication dose is administered to their child. */
+export async function notifyMedicationGiven(childId, childName, medName) {
+  try {
+    const { data: tokens, error } = await supabase.rpc('get_parent_push_tokens', { p_child_id: childId });
+    if (error || !tokens?.length) return;
+    const messages = tokens.map(({ token }) => ({
+      to: token,
+      sound: 'default',
+      title: `💊 Medication given to ${childName}`,
+      body: `${medName} was administered. Tap to see the record.`,
+      data: { childId, type: 'medication' },
+      channelId: 'default',
+    }));
+    await sendExpoPush(messages);
+  } catch (err) {
+    console.log('Medication push error:', err.message);
+  }
+}
+

@@ -3,12 +3,13 @@ import { View, Text, FlatList, TouchableOpacity, TextInput, StyleSheet, RefreshC
 import { useAuth } from '../../hooks/useAuth';
 import { useClassroom } from '../../hooks/useClassroom';
 import { useNapTimer } from '../../hooks/useNapTimer';
+import { useAttendance } from '../../hooks/useAttendance';
 import { useIsFocused } from '@react-navigation/native';
 import { supabase } from '../../lib/supabase';
 import { mutate } from '../../lib/offlineQueue';
 import { newId } from '../../lib/uuid';
 import { showToast } from '../../components/Toast';
-import { LoadingScreen, EmptyState } from '../../components/ui';
+import { LoadingScreen, EmptyState, AllergyBadge } from '../../components/ui';
 import { ClassroomSwitcher } from '../../components/ClassroomSwitcher';
 import { ChildAvatar } from '../../components/ChildAvatar';
 import { colors, spacing, radius } from '../../theme';
@@ -32,6 +33,27 @@ export default function RosterScreen({ navigation }) {
 
   // Nap timer — only active for today
   const { isNapping, getElapsed, startNap, endNap } = useNapTimer(isToday ? classroomId : null);
+
+  // Attendance — check-in/out per child for the selected day
+  const {
+    checkIn, checkOut, getStatus: getAttendanceStatus, presentCount,
+  } = useAttendance(classroomId, selectedDate, profile?.id);
+
+  // Quick action: check in / out toggle
+  async function quickAttendance(childId, childName) {
+    const status = getAttendanceStatus(childId);
+    if (status === 'absent') {
+      await checkIn(childId);
+      showToast(`✅ ${childName} checked in`, 'success');
+    } else if (status === 'present') {
+      await checkOut(childId);
+      showToast(`👋 ${childName} checked out`, 'success');
+    } else {
+      // departed → re-check-in
+      await checkIn(childId);
+      showToast(`✅ ${childName} checked back in`, 'success');
+    }
+  }
 
   // Quick action: ensure log exists and return its id
   async function ensureLogId(childId) {
@@ -182,18 +204,28 @@ export default function RosterScreen({ navigation }) {
     const hasEntries = status?.entryCount > 0;
     const isSent     = status?.sent;
     const napping    = isToday && isNapping(item.id);
+    const attStatus  = getAttendanceStatus(item.id); // 'absent' | 'present' | 'departed'
 
     return (
       <TouchableOpacity
-        style={styles.childCard}
+        style={[styles.childCard, attStatus === 'absent' && isToday && styles.childCardAbsent]}
         onPress={() => navigation.navigate('DailyLog', { child: item, date: dateStr })}
         activeOpacity={0.7}
       >
         <View style={styles.childAvatarWrap}>
           <ChildAvatar child={item} size={48} />
+          {/* Attendance dot */}
+          <View style={[
+            styles.attendanceDot,
+            attStatus === 'present' && styles.attendanceDotPresent,
+            attStatus === 'departed' && styles.attendanceDotDeparted,
+          ]} />
         </View>
         <View style={styles.childInfo}>
-          <Text style={styles.childName}>{item.first_name} {item.last_name}</Text>
+          <View style={styles.nameRow}>
+            <Text style={styles.childName}>{item.first_name} {item.last_name}</Text>
+            <AllergyBadge allergies={item.allergies} compact />
+          </View>
           <View style={styles.statusRow}>
             {napping ? (
               <View style={styles.napChip}>
@@ -205,11 +237,29 @@ export default function RosterScreen({ navigation }) {
               <Text style={styles.noEntries}>No entries</Text>
             )}
             {status?.mood && <Text style={styles.moodBadge}>{moodEmoji[status.mood] || '😊'}</Text>}
+            {attStatus === 'departed' && <Text style={styles.departedText}>Left for the day</Text>}
           </View>
 
           {/* Quick-action row (only for today) */}
           {isToday && !isSent && (
             <View style={styles.quickActions}>
+              <TouchableOpacity
+                style={[
+                  styles.quickBtn,
+                  attStatus === 'present' && styles.quickBtnPresent,
+                  attStatus === 'departed' && styles.quickBtnDeparted,
+                ]}
+                onPress={() => quickAttendance(item.id, item.first_name)}
+                accessibilityLabel={
+                  attStatus === 'absent' ? `Check in ${item.first_name}`
+                  : attStatus === 'present' ? `Check out ${item.first_name}`
+                  : `Check ${item.first_name} back in`
+                }
+              >
+                <Text style={styles.quickBtnText}>
+                  {attStatus === 'absent' ? '📍' : attStatus === 'present' ? '✅' : '↩️'}
+                </Text>
+              </TouchableOpacity>
               <TouchableOpacity
                 style={styles.quickBtn}
                 onPress={() => quickMeal(item.id)}
@@ -256,8 +306,8 @@ export default function RosterScreen({ navigation }) {
           <ClassroomSwitcher />
         </View>
         <View style={styles.countBadge}>
-          <Text style={styles.countText}>{children.length}</Text>
-          <Text style={styles.countLabel}>children</Text>
+          <Text style={styles.countText}>{presentCount}/{children.length}</Text>
+          <Text style={styles.countLabel}>present</Text>
         </View>
       </View>
 
@@ -421,6 +471,7 @@ const styles = StyleSheet.create({
   },
   childAvatarWrap: {
     marginRight: spacing.md,
+    position: 'relative',
   },
   childInfo: { flex: 1 },
   childName: { fontSize: 16, fontWeight: '600', color: colors.textPrimary },
@@ -454,5 +505,24 @@ const styles = StyleSheet.create({
   quickBtnActive: {
     backgroundColor: colors.purpleLight, borderColor: colors.purple,
   },
+  quickBtnPresent: {
+    backgroundColor: colors.successLight, borderColor: colors.success,
+  },
+  quickBtnDeparted: {
+    backgroundColor: colors.amberLight, borderColor: colors.amber,
+  },
   quickBtnText: { fontSize: 14 },
+
+  // Attendance indicators
+  nameRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flexWrap: 'wrap' },
+  childCardAbsent: { opacity: 0.6 },
+  attendanceDot: {
+    position: 'absolute', bottom: 0, right: -2,
+    width: 14, height: 14, borderRadius: 7,
+    backgroundColor: colors.border,
+    borderWidth: 2, borderColor: colors.surface,
+  },
+  attendanceDotPresent: { backgroundColor: colors.success },
+  attendanceDotDeparted: { backgroundColor: colors.amber },
+  departedText: { fontSize: 12, color: colors.amber, fontWeight: '500' },
 });

@@ -35,6 +35,11 @@ import ParentHomeScreen      from './src/screens/parent/ParentHomeScreen';
 import WeeklySummaryScreen   from './src/screens/parent/WeeklySummaryScreen';
 import ParentMessagesScreen  from './src/screens/parent/ParentMessagesScreen';
 import IncidentDetailScreen  from './src/screens/parent/IncidentDetailScreen';
+import AnnouncementsScreen   from './src/screens/shared/AnnouncementsScreen';
+import MedicationScreen      from './src/screens/shared/MedicationScreen';
+import AdminDashboardScreen  from './src/screens/admin/AdminDashboardScreen';
+import AdminUsersScreen      from './src/screens/admin/AdminUsersScreen';
+import AdminSettingsScreen   from './src/screens/admin/AdminSettingsScreen';
 
 import { supabase } from './src/lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
@@ -107,6 +112,20 @@ function ParentTabs() {
         options={{ tabBarIcon: ({ focused }) => <TabIcon name="chatbubbles" label="Chat" focused={focused} />, tabBarLabel: () => null }} />
       <Tab.Screen name="ProfileTab" component={SettingsScreen}
         options={{ tabBarIcon: ({ focused }) => <TabIcon name="person" label="Me" focused={focused} />, tabBarLabel: () => null }} />
+    </Tab.Navigator>
+  );
+}
+
+// ─── ADMIN TABS ───────────────────────────────────────────────────────────────
+function AdminTabs() {
+  return (
+    <Tab.Navigator screenOptions={{ headerShown: false, tabBarStyle }}>
+      <Tab.Screen name="AdminDashboard" component={AdminDashboardScreen}
+        options={{ tabBarIcon: ({ focused }) => <TabIcon name="grid" label="Dashboard" focused={focused} />, tabBarLabel: () => null }} />
+      <Tab.Screen name="AdminUsers" component={AdminUsersScreen}
+        options={{ tabBarIcon: ({ focused }) => <TabIcon name="people" label="Users" focused={focused} />, tabBarLabel: () => null }} />
+      <Tab.Screen name="AdminSettings" component={AdminSettingsScreen}
+        options={{ tabBarIcon: ({ focused }) => <TabIcon name="settings" label="Settings" focused={focused} />, tabBarLabel: () => null }} />
     </Tab.Navigator>
   );
 }
@@ -219,6 +238,15 @@ function RootNavigator() {
         <Stack.Screen name="ProfileIssue" component={ProfileIssueScreen} />
       ) : needsOnboarding ? (
         <Stack.Screen name="Onboarding" component={OnboardingScreen} />
+      ) : profile?.role === 'admin' ? (
+        <>
+          <Stack.Screen name="AdminTabs"       component={AdminTabs} />
+          <Stack.Screen name="Announcements"   component={AnnouncementsScreen}   options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="ChildProfile"    component={ChildProfileScreen}    options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="Medication"      component={MedicationScreen}      options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="EditProfile"     component={EditProfileScreen}     options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="Privacy"         component={PrivacyScreen}         options={{ animation: 'slide_from_bottom' }} />
+        </>
       ) : profile?.role === 'educator' ? (
         <>
           <Stack.Screen name="EducatorTabs"    component={EducatorTabs} />
@@ -227,6 +255,8 @@ function RootNavigator() {
           <Stack.Screen name="IncidentReport"  component={IncidentReportScreen}  options={{ animation: 'slide_from_bottom' }} />
           <Stack.Screen name="EditProfile"     component={EditProfileScreen}     options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="Messaging"       component={MessagingScreen}       options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="Announcements"   component={AnnouncementsScreen}   options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="Medication"      component={MedicationScreen}      options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="Privacy"         component={PrivacyScreen}         options={{ animation: 'slide_from_bottom' }} />
         </>
       ) : (
@@ -235,6 +265,8 @@ function RootNavigator() {
           <Stack.Screen name="WeeklySummary"   component={WeeklySummaryScreen}   options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="IncidentDetail"  component={IncidentDetailScreen}  options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="Messaging"       component={MessagingScreen}       options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="Announcements"   component={AnnouncementsScreen}   options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="Medication"      component={MedicationScreen}      options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="EditProfile"     component={EditProfileScreen}     options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="Privacy"         component={PrivacyScreen}         options={{ animation: 'slide_from_bottom' }} />
         </>

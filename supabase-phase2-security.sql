@@ -239,6 +239,8 @@ revoke update on public.parent_children from authenticated, anon;
 grant update (consent_given_at) on public.parent_children to authenticated;
 
 -- E3. messages: participants could UPDATE message bodies. read_at only.
+--     (Add column first so the grant doesn't fail.)
+ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS read_at timestamptz DEFAULT NULL;
 revoke update on public.messages from authenticated, anon;
 grant update (read_at) on public.messages to authenticated;
 

@@ -1,0 +1,64 @@
+{
+  "expo": {
+    "name": "DailyLog",
+    "slug": "dailylog",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "cover",
+      "backgroundColor": "#E1F5EE"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.dailylog.app",
+      "infoPlist": {
+        "NSUserNotificationsUsageDescription": "DailyLog sends you notifications when your child's daily log is ready to view.",
+        "NSPhotoLibraryUsageDescription": "DailyLog needs access to your photos to attach them to daily logs.",
+        "NSCameraUsageDescription": "DailyLog needs camera access to take photos for daily logs."
+      },
+      "icon": "./assets/icon.png"
+    },
+    "android": {
+      "package": "com.dailylog.app",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png",
+        "backgroundColor": "#1D9E75"
+      },
+      "permissions": [
+        "RECEIVE_BOOT_COMPLETED",
+        "VIBRATE",
+        "POST_NOTIFICATIONS"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#1D9E75",
+          "sounds": []
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "DailyLog needs access to your photos to attach them to daily logs.",
+          "cameraPermission": "DailyLog needs camera access to take photos for daily logs."
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "YOUR_EAS_PROJECT_ID"
+      }
+    }
+  }
+}

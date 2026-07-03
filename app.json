@@ -53,12 +53,11 @@
           "photosPermission": "DailyLog needs access to your photos to attach them to daily logs.",
           "cameraPermission": "DailyLog needs camera access to take photos for daily logs."
         }
-      ]
+      ],
+      "@react-native-community/datetimepicker"
     ],
     "extra": {
-      "eas": {
-        "projectId": "YOUR_EAS_PROJECT_ID"
-      }
+      "eas": {}
     }
   }
 }

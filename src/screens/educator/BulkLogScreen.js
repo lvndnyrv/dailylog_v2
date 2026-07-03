@@ -7,6 +7,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { supabase } from '../../lib/supabase';
 import { colors, spacing, radius } from '../../theme';
 import { Button, Chip } from '../../components/ui';
+import { ChildAvatar } from '../../components/ChildAvatar';
 import { format } from 'date-fns';
 
 const ACTIVITIES = [
@@ -195,11 +196,7 @@ export default function BulkLogScreen({ navigation }) {
                 style={[styles.childChip, selected && styles.childChipSelected]}
                 activeOpacity={0.7}
               >
-                <View style={[styles.childAvatar, selected && styles.childAvatarSelected]}>
-                  <Text style={[styles.childInitial, selected && { color: colors.primary }]}>
-                    {child.first_name[0]}
-                  </Text>
-                </View>
+                <ChildAvatar child={child} size={24} fontSize={12} />
                 <Text style={[styles.childChipName, selected && { color: colors.primary, fontWeight: '600' }]}>
                   {child.first_name}
                 </Text>
@@ -297,12 +294,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
   },
   childChipSelected: { borderColor: colors.primary, backgroundColor: colors.primaryLight },
-  childAvatar: {
-    width: 24, height: 24, borderRadius: 12,
-    backgroundColor: colors.border, alignItems: 'center', justifyContent: 'center',
-  },
-  childAvatarSelected: { backgroundColor: colors.primary + '33' },
-  childInitial: { fontSize: 12, fontWeight: '700', color: colors.textSecondary },
   childChipName: { fontSize: 14, color: colors.textSecondary },
   checkmark: { fontSize: 12, color: colors.primary, fontWeight: '700' },
   chipWrap: { flexDirection: 'row', flexWrap: 'wrap' },

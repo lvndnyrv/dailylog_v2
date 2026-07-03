@@ -404,6 +404,15 @@ export default function DailyLogScreen({ route, navigation }) {
         </TouchableOpacity>
       )}
 
+      {/* Report Incident */}
+      <TouchableOpacity
+        style={styles.incidentBtn}
+        onPress={() => navigation.navigate('IncidentReport', { child })}
+        activeOpacity={0.7}
+      >
+        <Text style={styles.incidentBtnText}>⚠️ Report incident</Text>
+      </TouchableOpacity>
+
       {/* MOOD */}
       <Section title="😊  Today I felt">
         <View style={styles.chipWrap}>
@@ -599,6 +608,12 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: colors.amber + '44',
   },
   copyBtnText: { fontSize: 14, color: colors.amber, fontWeight: '500' },
+  incidentBtn: {
+    backgroundColor: colors.dangerLight, borderRadius: radius.md,
+    padding: spacing.md, alignItems: 'center', marginBottom: spacing.lg,
+    borderWidth: 1, borderColor: colors.danger + '33',
+  },
+  incidentBtnText: { fontSize: 14, color: colors.danger, fontWeight: '600' },
   headerActions: { flexDirection: 'row', gap: spacing.sm },
   headerBtn: {
     width: 36, height: 36, borderRadius: 18,

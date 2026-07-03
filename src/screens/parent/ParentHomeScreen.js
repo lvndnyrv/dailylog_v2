@@ -21,6 +21,7 @@ export default function ParentHomeScreen({ navigation }) {
   const [selectedChild, setSelectedChild] = useState(null);
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [loadingChildren, setLoadingChildren] = useState(true);
+  const [pendingIncidents, setPendingIncidents] = useState([]);
 
   const {
     log, meals, diapers, sleeps, activities, supplies, loading,
@@ -40,6 +41,33 @@ export default function ParentHomeScreen({ navigation }) {
     }
     if (profile) fetchChildren();
   }, [profile]);
+
+  // Fetch unacknowledged incidents for the selected child
+  useEffect(() => {
+    async function fetchIncidents() {
+      if (!selectedChild?.id) return;
+      const { data } = await supabase
+        .from('incident_reports')
+        .select('*')
+        .eq('child_id', selectedChild.id)
+        .eq('status', 'submitted')
+        .order('occurred_at', { ascending: false });
+      setPendingIncidents(data || []);
+    }
+    fetchIncidents();
+
+    // Real-time for incidents
+    if (!selectedChild?.id) return;
+    const channel = supabase
+      .channel(`parent-incidents:${selectedChild.id}`)
+      .on('postgres_changes', {
+        event: '*', schema: 'public', table: 'incident_reports',
+        filter: `child_id=eq.${selectedChild.id}`,
+      }, () => fetchIncidents())
+      .subscribe();
+
+    return () => supabase.removeChannel(channel);
+  }, [selectedChild?.id]);
 
   if (loadingChildren || loading) return <LoadingScreen />;
 
@@ -74,6 +102,36 @@ export default function ParentHomeScreen({ navigation }) {
             </TouchableOpacity>
           ))}
         </ScrollView>
+      )}
+
+      {/* Incident alert banner */}
+      {pendingIncidents.length > 0 && (
+        <View style={styles.incidentBanner}>
+          {pendingIncidents.map(incident => (
+            <TouchableOpacity
+              key={incident.id}
+              style={[
+                styles.incidentAlert,
+                { borderColor: incident.severity === 'serious' ? colors.danger : colors.amber },
+              ]}
+              onPress={() => navigation.navigate('IncidentDetail', { incident, child: selectedChild })}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.incidentAlertEmoji}>
+                {incident.severity === 'serious' ? '🚨' : incident.severity === 'moderate' ? '⚠️' : '🟡'}
+              </Text>
+              <View style={styles.incidentAlertContent}>
+                <Text style={styles.incidentAlertTitle}>
+                  {incident.severity === 'serious' ? 'Serious' : incident.severity === 'moderate' ? 'Moderate' : 'Minor'} incident reported
+                </Text>
+                <Text style={styles.incidentAlertSub}>
+                  {incident.injury_type} · {format(new Date(incident.occurred_at), 'h:mm a')} — Tap to review
+                </Text>
+              </View>
+              <Text style={styles.incidentAlertChevron}>›</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
       )}
 
       {/* Date navigation */}
@@ -369,4 +427,16 @@ const styles = StyleSheet.create({
   },
   supplyText: { fontSize: 13, color: colors.danger, fontWeight: '500' },
   noteText: { fontSize: 14, color: colors.textPrimary, lineHeight: 20, marginBottom: spacing.sm },
+  incidentBanner: { paddingHorizontal: spacing.lg, paddingTop: spacing.sm },
+  incidentAlert: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.md,
+    backgroundColor: colors.dangerLight, borderRadius: radius.md,
+    padding: spacing.md, marginBottom: spacing.sm,
+    borderWidth: 1.5, borderColor: colors.danger,
+  },
+  incidentAlertEmoji: { fontSize: 22 },
+  incidentAlertContent: { flex: 1 },
+  incidentAlertTitle: { fontSize: 14, fontWeight: '600', color: colors.danger },
+  incidentAlertSub: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
+  incidentAlertChevron: { fontSize: 22, color: colors.danger },
 });

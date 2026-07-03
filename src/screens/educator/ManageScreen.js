@@ -1,15 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import {
-  View, Text, TouchableOpacity, StyleSheet,
+  View, Text, TouchableOpacity, TextInput, StyleSheet,
   Alert, Linking
 } from 'react-native';
 import { useIsFocused } from '@react-navigation/native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 
 import { useAuth } from '../../hooks/useAuth';
+import { useClassroom } from '../../hooks/useClassroom';
 import { supabase } from '../../lib/supabase';
 import { colors, spacing, radius } from '../../theme';
 import { Button, Input, LoadingScreen, Divider } from '../../components/ui';
+import { ChildAvatar } from '../../components/ChildAvatar';
+import { ClassroomSwitcher } from '../../components/ClassroomSwitcher';
 import { DatePickerField } from '../../components/DatePickerField';
 
 
@@ -151,10 +154,18 @@ function InviteParentForm({ classroomId, children }) {
 // ─── MAIN SCREEN ──────────────────────────────────────────────────────────────
 export default function ManageScreen({ navigation }) {
   const { profile }                   = useAuth();
+  const { active: activeClassroom, classrooms, reload: reloadClassrooms, leaveClassroom } = useClassroom();
   const [children, setChildren]       = useState([]);
   const [parents, setParents]         = useState([]);
   const [loading, setLoading]         = useState(true);
   const [tab, setTab]                 = useState('children');
+  const [searchQuery, setSearchQuery] = useState('');
+
+  // Classroom editing
+  const [editingClassroom, setEditingClassroom] = useState(false);
+  const [classroomName, setClassroomName]       = useState('');
+  const [classroomAge, setClassroomAge]         = useState('');
+  const [savingClassroom, setSavingClassroom]   = useState(false);
 
   async function load() {
     if (!profile?.classroom_id) return;
@@ -183,7 +194,7 @@ export default function ManageScreen({ navigation }) {
 
   useEffect(() => {
     if (isFocused && profile) load();
-  }, [isFocused, profile]);
+  }, [isFocused, profile?.classroom_id]);
 
   // Remove the old focus listener useEffect
 
@@ -211,6 +222,56 @@ export default function ManageScreen({ navigation }) {
     ]);
   }
 
+  function startEditClassroom() {
+    setClassroomName(activeClassroom?.name || '');
+    setClassroomAge(activeClassroom?.age_group || '');
+    setEditingClassroom(true);
+  }
+
+  async function saveClassroom() {
+    if (!classroomName.trim()) {
+      Alert.alert('Required', 'Please enter a classroom name.');
+      return;
+    }
+    setSavingClassroom(true);
+    const { error } = await supabase
+      .from('classrooms')
+      .update({ name: classroomName.trim(), age_group: classroomAge.trim() || null })
+      .eq('id', activeClassroom.id);
+    setSavingClassroom(false);
+    if (error) {
+      Alert.alert('Error', error.message);
+    } else {
+      setEditingClassroom(false);
+      await reloadClassrooms();
+    }
+  }
+
+  function handleDeleteClassroom() {
+    if (children.length > 0) {
+      Alert.alert(
+        'Cannot delete',
+        `This classroom still has ${children.length} children. Move or remove all children first before deleting the classroom.`
+      );
+      return;
+    }
+    Alert.alert(
+      `Delete "${activeClassroom?.name}"?`,
+      'This will permanently remove this classroom. This action cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete', style: 'destructive',
+          onPress: async () => {
+            await supabase.from('classrooms').delete().eq('id', activeClassroom.id);
+            await leaveClassroom(activeClassroom.id);
+            await reloadClassrooms();
+          },
+        },
+      ]
+    );
+  }
+
   if (loading) return <LoadingScreen />;
 
   return (
@@ -223,12 +284,73 @@ export default function ManageScreen({ navigation }) {
     >
       <Text style={styles.pageTitle}>Manage classroom</Text>
 
+      <ClassroomSwitcher />
+
+      {/* Classroom Settings Card */}
+      {activeClassroom && (
+        <View style={styles.classroomCard}>
+          {!editingClassroom ? (
+            <>
+              <View style={styles.classroomCardHeader}>
+                <View style={styles.classroomCardInfo}>
+                  <Text style={styles.classroomCardName}>{activeClassroom.name}</Text>
+                  {activeClassroom.age_group && (
+                    <Text style={styles.classroomCardAge}>{activeClassroom.age_group}</Text>
+                  )}
+                  <Text style={styles.classroomCardMeta}>
+                    {children.length} {children.length === 1 ? 'child' : 'children'} enrolled
+                  </Text>
+                </View>
+                <View style={styles.classroomCardActions}>
+                  <TouchableOpacity onPress={startEditClassroom} style={styles.classroomEditBtn}>
+                    <Text style={styles.classroomEditBtnText}>✏️ Edit</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={handleDeleteClassroom} style={styles.classroomDeleteBtn}>
+                    <Text style={styles.classroomDeleteBtnText}>🗑</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </>
+          ) : (
+            <>
+              <Text style={styles.classroomEditTitle}>Edit classroom</Text>
+              <Input
+                label="Classroom name *"
+                value={classroomName}
+                onChangeText={setClassroomName}
+                placeholder="e.g. Toddlers Room 1"
+              />
+              <Input
+                label="Age group (optional)"
+                value={classroomAge}
+                onChangeText={setClassroomAge}
+                placeholder="e.g. 2–3 years"
+              />
+              <View style={styles.classroomEditBtns}>
+                <TouchableOpacity
+                  onPress={() => setEditingClassroom(false)}
+                  style={styles.classroomCancelBtn}
+                >
+                  <Text style={styles.classroomCancelBtnText}>Cancel</Text>
+                </TouchableOpacity>
+                <Button
+                  label={savingClassroom ? 'Saving...' : 'Save'}
+                  onPress={saveClassroom}
+                  loading={savingClassroom}
+                  style={{ flex: 2 }}
+                />
+              </View>
+            </>
+          )}
+        </View>
+      )}
+
       {/* Tabs */}
       <View style={styles.tabs}>
         {['children', 'parents'].map(t => (
           <TouchableOpacity
             key={t}
-            onPress={() => setTab(t)}
+            onPress={() => { setTab(t); setSearchQuery(''); }}
             style={[styles.tab, tab === t && styles.tabSelected]}
           >
             <Text style={[styles.tabText, tab === t && styles.tabTextSelected]}>
@@ -242,9 +364,33 @@ export default function ManageScreen({ navigation }) {
 
       {tab === 'children' ? (
         <>
+          {children.length > 5 && (
+            <View style={styles.searchBar}>
+              <Text style={styles.searchIcon}>🔍</Text>
+              <TextInput
+                style={styles.searchInput}
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+                placeholder="Search by name..."
+                placeholderTextColor={colors.textMuted}
+                autoCorrect={false}
+              />
+              {searchQuery.length > 0 && (
+                <TouchableOpacity onPress={() => setSearchQuery('')} style={styles.searchClear}>
+                  <Text style={styles.searchClearText}>✕</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          )}
           {children.length > 0 && (
             <View style={styles.listCard}>
-              {children.map((child, i) => (
+              {children
+                .filter(child => {
+                  if (!searchQuery.trim()) return true;
+                  const q = searchQuery.toLowerCase().trim();
+                  return `${child.first_name} ${child.last_name}`.toLowerCase().includes(q);
+                })
+                .map((child, i) => (
                 <View key={child.id}>
                   {i > 0 && <Divider />}
                   <TouchableOpacity
@@ -252,9 +398,7 @@ export default function ManageScreen({ navigation }) {
                     onPress={() => navigation.navigate('ChildProfile', { child })}
                     activeOpacity={0.7}
                   >
-                    <View style={styles.avatar}>
-                      <Text style={styles.avatarText}>{child.first_name[0]}{child.last_name?.[0] || ''}</Text>
-                    </View>
+                    <ChildAvatar child={child} size={40} />
                     <View style={styles.listInfo}>
                       <Text style={styles.listName}>{child.first_name} {child.last_name}</Text>
                       {child.date_of_birth && (
@@ -271,9 +415,35 @@ export default function ManageScreen({ navigation }) {
         </>
       ) : (
         <>
+          {parents.length > 5 && (
+            <View style={styles.searchBar}>
+              <Text style={styles.searchIcon}>🔍</Text>
+              <TextInput
+                style={styles.searchInput}
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+                placeholder="Search parents or children..."
+                placeholderTextColor={colors.textMuted}
+                autoCorrect={false}
+              />
+              {searchQuery.length > 0 && (
+                <TouchableOpacity onPress={() => setSearchQuery('')} style={styles.searchClear}>
+                  <Text style={styles.searchClearText}>✕</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          )}
           {parents.length > 0 && (
             <View style={styles.listCard}>
-              {parents.map((link, i) => (
+              {parents
+                .filter(link => {
+                  if (!searchQuery.trim()) return true;
+                  const q = searchQuery.toLowerCase().trim();
+                  const parentName = (link.parent?.full_name || '').toLowerCase();
+                  const childName = (link.child?.first_name || '').toLowerCase();
+                  return parentName.includes(q) || childName.includes(q);
+                })
+                .map((link, i) => (
                 <View key={`${link.parent?.id}-${link.child?.id}`}>
                   {i > 0 && <Divider />}
                   <View style={styles.listRow}>
@@ -325,8 +495,8 @@ export default function ManageScreen({ navigation }) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
   content: { padding: spacing.xl },
-  pageTitle: { fontSize: 24, fontWeight: '700', color: colors.textPrimary, marginBottom: spacing.xl },
-  tabs: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.lg },
+  pageTitle: { fontSize: 24, fontWeight: '700', color: colors.textPrimary, marginBottom: spacing.sm },
+  tabs: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.lg, marginTop: spacing.lg },
   tab: {
     flex: 1, paddingVertical: spacing.sm, borderRadius: radius.lg,
     borderWidth: 1.5, borderColor: colors.border,
@@ -335,6 +505,23 @@ const styles = StyleSheet.create({
   tabSelected: { borderColor: colors.primary, backgroundColor: colors.primaryLight },
   tabText: { fontSize: 13, fontWeight: '500', color: colors.textSecondary },
   tabTextSelected: { color: colors.primary },
+  searchBar: {
+    flexDirection: 'row', alignItems: 'center',
+    marginBottom: spacing.md,
+    backgroundColor: colors.surface, borderRadius: radius.full,
+    borderWidth: 1, borderColor: colors.border,
+    paddingHorizontal: spacing.md, height: 40,
+  },
+  searchIcon: { fontSize: 14, marginRight: spacing.sm },
+  searchInput: {
+    flex: 1, fontSize: 14, color: colors.textPrimary,
+    paddingVertical: 0,
+  },
+  searchClear: {
+    width: 22, height: 22, borderRadius: 11,
+    backgroundColor: colors.border, alignItems: 'center', justifyContent: 'center',
+  },
+  searchClearText: { fontSize: 11, color: colors.textSecondary, fontWeight: '700' },
   listCard: {
     backgroundColor: colors.surface, borderRadius: radius.lg,
     borderWidth: 1, borderColor: colors.border,
@@ -375,6 +562,38 @@ const styles = StyleSheet.create({
   childPickerBtnSelected: { borderColor: colors.primary, backgroundColor: colors.primaryLight },
   childPickerText: { fontSize: 14, color: colors.textSecondary },
   emptyNote: { fontSize: 14, color: colors.textMuted, textAlign: 'center', padding: spacing.xl },
+
+  // Classroom settings card
+  classroomCard: {
+    backgroundColor: colors.surface, borderRadius: radius.lg,
+    borderWidth: 1, borderColor: colors.border,
+    padding: spacing.lg, marginTop: spacing.md,
+  },
+  classroomCardHeader: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start',
+  },
+  classroomCardInfo: { flex: 1 },
+  classroomCardName: { fontSize: 17, fontWeight: '700', color: colors.textPrimary },
+  classroomCardAge: { fontSize: 13, color: colors.textSecondary, marginTop: 3 },
+  classroomCardMeta: { fontSize: 12, color: colors.textMuted, marginTop: 4 },
+  classroomCardActions: { flexDirection: 'row', gap: spacing.sm, alignItems: 'center' },
+  classroomEditBtn: {
+    backgroundColor: colors.primaryLight, paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs + 2, borderRadius: radius.full,
+  },
+  classroomEditBtnText: { fontSize: 12, fontWeight: '600', color: colors.primary },
+  classroomDeleteBtn: {
+    backgroundColor: colors.dangerLight, width: 32, height: 32,
+    borderRadius: 16, alignItems: 'center', justifyContent: 'center',
+  },
+  classroomDeleteBtnText: { fontSize: 14 },
+  classroomEditTitle: { fontSize: 15, fontWeight: '600', color: colors.textPrimary, marginBottom: spacing.md },
+  classroomEditBtns: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm },
+  classroomCancelBtn: {
+    flex: 1, paddingVertical: spacing.md, borderRadius: radius.md,
+    borderWidth: 1.5, borderColor: colors.border, alignItems: 'center',
+  },
+  classroomCancelBtnText: { fontSize: 14, color: colors.textSecondary, fontWeight: '500' },
 
   // Date picker
   inputWrap: { marginBottom: spacing.md },

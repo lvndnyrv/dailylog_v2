@@ -16,16 +16,18 @@ import SignupScreen         from './src/screens/shared/SignupScreen';
 import SettingsScreen       from './src/screens/shared/SettingsScreen';
 import PrivacyScreen        from './src/screens/shared/PrivacyScreen';
 import MessagingScreen      from './src/screens/shared/MessagingScreen';
-import OnboardingScreen     from './src/screens/educator/OnboardingScreen';
-import RosterScreen         from './src/screens/educator/RosterScreen';
-import DailyLogScreen       from './src/screens/educator/DailyLogScreen';
-import ManageScreen         from './src/screens/educator/ManageScreen';
-import EditProfileScreen    from './src/screens/educator/EditProfileScreen';
-import BulkLogScreen        from './src/screens/educator/BulkLogScreen';
-import ChildProfileScreen   from './src/screens/educator/ChildProfileScreen';
-import ParentHomeScreen     from './src/screens/parent/ParentHomeScreen';
-import WeeklySummaryScreen  from './src/screens/parent/WeeklySummaryScreen';
-import ParentMessagesScreen from './src/screens/parent/ParentMessagesScreen';
+import OnboardingScreen      from './src/screens/educator/OnboardingScreen';
+import RosterScreen          from './src/screens/educator/RosterScreen';
+import DailyLogScreen        from './src/screens/educator/DailyLogScreen';
+import ManageScreen          from './src/screens/educator/ManageScreen';
+import EditProfileScreen     from './src/screens/educator/EditProfileScreen';
+import BulkLogScreen         from './src/screens/educator/BulkLogScreen';
+import ChildProfileScreen    from './src/screens/educator/ChildProfileScreen';
+import IncidentReportScreen  from './src/screens/educator/IncidentReportScreen';
+import ParentHomeScreen      from './src/screens/parent/ParentHomeScreen';
+import WeeklySummaryScreen   from './src/screens/parent/WeeklySummaryScreen';
+import ParentMessagesScreen  from './src/screens/parent/ParentMessagesScreen';
+import IncidentDetailScreen  from './src/screens/parent/IncidentDetailScreen';
 
 import { Ionicons } from '@expo/vector-icons';
 
@@ -151,20 +153,22 @@ function RootNavigator() {
         <Stack.Screen name="Onboarding" component={OnboardingScreen} />
       ) : profile?.role === 'educator' ? (
         <>
-          <Stack.Screen name="EducatorTabs"  component={EducatorTabs} />
-          <Stack.Screen name="DailyLog"      component={DailyLogScreen}      options={{ animation: 'slide_from_right' }} />
-          <Stack.Screen name="ChildProfile"  component={ChildProfileScreen}   options={{ animation: 'slide_from_right' }} />
-          <Stack.Screen name="EditProfile"   component={EditProfileScreen}    options={{ animation: 'slide_from_right' }} />
-          <Stack.Screen name="Messaging"     component={MessagingScreen}      options={{ animation: 'slide_from_right' }} />
-          <Stack.Screen name="Privacy"       component={PrivacyScreen}        options={{ animation: 'slide_from_bottom' }} />
+          <Stack.Screen name="EducatorTabs"    component={EducatorTabs} />
+          <Stack.Screen name="DailyLog"        component={DailyLogScreen}        options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="ChildProfile"    component={ChildProfileScreen}    options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="IncidentReport"  component={IncidentReportScreen}  options={{ animation: 'slide_from_bottom' }} />
+          <Stack.Screen name="EditProfile"     component={EditProfileScreen}     options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="Messaging"       component={MessagingScreen}       options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="Privacy"         component={PrivacyScreen}         options={{ animation: 'slide_from_bottom' }} />
         </>
       ) : (
         <>
-          <Stack.Screen name="ParentTabs"    component={ParentTabs} />
-          <Stack.Screen name="WeeklySummary" component={WeeklySummaryScreen}  options={{ animation: 'slide_from_right' }} />
-          <Stack.Screen name="Messaging"     component={MessagingScreen}      options={{ animation: 'slide_from_right' }} />
-          <Stack.Screen name="EditProfile"   component={EditProfileScreen}    options={{ animation: 'slide_from_right' }} />
-          <Stack.Screen name="Privacy"       component={PrivacyScreen}        options={{ animation: 'slide_from_bottom' }} />
+          <Stack.Screen name="ParentTabs"      component={ParentTabs} />
+          <Stack.Screen name="WeeklySummary"   component={WeeklySummaryScreen}   options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="IncidentDetail"  component={IncidentDetailScreen}  options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="Messaging"       component={MessagingScreen}       options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="EditProfile"     component={EditProfileScreen}     options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="Privacy"         component={PrivacyScreen}         options={{ animation: 'slide_from_bottom' }} />
         </>
       )}
     </Stack.Navigator>

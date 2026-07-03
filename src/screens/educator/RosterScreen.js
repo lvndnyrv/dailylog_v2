@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, FlatList, TouchableOpacity, StyleSheet, RefreshControl, Alert } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, TextInput, StyleSheet, RefreshControl } from 'react-native';
 import { useAuth } from '../../hooks/useAuth';
 import { useClassroom } from '../../hooks/useClassroom';
 import { useIsFocused } from '@react-navigation/native';
 import { supabase } from '../../lib/supabase';
 import { LoadingScreen, EmptyState } from '../../components/ui';
 import { ClassroomSwitcher } from '../../components/ClassroomSwitcher';
+import { ChildAvatar } from '../../components/ChildAvatar';
 import { colors, spacing, radius } from '../../theme';
 import { format, subDays, addDays, isToday as checkIsToday } from 'date-fns';
 
@@ -18,6 +19,7 @@ export default function RosterScreen({ navigation }) {
   const [loading, setLoading]           = useState(true);
   const [refreshing, setRefreshing]     = useState(false);
   const [filter, setFilter]             = useState('all');
+  const [searchQuery, setSearchQuery]   = useState('');
   const [selectedDate, setSelectedDate] = useState(new Date());
 
   const dateStr   = format(selectedDate, 'yyyy-MM-dd');
@@ -86,8 +88,8 @@ export default function RosterScreen({ navigation }) {
         onPress={() => navigation.navigate('DailyLog', { child: item })}
         activeOpacity={0.7}
       >
-        <View style={styles.childAvatar}>
-          <Text style={styles.childInitial}>{item.first_name[0]}{item.last_name?.[0] || ''}</Text>
+        <View style={styles.childAvatarWrap}>
+          <ChildAvatar child={item} size={48} />
         </View>
         <View style={styles.childInfo}>
           <Text style={styles.childName}>{item.first_name} {item.last_name}</Text>
@@ -165,8 +167,35 @@ export default function RosterScreen({ navigation }) {
         </View>
       )}
 
+      {/* Search bar */}
+      {children.length > 5 && (
+        <View style={styles.searchBar}>
+          <Text style={styles.searchIcon}>🔍</Text>
+          <TextInput
+            style={styles.searchInput}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            placeholder="Search by name..."
+            placeholderTextColor={colors.textMuted}
+            autoCorrect={false}
+          />
+          {searchQuery.length > 0 && (
+            <TouchableOpacity onPress={() => setSearchQuery('')} style={styles.searchClear}>
+              <Text style={styles.searchClearText}>✕</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
+
       <FlatList
         data={children.filter(c => {
+          // Search filter
+          const query = searchQuery.toLowerCase().trim();
+          if (query) {
+            const fullName = `${c.first_name} ${c.last_name}`.toLowerCase();
+            if (!fullName.includes(query)) return false;
+          }
+          // Status filter
           if (filter === 'all') return true;
           const s = logStatus[c.id];
           if (filter === 'sent') return s?.sent;
@@ -233,6 +262,23 @@ const styles = StyleSheet.create({
   filterBtnActive: { borderColor: colors.primary, backgroundColor: colors.primaryLight },
   filterText: { fontSize: 13, color: colors.textSecondary, fontWeight: '500' },
   filterTextActive: { color: colors.primary, fontWeight: '600' },
+  searchBar: {
+    flexDirection: 'row', alignItems: 'center',
+    marginHorizontal: spacing.lg, marginTop: spacing.sm, marginBottom: spacing.xs,
+    backgroundColor: colors.surface, borderRadius: radius.full,
+    borderWidth: 1, borderColor: colors.border,
+    paddingHorizontal: spacing.md, height: 40,
+  },
+  searchIcon: { fontSize: 14, marginRight: spacing.sm },
+  searchInput: {
+    flex: 1, fontSize: 14, color: colors.textPrimary,
+    paddingVertical: 0,
+  },
+  searchClear: {
+    width: 22, height: 22, borderRadius: 11,
+    backgroundColor: colors.border, alignItems: 'center', justifyContent: 'center',
+  },
+  searchClearText: { fontSize: 11, color: colors.textSecondary, fontWeight: '700' },
   list: { padding: spacing.lg },
   childCard: {
     flexDirection: 'row', alignItems: 'center',
@@ -240,12 +286,9 @@ const styles = StyleSheet.create({
     padding: spacing.lg, marginBottom: spacing.sm,
     borderWidth: 1, borderColor: colors.border,
   },
-  childAvatar: {
-    width: 48, height: 48, borderRadius: 24,
-    backgroundColor: colors.primaryLight,
-    alignItems: 'center', justifyContent: 'center', marginRight: spacing.md,
+  childAvatarWrap: {
+    marginRight: spacing.md,
   },
-  childInitial: { fontSize: 16, fontWeight: '700', color: colors.primary },
   childInfo: { flex: 1 },
   childName: { fontSize: 16, fontWeight: '600', color: colors.textPrimary },
   statusRow: { flexDirection: 'row', alignItems: 'center', marginTop: 3, gap: spacing.sm },

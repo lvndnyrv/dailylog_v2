@@ -6,7 +6,6 @@ import {
 import { useAuth } from '../../hooks/useAuth';
 import { useClassroom } from '../../hooks/useClassroom';
 import { supabase } from '../../lib/supabase';
-import NetInfo from '@react-native-community/netinfo';
 import { colors, spacing, radius } from '../../theme';
 import { Button, Chip } from '../../components/ui';
 import { ChildAvatar } from '../../components/ChildAvatar';
@@ -96,16 +95,6 @@ export default function BulkLogScreen({ navigation }) {
     }
     if (!selectedActivities.size && !selectedMoods.size) {
       Alert.alert('Nothing to log', 'Please select at least one activity or mood to apply.');
-      return;
-    }
-
-    // Bulk apply needs the read-back of created log ids — require a connection
-    const net = await NetInfo.fetch();
-    if (!net.isConnected || net.isInternetReachable === false) {
-      Alert.alert(
-        "You're offline",
-        'Bulk logging needs a connection. Log children individually from the roster (that works offline), or try again once you reconnect.'
-      );
       return;
     }
 

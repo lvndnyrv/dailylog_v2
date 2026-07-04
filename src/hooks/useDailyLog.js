@@ -1,40 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
-import NetInfo from '@react-native-community/netinfo';
 import { supabase } from '../lib/supabase';
-import { mutate } from '../lib/offlineQueue';
-import { newId } from '../lib/uuid';
-import { toastError } from '../components/Toast';
 import { format, subDays } from 'date-fns';
 
-// ─── list helpers ────────────────────────────────────────────────────────────
-// Insert-or-replace by id (dedupes optimistic rows against realtime echoes)
-function upsertRow(list, row) {
-  return list.some(r => r.id === row.id)
-    ? list.map(r => (r.id === row.id ? { ...r, ...row } : r))
-    : [...list, row];
-}
-
-const byField = (field) => (a, b) => String(a?.[field] ?? '').localeCompare(String(b?.[field] ?? ''));
-const SORTERS = {
-  meal_entries: byField('time'),
-  diaper_entries: byField('time'),
-  sleep_entries: byField('start_time'),
-  activity_entries: null,
-  supply_requests: null,
-};
-
-function applySort(table, list) {
-  const sorter = SORTERS[table];
-  return sorter ? [...list].sort(sorter) : list;
-}
-
 /**
- * Daily log hook — optimistic & offline-first.
- *
- * Every mutation updates local state immediately, then runs through
- * lib/offlineQueue.mutate(): executed now when online, queued for replay
- * when offline. Hard (RLS/validation) errors roll the optimistic change back
- * and surface a toast.
+ * Daily log hook.
  *
  * @param {string} childId
  * @param {Date}   date            Day to load (defaults to today).
@@ -54,14 +23,6 @@ export function useDailyLog(childId, date = new Date(), { createIfMissing = fals
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  const setters = {
-    meal_entries: setMeals,
-    diaper_entries: setDiapers,
-    sleep_entries: setSleeps,
-    activity_entries: setActivities,
-    supply_requests: setSupplies,
-  };
-
   // Get (and for educators, create) the daily log record — race-safe:
   // ON CONFLICT DO NOTHING + re-select instead of blind insert.
   const getOrCreateLog = useCallback(async () => {
@@ -79,33 +40,21 @@ export function useDailyLog(childId, date = new Date(), { createIfMissing = fals
     if (selectError) setError(selectError.message);
 
     if (!data && createIfMissing) {
-      const insert = { id: newId(), child_id: childId, log_date: dateStr };
+      const insert = { child_id: childId, log_date: dateStr };
       if (educatorId) insert.educator_id = educatorId;
 
-      // Upsert on the (child_id, log_date) uniqueness so an offline-queued
-      // create replays as a no-op if another educator made the log meanwhile.
-      const { error: insertError, queued } = await mutate({
-        type: 'upsert',
-        table: 'daily_logs',
-        data: insert,
-        onConflict: 'child_id,log_date',
-        ignoreDuplicates: true,
-      });
+      const { error: insertError } = await supabase
+        .from('daily_logs')
+        .upsert(insert, { onConflict: 'child_id,log_date', ignoreDuplicates: true });
 
       if (insertError) setError(insertError.message);
 
-      if (queued) {
-        // Offline: work against the local log row; entries queue behind it
-        // (the queue replays in order, so the log insert lands first).
-        data = { ...insert, moods: [], notes: '', comments: '', sent_to_parents: false };
-      } else {
-        ({ data } = await supabase
-          .from('daily_logs')
-          .select('*')
-          .eq('child_id', childId)
-          .eq('log_date', dateStr)
-          .maybeSingle());
-      }
+      ({ data } = await supabase
+        .from('daily_logs')
+        .select('*')
+        .eq('child_id', childId)
+        .eq('log_date', dateStr)
+        .maybeSingle());
     }
 
     setLog(data ?? null);
@@ -133,12 +82,12 @@ export function useDailyLog(childId, date = new Date(), { createIfMissing = fals
 
   useEffect(() => { getOrCreateLog(); }, [getOrCreateLog]);
 
-  // Real-time subscriptions so the parent view updates live.
-  // INSERT events upsert by id — they dedupe against optimistic rows.
+  // Real-time subscriptions so parent view updates live
   useEffect(() => {
     if (!log?.id) return;
 
     const tables = ['meal_entries', 'diaper_entries', 'sleep_entries', 'activity_entries', 'supply_requests'];
+    const setters = { meal_entries: setMeals, diaper_entries: setDiapers, sleep_entries: setSleeps, activity_entries: setActivities, supply_requests: setSupplies };
 
     const channels = tables.map(table =>
       supabase.channel(`${table}:${log.id}`)
@@ -147,8 +96,8 @@ export function useDailyLog(childId, date = new Date(), { createIfMissing = fals
           filter: `daily_log_id=eq.${log.id}`,
         }, (payload) => {
           setters[table](prev => {
-            if (payload.eventType === 'INSERT') return applySort(table, upsertRow(prev, payload.new));
-            if (payload.eventType === 'UPDATE') return applySort(table, prev.map(r => r.id === payload.new.id ? payload.new : r));
+            if (payload.eventType === 'INSERT') return [...prev, payload.new];
+            if (payload.eventType === 'UPDATE') return prev.map(r => r.id === payload.new.id ? payload.new : r);
             if (payload.eventType === 'DELETE') return prev.filter(r => r.id !== payload.old.id);
             return prev;
           });
@@ -159,96 +108,73 @@ export function useDailyLog(childId, date = new Date(), { createIfMissing = fals
     return () => channels.forEach(c => supabase.removeChannel(c));
   }, [log?.id]);
 
-  // ── generic optimistic helpers ──────────────────────────────────────────
-  async function optimisticInsert(table, row, label) {
-    const setter = setters[table];
-    setter(prev => applySort(table, upsertRow(prev, row)));
-    const { error: err } = await mutate({ type: 'insert', table, data: row });
-    if (err) {
-      setter(prev => prev.filter(r => r.id !== row.id));
-      toastError(`Couldn't add ${label}`, err);
-    }
-    return row;
-  }
-
-  async function optimisticUpdate(table, list, id, updates, label) {
-    const setter = setters[table];
-    const prevRow = list.find(r => r.id === id);
-    setter(prev => applySort(table, prev.map(r => (r.id === id ? { ...r, ...updates } : r))));
-    const { error: err } = await mutate({ type: 'update', table, id, data: updates });
-    if (err) {
-      if (prevRow) setter(prev => applySort(table, prev.map(r => (r.id === id ? prevRow : r))));
-      toastError(`Couldn't update ${label}`, err);
-    }
-  }
-
-  async function optimisticDelete(table, list, id, label) {
-    const setter = setters[table];
-    const prevRow = list.find(r => r.id === id);
-    setter(prev => prev.filter(r => r.id !== id));
-    const { error: err } = await mutate({ type: 'delete', table, id });
-    if (err) {
-      if (prevRow) setter(prev => applySort(table, upsertRow(prev, prevRow)));
-      toastError(`Couldn't remove ${label}`, err);
-    }
-  }
-
   // ---- MOOD ----
   async function updateMoods(moods) {
     if (!log) return;
-    const prevMoods = log.moods;
+    await supabase.from('daily_logs').update({ moods }).eq('id', log.id);
     setLog(prev => ({ ...prev, moods }));
-    const { error: err } = await mutate({ type: 'update', table: 'daily_logs', id: log.id, data: { moods } });
-    if (err) {
-      setLog(prev => ({ ...prev, moods: prevMoods }));
-      toastError("Couldn't update mood", err);
-    }
   }
 
   // ---- NOTES / COMMENTS ----
   async function updateNotes(notes, comments) {
     if (!log) return;
-    const prev = { notes: log.notes, comments: log.comments };
-    setLog(p => ({ ...p, notes, comments }));
-    const { error: err } = await mutate({ type: 'update', table: 'daily_logs', id: log.id, data: { notes, comments } });
-    if (err) {
-      setLog(p => ({ ...p, ...prev }));
-      toastError("Couldn't save notes", err);
-    }
+    await supabase.from('daily_logs').update({ notes, comments }).eq('id', log.id);
+    setLog(prev => ({ ...prev, notes, comments }));
   }
 
   // ---- MEALS ----
   async function addMeal(time, foodType, amount) {
     if (!log) return;
-    return optimisticInsert('meal_entries', { id: newId(), daily_log_id: log.id, time, food_type: foodType, amount }, 'meal');
+    await supabase.from('meal_entries').insert({ daily_log_id: log.id, time, food_type: foodType, amount });
   }
-  const updateMeal = (id, updates) => optimisticUpdate('meal_entries', meals, id, updates, 'meal');
-  const deleteMeal = (id) => optimisticDelete('meal_entries', meals, id, 'meal');
+
+  async function updateMeal(id, updates) {
+    await supabase.from('meal_entries').update(updates).eq('id', id);
+  }
+
+  async function deleteMeal(id) {
+    await supabase.from('meal_entries').delete().eq('id', id);
+  }
 
   // ---- DIAPERS ----
   async function addDiaper(time, type = 'diaper', wet = false, bm = false) {
     if (!log) return;
-    return optimisticInsert('diaper_entries', { id: newId(), daily_log_id: log.id, time, type, wet, bm }, 'diaper entry');
+    await supabase.from('diaper_entries').insert({ daily_log_id: log.id, time, type, wet, bm });
   }
-  const updateDiaper = (id, updates) => optimisticUpdate('diaper_entries', diapers, id, updates, 'diaper entry');
-  const deleteDiaper = (id) => optimisticDelete('diaper_entries', diapers, id, 'diaper entry');
+
+  async function updateDiaper(id, updates) {
+    await supabase.from('diaper_entries').update(updates).eq('id', id);
+  }
+
+  async function deleteDiaper(id) {
+    await supabase.from('diaper_entries').delete().eq('id', id);
+  }
 
   // ---- SLEEP ----
   async function addSleep(startTime) {
     if (!log) return;
-    return optimisticInsert('sleep_entries', { id: newId(), daily_log_id: log.id, start_time: startTime, end_time: null }, 'nap');
+    const { data } = await supabase.from('sleep_entries')
+      .insert({ daily_log_id: log.id, start_time: startTime })
+      .select().single();
+    return data;
   }
-  const updateSleep = (id, updates) => optimisticUpdate('sleep_entries', sleeps, id, updates, 'nap');
-  const deleteSleep = (id) => optimisticDelete('sleep_entries', sleeps, id, 'nap');
+
+  async function updateSleep(id, updates) {
+    await supabase.from('sleep_entries').update(updates).eq('id', id);
+  }
+
+  async function deleteSleep(id) {
+    await supabase.from('sleep_entries').delete().eq('id', id);
+  }
 
   // ---- ACTIVITIES ----
   async function toggleActivity(activityName) {
     if (!log) return;
     const existing = activities.find(a => a.activity_name === activityName);
     if (existing) {
-      await optimisticDelete('activity_entries', activities, existing.id, 'activity');
+      await supabase.from('activity_entries').delete().eq('id', existing.id);
     } else {
-      await optimisticInsert('activity_entries', { id: newId(), daily_log_id: log.id, activity_name: activityName }, 'activity');
+      await supabase.from('activity_entries').insert({ daily_log_id: log.id, activity_name: activityName });
     }
   }
 
@@ -257,29 +183,19 @@ export function useDailyLog(childId, date = new Date(), { createIfMissing = fals
     if (!log) return;
     const existing = supplies.find(s => s.item_name === itemName);
     if (existing) {
-      await optimisticDelete('supply_requests', supplies, existing.id, 'supply request');
+      await supabase.from('supply_requests').delete().eq('id', existing.id);
     } else {
-      await optimisticInsert('supply_requests', { id: newId(), daily_log_id: log.id, item_name: itemName }, 'supply request');
+      await supabase.from('supply_requests').insert({ daily_log_id: log.id, item_name: itemName });
     }
   }
 
   // ---- SEND TO PARENTS ----
-  // Requires a connection: the parent push notification must go out with it.
   async function sendToParents() {
-    if (!log) return { error: { message: 'No log loaded' } };
-
-    const net = await NetInfo.fetch();
-    if (!net.isConnected || net.isInternetReachable === false) {
-      return { offline: true, error: { message: 'offline' } };
-    }
-
-    const { error: err } = await supabase.from('daily_logs')
+    if (!log) return;
+    await supabase.from('daily_logs')
       .update({ sent_to_parents: true, sent_at: new Date().toISOString() })
       .eq('id', log.id);
-    if (err) return { error: err };
-
     setLog(prev => ({ ...prev, sent_to_parents: true }));
-    return { error: null };
   }
 
   return {

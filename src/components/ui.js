@@ -27,7 +27,7 @@ export function Section({ title, icon, children, style }) {
 }
 
 // ---- PRIMARY BUTTON ----
-export function Button({ label, onPress, loading, variant = 'primary', style }) {
+export function Button({ label, onPress, loading, disabled, variant = 'primary', style }) {
   const bg = variant === 'primary' ? colors.primary
     : variant === 'danger' ? colors.danger
     : 'transparent';
@@ -39,7 +39,7 @@ export function Button({ label, onPress, loading, variant = 'primary', style }) 
       onPress={onPress}
       style={[styles.button, { backgroundColor: bg }, border, style]}
       activeOpacity={0.8}
-      disabled={loading}
+      disabled={loading || disabled}
     >
       {loading
         ? <ActivityIndicator color={textColor} />
@@ -50,7 +50,7 @@ export function Button({ label, onPress, loading, variant = 'primary', style }) 
 }
 
 // ---- TEXT INPUT ----
-export function Input({ label, value, onChangeText, placeholder, secureTextEntry, keyboardType, multiline, style }) {
+export function Input({ label, value, onChangeText, placeholder, secureTextEntry, keyboardType, multiline, error, style }) {
   return (
     <View style={[styles.inputWrap, style]}>
       {label && <Text style={styles.inputLabel}>{label}</Text>}
@@ -63,8 +63,9 @@ export function Input({ label, value, onChangeText, placeholder, secureTextEntry
         keyboardType={keyboardType}
         multiline={multiline}
         numberOfLines={multiline ? 3 : 1}
-        style={[styles.input, multiline && styles.inputMulti]}
+        style={[styles.input, multiline && styles.inputMulti, error && styles.inputError]}
       />
+      {error && <Text style={styles.inputErrorText}>{error}</Text>}
     </View>
   );
 }
@@ -183,6 +184,15 @@ const styles = StyleSheet.create({
     height: 80,
     textAlignVertical: 'top',
     paddingTop: spacing.md,
+  },
+  inputError: {
+    borderColor: colors.danger,
+  },
+  inputErrorText: {
+    fontSize: 12,
+    color: colors.danger,
+    marginTop: spacing.xs,
+    fontWeight: '500',
   },
   row: {
     flexDirection: 'row',

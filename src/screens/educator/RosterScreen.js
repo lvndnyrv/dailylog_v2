@@ -122,12 +122,15 @@ export default function RosterScreen({ navigation }) {
   async function load() {
     if (!classroomId) return;
 
-    const { data: kids } = await supabase
+    const { data: kids, error: kidsError } = await supabase
       .from('children')
       .select('*')
       .eq('classroom_id', classroomId)
       .is('archived_at', null)
       .order('first_name');
+
+    if (kidsError) console.warn('Children query error:', kidsError.message);
+    console.log('Children loaded:', kids?.length, 'for classroom:', classroomId);
 
     setChildren(kids || []);
 
@@ -414,7 +417,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     borderBottomWidth: 1, borderBottomColor: colors.border,
   },
-  greeting: { fontSize: 17, fontWeight: '600', color: colors.textPrimary },
+  greeting: { fontSize: 17, fontWeight: '600', color: colors.textPrimary, marginBottom: spacing.xs },
   date: { fontSize: 13, color: colors.textSecondary, marginTop: 2 },
   countBadge: {
     backgroundColor: colors.primaryLight, borderRadius: radius.lg,

@@ -14,6 +14,7 @@ export function PhotoSection({ logId, childId, readOnly = false }) {
   const [photos, setPhotos]   = useState([]);
   const [uploading, setUploading] = useState(false);
   const [preview, setPreview] = useState(null); // full-screen preview URL
+  const [failedIds, setFailedIds] = useState(new Set());
 
   useEffect(() => {
     if (!logId) return;
@@ -50,6 +51,7 @@ export function PhotoSection({ logId, childId, readOnly = false }) {
       })
     );
     setPhotos(withUrls);
+    setFailedIds(new Set());
   }
 
   async function handlePickPhoto() {
@@ -78,7 +80,7 @@ export function PhotoSection({ logId, childId, readOnly = false }) {
       return;
     }
     const result = await ImagePicker.launchCameraAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ['images'],
       quality: 0.8,
     });
     if (!result.canceled) uploadPhoto(result.assets[0].uri);
@@ -86,10 +88,60 @@ export function PhotoSection({ logId, childId, readOnly = false }) {
 
   async function pickFromLibrary() {
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ['images'],
+      allowsMultipleSelection: true,
+      selectionLimit: 10,
       quality: 0.8,
     });
-    if (!result.canceled) uploadPhoto(result.assets[0].uri);
+    if (!result.canceled && result.assets?.length) {
+      await uploadMultiplePhotos(result.assets.map(a => a.uri));
+    }
+  }
+
+  async function uploadMultiplePhotos(uris) {
+    setUploading(true);
+    let successCount = 0;
+    let failCount = 0;
+
+    for (const uri of uris) {
+      try {
+        const manipResult = await ImageManipulator.manipulateAsync(
+          uri,
+          [{ resize: { width: 1200 } }],
+          { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG }
+        );
+
+        const response = await fetch(manipResult.uri);
+        const arrayBuffer = await response.arrayBuffer();
+        const path = `${childId}/${logId}/${Date.now()}_${successCount}.jpg`;
+
+        const { error: uploadError } = await supabase.storage
+          .from('daily-log-photos')
+          .upload(path, arrayBuffer, { contentType: 'image/jpeg', upsert: false });
+
+        if (uploadError) throw uploadError;
+
+        const { error: dbError } = await supabase.from('photos').insert({
+          daily_log_id: logId,
+          uploader_id: profile.id,
+          storage_path: path,
+        });
+
+        if (dbError) throw dbError;
+        successCount++;
+      } catch (err) {
+        failCount++;
+      }
+    }
+
+    await loadPhotos();
+    setUploading(false);
+
+    if (failCount > 0 && successCount > 0) {
+      Alert.alert('Partial upload', `${successCount} photo(s) uploaded, ${failCount} failed.`);
+    } else if (failCount > 0 && successCount === 0) {
+      Alert.alert('Upload failed', 'Could not upload the selected photos.');
+    }
   }
 
   async function uploadPhoto(uri) {
@@ -102,16 +154,15 @@ export function PhotoSection({ logId, childId, readOnly = false }) {
         { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG }
       );
 
-      // Convert to blob
+      // Read file as ArrayBuffer (reliable in React Native unlike blob)
       const response  = await fetch(manipResult.uri);
-      const blob      = await response.blob();
-      const ext       = 'jpg';
-      const path      = `${childId}/${logId}/${Date.now()}.${ext}`;
+      const arrayBuffer = await response.arrayBuffer();
+      const path      = `${childId}/${logId}/${Date.now()}.jpg`;
 
       // Upload to Supabase Storage
       const { error: uploadError } = await supabase.storage
         .from('daily-log-photos')
-        .upload(path, blob, { contentType: 'image/jpeg', upsert: false });
+        .upload(path, arrayBuffer, { contentType: 'image/jpeg', upsert: false });
 
       if (uploadError) throw uploadError;
 
@@ -132,18 +183,10 @@ export function PhotoSection({ logId, childId, readOnly = false }) {
   }
 
   async function deletePhoto(photo) {
-    Alert.alert('Delete photo', 'Remove this photo from the daily log?', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete',
-        style: 'destructive',
-        onPress: async () => {
-          await supabase.storage.from('daily-log-photos').remove([photo.storage_path]);
-          await supabase.from('photos').delete().eq('id', photo.id);
-          await loadPhotos();
-        },
-      },
-    ]);
+    // Remove optimistically from UI, then delete from storage + DB
+    setPhotos(prev => prev.filter(p => p.id !== photo.id));
+    await supabase.storage.from('daily-log-photos').remove([photo.storage_path]);
+    await supabase.from('photos').delete().eq('id', photo.id);
   }
 
   return (
@@ -176,23 +219,35 @@ export function PhotoSection({ logId, childId, readOnly = false }) {
       {photos.length > 0 && (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.photoScroll}>
           {photos.map(photo => (
-            <TouchableOpacity
-              key={photo.id}
-              onPress={() => setPreview(photo.url)}
-              onLongPress={() => !readOnly && deletePhoto(photo)}
-              activeOpacity={0.85}
-              style={styles.thumbWrap}
-            >
-              {photo.url
-                ? <Image source={{ uri: photo.url }} style={styles.thumb} />
-                : <View style={[styles.thumb, styles.thumbPlaceholder]}>
-                    <ActivityIndicator color={colors.textMuted} />
-                  </View>
-              }
+            <View key={photo.id} style={styles.thumbWrap}>
+              <TouchableOpacity
+                onPress={() => setPreview(photo.url)}
+                activeOpacity={0.85}
+              >
+                {photo.url && !failedIds.has(photo.id)
+                  ? <Image
+                      source={{ uri: photo.url }}
+                      style={styles.thumb}
+                      onError={() => setFailedIds(prev => new Set([...prev, photo.id]))}
+                    />
+                  : <View style={[styles.thumb, styles.thumbPlaceholder]}>
+                      {failedIds.has(photo.id)
+                        ? <Text style={styles.thumbErrorText}>⚠️</Text>
+                        : <ActivityIndicator color={colors.textMuted} />
+                      }
+                    </View>
+                }
+              </TouchableOpacity>
               {!readOnly && (
-                <Text style={styles.thumbHint}>Hold to delete</Text>
+                <TouchableOpacity
+                  onPress={() => deletePhoto(photo)}
+                  style={styles.thumbDeleteBtn}
+                  hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                >
+                  <Text style={styles.thumbDeleteText}>✕</Text>
+                </TouchableOpacity>
               )}
-            </TouchableOpacity>
+            </View>
           ))}
 
           {!readOnly && (
@@ -224,6 +279,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface, borderRadius: radius.lg,
     borderWidth: 1, borderColor: colors.border,
     padding: spacing.lg, marginBottom: spacing.md,
+    overflow: 'visible',
   },
   sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.md },
   sectionTitle: { fontSize: 15, fontWeight: '600', color: colors.textPrimary },
@@ -241,11 +297,23 @@ const styles = StyleSheet.create({
   emptyIcon: { fontSize: 28 },
   emptyText: { fontSize: 14, color: colors.textSecondary, fontWeight: '500' },
   emptyHint: { fontSize: 12, color: colors.textMuted, textAlign: 'center' },
-  photoScroll: { marginHorizontal: -spacing.xs },
-  thumbWrap: { marginRight: spacing.sm, alignItems: 'center' },
-  thumb: { width: 100, height: 100, borderRadius: radius.md },
-  thumbPlaceholder: { backgroundColor: colors.bg, alignItems: 'center', justifyContent: 'center' },
-  thumbHint: { fontSize: 10, color: colors.textMuted, marginTop: 3 },
+  photoScroll: { marginHorizontal: -spacing.xs, paddingTop: 8, paddingLeft: 8 },
+  thumbWrap: { marginRight: spacing.sm + 4, position: 'relative' },
+  thumb: {
+    width: 100, height: 100, borderRadius: radius.md,
+    overflow: 'hidden', resizeMode: 'cover',
+    backgroundColor: colors.bg,
+  },
+  thumbPlaceholder: { alignItems: 'center', justifyContent: 'center' },
+  thumbErrorText: { fontSize: 20 },
+  thumbDeleteBtn: {
+    position: 'absolute', top: -4, right: -4,
+    width: 22, height: 22, borderRadius: 11,
+    backgroundColor: colors.danger, alignItems: 'center', justifyContent: 'center',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2, shadowRadius: 2, elevation: 3,
+  },
+  thumbDeleteText: { fontSize: 12, color: colors.white, fontWeight: '700', marginTop: -1 },
   addThumb: {
     width: 100, height: 100, borderRadius: radius.md,
     backgroundColor: colors.bg, borderWidth: 1.5,

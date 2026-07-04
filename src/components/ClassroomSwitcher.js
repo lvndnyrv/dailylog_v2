@@ -54,6 +54,11 @@ export function ClassroomSwitcher() {
           style={styles.overlay}
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
+          <TouchableOpacity
+            style={styles.overlayDismiss}
+            activeOpacity={1}
+            onPress={() => { setShowPicker(false); setShowCreate(false); }}
+          />
           <View style={styles.sheet}>
             <View style={styles.sheetHeader}>
               <Text style={styles.sheetTitle}>Switch classroom</Text>
@@ -141,14 +146,16 @@ const styles = StyleSheet.create({
   // Inline subtitle
   subtitle: {
     flexDirection: 'row', alignItems: 'center',
-    marginTop: 3, flexWrap: 'nowrap',
+    marginTop: 4, flexWrap: 'nowrap',
+    paddingVertical: 6,
   },
-  dateText: { fontSize: 13, color: colors.textSecondary },
-  dot: { fontSize: 13, color: colors.textMuted },
-  roomName: { fontSize: 13, color: colors.primary, fontWeight: '600' },
+  dateText: { fontSize: 14, color: colors.textSecondary },
+  dot: { fontSize: 14, color: colors.textMuted },
+  roomName: { fontSize: 14, color: colors.primary, fontWeight: '600' },
 
   // Modal
   overlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.45)' },
+  overlayDismiss: { flex: 1 },
   sheet: {
     backgroundColor: colors.surface,
     borderTopLeftRadius: 24, borderTopRightRadius: 24,

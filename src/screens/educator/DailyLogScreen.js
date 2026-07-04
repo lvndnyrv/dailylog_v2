@@ -3,6 +3,7 @@ import {
   View, Text, ScrollView, TouchableOpacity,
   StyleSheet, Alert, TextInput, Modal, Linking
 } from 'react-native';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 import { useAuth } from '../../hooks/useAuth';
 import { useDailyLog, copyYesterdayLog } from '../../hooks/useDailyLog';
 import { notifyParents } from '../../hooks/usePushNotifications';
@@ -133,15 +134,17 @@ function TimePicker({ value, onChange, onClose }) {
 // Shows the current time value, opens picker on tap
 function TimeButton({ value, onChange }) {
   const [open, setOpen] = useState(false);
+  // Strip seconds if present (DB returns HH:mm:ss, we only need HH:mm)
+  const display = value ? value.substring(0, 5) : '--:--';
   return (
     <>
       <TouchableOpacity onPress={() => setOpen(true)} style={styles.timeBtn} activeOpacity={0.7}>
-        <Text style={styles.timeBtnText}>{value || '--:--'}</Text>
+        <Text style={styles.timeBtnText}>{display}</Text>
         <Text style={styles.timeBtnIcon}>🕐</Text>
       </TouchableOpacity>
       {open && (
         <TimePicker
-          value={value}
+          value={value ? value.substring(0, 5) : value}
           onChange={onChange}
           onClose={() => setOpen(false)}
         />
@@ -236,14 +239,21 @@ function DiaperRow({ d, onUpdate, onDelete }) {
 function SleepRow({ s, onUpdate, onDelete }) {
   return (
     <View style={styles.sleepCard}>
+      <View style={styles.sleepCardHeader}>
+        <Text style={styles.sleepCardTitle}>😴 Nap</Text>
+        <TouchableOpacity
+          onPress={() => onDelete(s.id)}
+          style={styles.sleepDeleteBtn}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        >
+          <Text style={styles.sleepDeleteText}>Remove</Text>
+        </TouchableOpacity>
+      </View>
       <View style={styles.sleepRow}>
         <Text style={styles.sleepLabel}>Start</Text>
         <TimeButton value={s.start_time} onChange={t => onUpdate(s.id, { start_time: t })} />
         <Text style={styles.sleepLabel}>End</Text>
         <TimeButton value={s.end_time || ''} onChange={t => onUpdate(s.id, { end_time: t })} />
-        <TouchableOpacity onPress={() => onDelete(s.id)} style={styles.deleteBtn}>
-          <Text style={styles.deleteX}>✕</Text>
-        </TouchableOpacity>
       </View>
       {s.start_time && s.end_time && (
         <Text style={styles.sleepDuration}>
@@ -261,6 +271,41 @@ function calcDuration(start, end) {
   if (mins <= 0) return '';
   if (mins < 60) return `${mins} min`;
   return `${Math.floor(mins / 60)}h ${mins % 60}m`;
+}
+
+// ---- CUSTOM ITEM INPUT ----
+// Inline input for adding custom activities or supply items
+function CustomItemInput({ placeholder, onAdd, color }) {
+  const [text, setText] = useState('');
+
+  function handleAdd() {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    onAdd(trimmed);
+    setText('');
+  }
+
+  return (
+    <View style={styles.customInputRow}>
+      <TextInput
+        value={text}
+        onChangeText={setText}
+        placeholder={placeholder}
+        placeholderTextColor={colors.textMuted}
+        style={styles.customInput}
+        returnKeyType="done"
+        onSubmitEditing={handleAdd}
+        maxLength={40}
+      />
+      <TouchableOpacity
+        onPress={handleAdd}
+        disabled={!text.trim()}
+        style={[styles.customAddBtn, { backgroundColor: text.trim() ? color : colors.border }]}
+      >
+        <Text style={styles.customAddBtnText}>+</Text>
+      </TouchableOpacity>
+    </View>
+  );
 }
 
 // ---- MAIN SCREEN ----
@@ -408,7 +453,14 @@ export default function DailyLogScreen({ route, navigation }) {
   }
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+    <KeyboardAwareScrollView
+      style={styles.container}
+      contentContainerStyle={styles.content}
+      keyboardShouldPersistTaps="handled"
+      extraScrollHeight={120}
+      enableOnAndroid
+      enableResetScrollToCoords={false}
+    >
 
       {/* Header */}
       <View style={styles.header}>
@@ -525,7 +577,17 @@ export default function DailyLogScreen({ route, navigation }) {
             <Chip key={a} label={a} selected={selectedActivities.includes(a)}
               onPress={() => toggleActivity(a)} color={colors.purple} lightColor={colors.purpleLight} />
           ))}
+          {/* Show custom activities not in default list */}
+          {selectedActivities.filter(a => !ACTIVITIES.includes(a)).map(a => (
+            <Chip key={a} label={a} selected onPress={() => toggleActivity(a)}
+              color={colors.purple} lightColor={colors.purpleLight} />
+          ))}
         </View>
+        <CustomItemInput
+          placeholder="Add custom activity..."
+          onAdd={(name) => toggleActivity(name)}
+          color={colors.purple}
+        />
       </Section>
 
       {/* SUPPLIES */}
@@ -535,7 +597,17 @@ export default function DailyLogScreen({ route, navigation }) {
             <Chip key={s.label} label={`${s.emoji} ${s.label}`} selected={selectedSupplies.includes(s.label)}
               onPress={() => toggleSupply(s.label)} color={colors.coral} lightColor={colors.coralLight} />
           ))}
+          {/* Show custom supplies not in default list */}
+          {selectedSupplies.filter(s => !SUPPLIES.some(def => def.label === s)).map(s => (
+            <Chip key={s} label={s} selected onPress={() => toggleSupply(s)}
+              color={colors.coral} lightColor={colors.coralLight} />
+          ))}
         </View>
+        <CustomItemInput
+          placeholder="Add custom item..."
+          onAdd={(name) => toggleSupply(name)}
+          color={colors.coral}
+        />
       </Section>
 
       {/* NOTES */}
@@ -569,7 +641,7 @@ export default function DailyLogScreen({ route, navigation }) {
         style={styles.sendBtn}
       />
       <View style={{ height: spacing.xxxl }} />
-    </ScrollView>
+    </KeyboardAwareScrollView>
   );
 }
 
@@ -586,6 +658,22 @@ const styles = StyleSheet.create({
   childName: { fontSize: 15, fontWeight: '600', color: colors.primary },
   headerDate: { fontSize: 12, color: colors.primaryDark },
   chipWrap: { flexDirection: 'row', flexWrap: 'wrap' },
+  customInputRow: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  customInput: {
+    flex: 1, fontSize: 14, color: colors.textPrimary,
+    backgroundColor: colors.bg, borderWidth: 1.5,
+    borderColor: colors.border, borderRadius: radius.md,
+    paddingHorizontal: spacing.md, paddingVertical: spacing.sm,
+    minHeight: 38,
+  },
+  customAddBtn: {
+    width: 38, height: 38, borderRadius: radius.md,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  customAddBtnText: { fontSize: 20, color: colors.white, fontWeight: '700', marginTop: -1 },
 
   // Error state
   errorWrap: {
@@ -652,7 +740,18 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: colors.border,
     padding: spacing.md, marginBottom: spacing.sm,
   },
-  sleepRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  sleepCardHeader: {
+    flexDirection: 'row', justifyContent: 'space-between',
+    alignItems: 'center', marginBottom: spacing.sm,
+  },
+  sleepCardTitle: { fontSize: 13, fontWeight: '600', color: colors.textSecondary },
+  sleepDeleteBtn: {
+    paddingHorizontal: spacing.md, paddingVertical: spacing.xs + 2,
+    borderRadius: radius.full, backgroundColor: colors.dangerLight,
+    borderWidth: 1, borderColor: colors.danger + '33',
+  },
+  sleepDeleteText: { fontSize: 12, color: colors.danger, fontWeight: '600' },
+  sleepRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flexWrap: 'wrap' },
   sleepLabel: { fontSize: 13, color: colors.textSecondary, fontWeight: '500' },
   sleepDuration: { fontSize: 12, color: colors.success, marginTop: spacing.sm, fontWeight: '500' },
 
@@ -697,3 +796,47 @@ const styles = StyleSheet.create({
   headerBtnText: { fontSize: 16 },
 });
 
+// TimePicker styles
+const tp = StyleSheet.create({
+  overlay: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'flex-end',
+  },
+  sheet: {
+    backgroundColor: colors.surface, borderTopLeftRadius: radius.xl,
+    borderTopRightRadius: radius.xl, padding: spacing.xl,
+    paddingBottom: spacing.xxxl + spacing.xl,
+  },
+  header: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    marginBottom: spacing.lg,
+  },
+  cancel: { fontSize: 15, color: colors.textMuted, fontWeight: '500' },
+  title: { fontSize: 16, fontWeight: '600', color: colors.textPrimary },
+  done: { fontSize: 15, color: colors.primary, fontWeight: '600' },
+  pickerRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: spacing.md,
+  },
+  col: { flex: 1, alignItems: 'center' },
+  colLabel: { fontSize: 12, color: colors.textMuted, fontWeight: '500', marginBottom: spacing.sm },
+  scroll: { height: 180 },
+  item: {
+    paddingVertical: spacing.sm, paddingHorizontal: spacing.lg,
+    borderRadius: radius.md, marginBottom: 2, alignItems: 'center',
+  },
+  itemSelected: { backgroundColor: colors.primaryLight },
+  itemText: { fontSize: 16, color: colors.textSecondary },
+  itemTextSelected: { color: colors.primary, fontWeight: '700' },
+  colon: { fontSize: 24, fontWeight: '700', color: colors.textPrimary, marginTop: spacing.lg },
+  quickRow: {
+    flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm,
+    marginTop: spacing.lg, justifyContent: 'center',
+  },
+  quick: {
+    paddingHorizontal: spacing.md, paddingVertical: spacing.xs + 2,
+    borderRadius: radius.full, backgroundColor: colors.bg,
+    borderWidth: 1, borderColor: colors.border,
+  },
+  quickText: { fontSize: 12, color: colors.textSecondary, fontWeight: '500' },
+});

@@ -31,6 +31,7 @@ import BulkLogScreen         from './src/screens/educator/BulkLogScreen';
 import ChildProfileScreen    from './src/screens/educator/ChildProfileScreen';
 import IncidentReportScreen  from './src/screens/educator/IncidentReportScreen';
 import InboxScreen           from './src/screens/educator/InboxScreen';
+import ClassroomEditScreen   from './src/screens/educator/ClassroomEditScreen';
 import ParentHomeScreen      from './src/screens/parent/ParentHomeScreen';
 import WeeklySummaryScreen   from './src/screens/parent/WeeklySummaryScreen';
 import ParentMessagesScreen  from './src/screens/parent/ParentMessagesScreen';
@@ -252,6 +253,7 @@ function RootNavigator() {
           <Stack.Screen name="EducatorTabs"    component={EducatorTabs} />
           <Stack.Screen name="DailyLog"        component={DailyLogScreen}        options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="ChildProfile"    component={ChildProfileScreen}    options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="ClassroomEdit"   component={ClassroomEditScreen}   options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="IncidentReport"  component={IncidentReportScreen}  options={{ animation: 'slide_from_bottom' }} />
           <Stack.Screen name="EditProfile"     component={EditProfileScreen}     options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="Messaging"       component={MessagingScreen}       options={{ animation: 'slide_from_right' }} />

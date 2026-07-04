@@ -16,19 +16,26 @@ import { colors } from '../theme';
  */
 export function ChildAvatar({ child, size = 48, fontSize }) {
   const [imageUrl, setImageUrl] = useState(() => getCachedUrl(child?.photo_url));
+  const [loadFailed, setLoadFailed] = useState(false);
   const resolvedFontSize = fontSize || Math.round(size * 0.35);
 
   useEffect(() => {
     if (!child?.photo_url) {
       setImageUrl(null);
+      setLoadFailed(false);
       return;
     }
 
     const cached = getCachedUrl(child.photo_url);
     if (cached) {
       setImageUrl(cached);
+      setLoadFailed(false);
       return;
     }
+
+    // Reset while fetching new signed URL (prevents stale/broken image flash)
+    setImageUrl(null);
+    setLoadFailed(false);
 
     // Get a signed URL for the stored photo
     async function getUrl() {
@@ -49,13 +56,15 @@ export function ChildAvatar({ child, size = 48, fontSize }) {
     width: size,
     height: size,
     borderRadius: size / 2,
+    overflow: 'hidden',
   };
 
-  if (imageUrl) {
+  if (imageUrl && !loadFailed) {
     return (
       <Image
         source={{ uri: imageUrl }}
         style={[styles.image, containerStyle]}
+        onError={() => setLoadFailed(true)}
       />
     );
   }
@@ -72,6 +81,7 @@ export function ChildAvatar({ child, size = 48, fontSize }) {
 const styles = StyleSheet.create({
   image: {
     resizeMode: 'cover',
+    backgroundColor: colors.primaryLight,
   },
   fallback: {
     backgroundColor: colors.primaryLight,

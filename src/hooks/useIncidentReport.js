@@ -130,12 +130,12 @@ export function useIncidentForm(incidentId = null) {
   async function uploadPhoto(incidentId, childId, uri) {
     try {
       const response = await fetch(uri);
-      const blob = await response.blob();
+      const arrayBuffer = await response.arrayBuffer();
       const path = `${childId}/${incidentId}/${Date.now()}.jpg`;
 
       const { error: uploadError } = await supabase.storage
         .from('incident-photos')
-        .upload(path, blob, { contentType: 'image/jpeg', upsert: false });
+        .upload(path, arrayBuffer, { contentType: 'image/jpeg', upsert: false });
 
       if (uploadError) throw uploadError;
       return { path };

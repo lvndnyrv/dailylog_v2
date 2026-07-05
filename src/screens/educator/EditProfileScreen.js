@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
 import {
-  View, Text, ScrollView, TouchableOpacity,
-  StyleSheet, Alert
+  View, Text, TouchableOpacity,
+  StyleSheet
 } from 'react-native';
 import { useAuth } from '../../hooks/useAuth';
 import { supabase } from '../../lib/supabase';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
-import { Input, Button, Divider } from '../../components/ui';
+import { Input, Button, PasswordStrength } from '../../components/ui';
+import { showToast } from '../../components/Toast';
 import { colors, spacing, radius } from '../../theme';
 
 export default function EditProfileScreen({ navigation }) {
@@ -14,19 +15,36 @@ export default function EditProfileScreen({ navigation }) {
   const [fullName, setFullName] = useState(profile?.full_name || '');
   const [phone, setPhone]       = useState(profile?.phone || '');
   const [saving, setSaving]     = useState(false);
+  const [profileErrors, setProfileErrors] = useState({});
 
   // Password change fields
-  const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword]         = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [changingPw, setChangingPw]           = useState(false);
+  const [pwErrors, setPwErrors]               = useState({});
+
+  function validateProfile() {
+    const errs = {};
+    if (!fullName.trim()) errs.fullName = 'Full name is required';
+    if (!phone.trim()) errs.phone = 'Phone number is required';
+    setProfileErrors(errs);
+    return Object.keys(errs).length === 0;
+  }
+
+  function validatePassword() {
+    const errs = {};
+    if (!newPassword) errs.newPassword = 'New password is required';
+    else if (newPassword.length < 6) errs.newPassword = 'Password must be at least 6 characters';
+    if (!confirmPassword) errs.confirmPassword = 'Please confirm your password';
+    else if (newPassword !== confirmPassword) errs.confirmPassword = 'Passwords do not match';
+    setPwErrors(errs);
+    return Object.keys(errs).length === 0;
+  }
 
   async function handleSaveProfile() {
-    if (!fullName.trim()) {
-      Alert.alert('Required', 'Name cannot be empty.');
-      return;
-    }
+    if (!validateProfile()) return;
     setSaving(true);
+    setProfileErrors({});
     const { error } = await supabase
       .from('profiles')
       .update({ full_name: fullName.trim(), phone: phone.trim() })
@@ -34,36 +52,26 @@ export default function EditProfileScreen({ navigation }) {
 
     setSaving(false);
     if (error) {
-      Alert.alert('Error', error.message);
+      setProfileErrors({ general: error.message });
     } else {
       await fetchProfile(user.id);
-      Alert.alert('Saved ✓', 'Your profile has been updated.');
+      showToast('✓ Profile saved', 'success');
       navigation.goBack();
     }
   }
 
   async function handleChangePassword() {
-    if (!newPassword) {
-      Alert.alert('Required', 'Please enter a new password.');
-      return;
-    }
-    if (newPassword.length < 6) {
-      Alert.alert('Too short', 'Password must be at least 6 characters.');
-      return;
-    }
-    if (newPassword !== confirmPassword) {
-      Alert.alert('Mismatch', 'New passwords do not match.');
-      return;
-    }
+    if (!validatePassword()) return;
     setChangingPw(true);
+    setPwErrors({});
     const { error } = await supabase.auth.updateUser({ password: newPassword });
     setChangingPw(false);
 
     if (error) {
-      Alert.alert('Error', error.message);
+      setPwErrors({ general: error.message });
     } else {
-      setCurrentPassword(''); setNewPassword(''); setConfirmPassword('');
-      Alert.alert('Password updated ✓', 'Your password has been changed successfully.');
+      setNewPassword(''); setConfirmPassword('');
+      showToast('✓ Password updated', 'success');
     }
   }
 
@@ -85,24 +93,32 @@ export default function EditProfileScreen({ navigation }) {
           </View>
           <View>
             <Text style={styles.roleLabel}>
-              {profile?.role === 'educator' ? '👩‍🏫 Educator' : '👨‍👩‍👧 Parent'}
+              {profile?.role === 'admin' ? '👑 Admin' : profile?.role === 'educator' ? '👩‍🏫 Educator' : '👨‍👩‍👧 Parent'}
             </Text>
             <Text style={styles.emailLabel}>{profile?.email}</Text>
           </View>
         </View>
 
+        {profileErrors.general && (
+          <View style={styles.errorBanner}>
+            <Text style={styles.errorBannerText}>{profileErrors.general}</Text>
+          </View>
+        )}
+
         <Input
-          label="Full name"
+          label="Full name (required)"
           value={fullName}
-          onChangeText={setFullName}
+          onChangeText={(v) => { setFullName(v); if (profileErrors.fullName) setProfileErrors(e => ({ ...e, fullName: null })); }}
           placeholder="Your full name"
+          error={profileErrors.fullName}
         />
         <Input
-          label="Phone number"
+          label="Phone number (required)"
           value={phone}
-          onChangeText={setPhone}
+          onChangeText={(v) => { setPhone(v); if (profileErrors.phone) setProfileErrors(e => ({ ...e, phone: null })); }}
           placeholder="e.g. 905-555-0100"
           keyboardType="phone-pad"
+          error={profileErrors.phone}
         />
 
         <Button label="Save changes" onPress={handleSaveProfile} loading={saving} />
@@ -111,19 +127,29 @@ export default function EditProfileScreen({ navigation }) {
       {/* Password change */}
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Change password</Text>
+
+        {pwErrors.general && (
+          <View style={styles.errorBanner}>
+            <Text style={styles.errorBannerText}>{pwErrors.general}</Text>
+          </View>
+        )}
+
         <Input
           label="New password"
           value={newPassword}
-          onChangeText={setNewPassword}
+          onChangeText={(v) => { setNewPassword(v); if (pwErrors.newPassword) setPwErrors(e => ({ ...e, newPassword: null })); }}
           placeholder="Min. 6 characters"
           secureTextEntry
+          error={pwErrors.newPassword}
         />
+        <PasswordStrength password={newPassword} />
         <Input
           label="Confirm new password"
           value={confirmPassword}
-          onChangeText={setConfirmPassword}
+          onChangeText={(v) => { setConfirmPassword(v); if (pwErrors.confirmPassword) setPwErrors(e => ({ ...e, confirmPassword: null })); }}
           placeholder="Repeat new password"
           secureTextEntry
+          error={pwErrors.confirmPassword}
         />
         <Button
           label="Update password"
@@ -158,4 +184,17 @@ const styles = StyleSheet.create({
   avatarInitial: { fontSize: 22, fontWeight: '700', color: colors.primary },
   roleLabel: { fontSize: 14, fontWeight: '600', color: colors.textPrimary },
   emailLabel: { fontSize: 13, color: colors.textSecondary, marginTop: 2 },
+  errorBanner: {
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    borderRadius: radius.md,
+    padding: spacing.md,
+    marginBottom: spacing.lg,
+  },
+  errorBannerText: {
+    fontSize: 13,
+    color: '#DC2626',
+    lineHeight: 18,
+  },
 });

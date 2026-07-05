@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import {
-  View, Text, ScrollView, TouchableOpacity,
+  View, Text, TouchableOpacity,
   StyleSheet, Alert, TextInput, Image, ActivityIndicator
 } from 'react-native';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 import { useAuth } from '../../hooks/useAuth';
 import { useIncidentForm } from '../../hooks/useIncidentReport';
 import { exportIncidentPdf } from '../../lib/export';
@@ -91,7 +92,13 @@ export default function IncidentDetailScreen({ route, navigation }) {
         </TouchableOpacity>
       </View>
 
-      <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
+      <KeyboardAwareScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.content}
+        enableOnAndroid
+        extraScrollHeight={40}
+        keyboardShouldPersistTaps="handled"
+      >
         {/* Severity banner */}
         <View style={[styles.severityBanner, { backgroundColor: sev.bg, borderColor: sev.color + '44' }]}>
           <Text style={styles.severityEmoji}>{sev.emoji}</Text>
@@ -201,7 +208,7 @@ export default function IncidentDetailScreen({ route, navigation }) {
         )}
 
         <View style={{ height: spacing.xxxl * 2 }} />
-      </ScrollView>
+      </KeyboardAwareScrollView>
     </View>
   );
 }

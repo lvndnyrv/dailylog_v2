@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, Alert, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 import { useAuth } from '../../hooks/useAuth';
 import { Input, Button } from '../../components/ui';
@@ -10,17 +10,24 @@ export default function ForgotPasswordScreen({ navigation }) {
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
+  const [errors, setErrors] = useState({});
+
+  function validate() {
+    const errs = {};
+    if (!email.trim()) errs.email = 'Email is required';
+    else if (!/\S+@\S+\.\S+/.test(email.trim())) errs.email = 'Enter a valid email address';
+    setErrors(errs);
+    return Object.keys(errs).length === 0;
+  }
 
   async function handleReset() {
-    if (!email.trim()) {
-      Alert.alert('Required', 'Please enter your email address.');
-      return;
-    }
+    if (!validate()) return;
     setLoading(true);
+    setErrors({});
     const { error } = await resetPassword(email.trim().toLowerCase());
     setLoading(false);
     if (error) {
-      Alert.alert('Error', error.message);
+      setErrors({ general: error.message });
     } else {
       setSent(true);
     }
@@ -64,12 +71,20 @@ export default function ForgotPasswordScreen({ navigation }) {
               Enter the email address for your account and we'll send you a link
               to reset your password.
             </Text>
+
+            {errors.general && (
+              <View style={styles.errorBanner}>
+                <Text style={styles.errorBannerText}>{errors.general}</Text>
+              </View>
+            )}
+
             <Input
               label="Email"
               value={email}
-              onChangeText={setEmail}
+              onChangeText={(v) => { setEmail(v); if (errors.email) setErrors(e => ({ ...e, email: null })); }}
               placeholder="your@email.com"
               keyboardType="email-address"
+              error={errors.email}
             />
             <Button label="Send reset link" onPress={handleReset} loading={loading} />
           </>
@@ -98,6 +113,19 @@ const styles = StyleSheet.create({
   desc: {
     fontSize: 14, color: colors.textSecondary, lineHeight: 20,
     textAlign: 'center', marginBottom: spacing.xl,
+  },
+  errorBanner: {
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    borderRadius: radius.md,
+    padding: spacing.md,
+    marginBottom: spacing.lg,
+  },
+  errorBannerText: {
+    fontSize: 13,
+    color: '#DC2626',
+    lineHeight: 18,
   },
   sentText: { fontSize: 15, color: colors.success, lineHeight: 22, textAlign: 'center' },
   sentHint: {

@@ -8,9 +8,15 @@ import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { AuthProvider, useAuth } from './src/hooks/useAuth';
 import { ClassroomProvider } from './src/hooks/useClassroom';
 import { usePushNotifications } from './src/hooks/usePushNotifications';
+import { useUnreadMessages } from './src/hooks/useUnreadMessages';
 import { LoadingScreen, Button } from './src/components/ui';
 import { OfflineBanner } from './src/components/OfflineBanner';
 import { ToastHost } from './src/components/Toast';
+import { PushPrimingModal } from './src/components/PushPriming';
+import { ForceUpdateGate } from './src/components/ForceUpdateGate';
+import { BiometricGate } from './src/components/BiometricGate';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import WelcomeScreen, { WELCOME_SEEN_KEY } from './src/screens/shared/WelcomeScreen';
 import { navigationRef } from './src/lib/navigationRef';
 import { handleAuthUrl } from './src/lib/authLinks';
 import { colors, spacing } from './src/theme';
@@ -48,7 +54,7 @@ import { Ionicons } from '@expo/vector-icons';
 const Stack = createNativeStackNavigator();
 const Tab   = createBottomTabNavigator();
 
-function TabIcon({ name, label, focused }) {
+function TabIcon({ name, label, focused, badge }) {
   return (
     <View style={tabStyles.iconWrap}>
       <View style={[tabStyles.iconBg, focused && tabStyles.iconBgActive]}>
@@ -57,6 +63,11 @@ function TabIcon({ name, label, focused }) {
           size={22}
           color={focused ? colors.primary : colors.textMuted}
         />
+        {badge > 0 && (
+          <View style={tabStyles.badge}>
+            <Text style={tabStyles.badgeText}>{badge > 99 ? '99+' : badge}</Text>
+          </View>
+        )}
       </View>
       <Text numberOfLines={1} style={[tabStyles.label, focused && tabStyles.labelActive]}>{label}</Text>
     </View>
@@ -72,6 +83,13 @@ const tabStyles = StyleSheet.create({
   iconBgActive: { backgroundColor: colors.primaryLight },
   label: { fontSize: 11, color: colors.textMuted, fontWeight: '500' },
   labelActive: { color: colors.primary, fontWeight: '600' },
+  badge: {
+    position: 'absolute', top: -4, right: -6,
+    minWidth: 18, height: 18, borderRadius: 9,
+    backgroundColor: '#EF4444', paddingHorizontal: 4,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  badgeText: { fontSize: 10, color: '#fff', fontWeight: '700' },
 });
 
 const tabBarStyle = {
@@ -85,6 +103,7 @@ const tabBarStyle = {
 
 // ─── EDUCATOR TABS ────────────────────────────────────────────────────────────
 function EducatorTabs() {
+  const { unreadCount } = useUnreadMessages();
   return (
     <Tab.Navigator screenOptions={{ headerShown: false, tabBarStyle }}>
       <Tab.Screen name="Roster" component={RosterScreen}
@@ -92,7 +111,7 @@ function EducatorTabs() {
       <Tab.Screen name="BulkTab" component={BulkLogScreen}
         options={{ tabBarIcon: ({ focused }) => <TabIcon name="flash" label="Bulk" focused={focused} />, tabBarLabel: () => null }} />
       <Tab.Screen name="InboxTab" component={InboxScreen}
-        options={{ tabBarIcon: ({ focused }) => <TabIcon name="chatbubbles" label="Inbox" focused={focused} />, tabBarLabel: () => null }} />
+        options={{ tabBarIcon: ({ focused }) => <TabIcon name="chatbubbles" label="Inbox" focused={focused} badge={unreadCount} />, tabBarLabel: () => null }} />
       <Tab.Screen name="ManageTab" component={ManageScreen}
         options={{ tabBarIcon: ({ focused }) => <TabIcon name="school" label="Class" focused={focused} />, tabBarLabel: () => null }} />
       <Tab.Screen name="ProfileTab" component={SettingsScreen}
@@ -103,6 +122,7 @@ function EducatorTabs() {
 
 // ─── PARENT TABS ──────────────────────────────────────────────────────────────
 function ParentTabs() {
+  const { unreadCount } = useUnreadMessages();
   return (
     <Tab.Navigator screenOptions={{ headerShown: false, tabBarStyle }}>
       <Tab.Screen name="ParentHome" component={ParentHomeScreen}
@@ -110,7 +130,7 @@ function ParentTabs() {
       <Tab.Screen name="WeeklyTab" component={WeeklySummaryTabScreen}
         options={{ tabBarIcon: ({ focused }) => <TabIcon name="bar-chart" label="Weekly" focused={focused} />, tabBarLabel: () => null }} />
       <Tab.Screen name="MessagesTab" component={ParentMessagesScreen}
-        options={{ tabBarIcon: ({ focused }) => <TabIcon name="chatbubbles" label="Chat" focused={focused} />, tabBarLabel: () => null }} />
+        options={{ tabBarIcon: ({ focused }) => <TabIcon name="chatbubbles" label="Chat" focused={focused} badge={unreadCount} />, tabBarLabel: () => null }} />
       <Tab.Screen name="ProfileTab" component={SettingsScreen}
         options={{ tabBarIcon: ({ focused }) => <TabIcon name="person" label="Me" focused={focused} />, tabBarLabel: () => null }} />
     </Tab.Navigator>
@@ -123,8 +143,12 @@ function AdminTabs() {
     <Tab.Navigator screenOptions={{ headerShown: false, tabBarStyle }}>
       <Tab.Screen name="AdminDashboard" component={AdminDashboardScreen}
         options={{ tabBarIcon: ({ focused }) => <TabIcon name="grid" label="Dashboard" focused={focused} />, tabBarLabel: () => null }} />
+      <Tab.Screen name="Roster" component={RosterScreen}
+        options={{ tabBarIcon: ({ focused }) => <TabIcon name="people" label="Kids" focused={focused} />, tabBarLabel: () => null }} />
+      <Tab.Screen name="ManageTab" component={ManageScreen}
+        options={{ tabBarIcon: ({ focused }) => <TabIcon name="school" label="Class" focused={focused} />, tabBarLabel: () => null }} />
       <Tab.Screen name="AdminUsers" component={AdminUsersScreen}
-        options={{ tabBarIcon: ({ focused }) => <TabIcon name="people" label="Users" focused={focused} />, tabBarLabel: () => null }} />
+        options={{ tabBarIcon: ({ focused }) => <TabIcon name="person-add" label="Users" focused={focused} />, tabBarLabel: () => null }} />
       <Tab.Screen name="AdminSettings" component={AdminSettingsScreen}
         options={{ tabBarIcon: ({ focused }) => <TabIcon name="settings" label="Settings" focused={focused} />, tabBarLabel: () => null }} />
     </Tab.Navigator>
@@ -219,9 +243,20 @@ function ProfileIssueScreen() {
 
 // ─── ROOT NAVIGATOR ───────────────────────────────────────────────────────────
 function RootNavigator() {
-  const { user, profile, loading, recovery } = useAuth();
+  const { user, profile, loading, recovery, profileFailed } = useAuth();
   usePushNotifications(user?.id);
-  if (loading) return <LoadingScreen />;
+
+  // First-launch welcome carousel
+  const [welcomeSeen, setWelcomeSeen] = React.useState(null); // null = checking
+  React.useEffect(() => {
+    AsyncStorage.getItem(WELCOME_SEEN_KEY).then(v => setWelcomeSeen(!!v));
+  }, []);
+
+  if (loading || welcomeSeen === null) return <LoadingScreen />;
+
+  if (!user && !welcomeSeen) {
+    return <WelcomeScreen onDone={() => setWelcomeSeen(true)} />;
+  }
 
   const needsOnboarding = profile?.role === 'educator' && !profile?.classroom_id;
 
@@ -232,20 +267,25 @@ function RootNavigator() {
           <Stack.Screen name="Login"          component={LoginScreen} />
           <Stack.Screen name="Signup"         component={SignupScreen} />
           <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
+          <Stack.Screen name="Privacy"        component={PrivacyScreen} options={{ animation: 'slide_from_bottom' }} />
         </>
       ) : recovery ? (
         <Stack.Screen name="ResetPassword" component={ResetPasswordScreen} />
-      ) : !profile ? (
+      ) : profileFailed ? (
         <Stack.Screen name="ProfileIssue" component={ProfileIssueScreen} />
       ) : needsOnboarding ? (
         <Stack.Screen name="Onboarding" component={OnboardingScreen} />
       ) : profile?.role === 'admin' ? (
         <>
           <Stack.Screen name="AdminTabs"       component={AdminTabs} />
-          <Stack.Screen name="Announcements"   component={AnnouncementsScreen}   options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="DailyLog"        component={DailyLogScreen}        options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="ChildProfile"    component={ChildProfileScreen}    options={{ animation: 'slide_from_right' }} />
-          <Stack.Screen name="Medication"      component={MedicationScreen}      options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="ClassroomEdit"   component={ClassroomEditScreen}   options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="IncidentReport"  component={IncidentReportScreen}  options={{ animation: 'slide_from_bottom' }} />
           <Stack.Screen name="EditProfile"     component={EditProfileScreen}     options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="Messaging"       component={MessagingScreen}       options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="Announcements"   component={AnnouncementsScreen}   options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="Medication"      component={MedicationScreen}      options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="Privacy"         component={PrivacyScreen}         options={{ animation: 'slide_from_bottom' }} />
         </>
       ) : profile?.role === 'educator' ? (
@@ -291,9 +331,14 @@ export default function App() {
         <ClassroomProvider>
           <NavigationContainer ref={navigationRef}>
             <SafeAreaView style={styles.root} edges={['top', 'left', 'right']}>
-              <OfflineBanner />
-              <RootNavigator />
-              <ToastHost />
+              <ForceUpdateGate>
+                <BiometricGate>
+                  <OfflineBanner />
+                  <RootNavigator />
+                  <PushPrimingModal />
+                  <ToastHost />
+                </BiometricGate>
+              </ForceUpdateGate>
             </SafeAreaView>
           </NavigationContainer>
         </ClassroomProvider>

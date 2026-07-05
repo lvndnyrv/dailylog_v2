@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { Platform } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
 import Constants from 'expo-constants';
@@ -90,6 +91,12 @@ export function usePushNotifications(userId) {
 
     (async () => {
       try {
+        // Respect the soft-ask priming: only auto-register if the user
+        // accepted priming OR the OS permission is already granted.
+        const prime = await AsyncStorage.getItem('dailylog:push_prime');
+        const { status } = await Notifications.getPermissionsAsync();
+        if (status !== 'granted' && prime !== 'accepted') return;
+
         const token = await registerForPushNotificationsAsync();
         if (!token || !mounted) return;
         const { error } = await supabase.from('push_tokens').upsert(

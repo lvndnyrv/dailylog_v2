@@ -191,11 +191,23 @@ export function useDailyLog(childId, date = new Date(), { createIfMissing = fals
 
   // ---- SEND TO PARENTS ----
   async function sendToParents() {
-    if (!log) return;
-    await supabase.from('daily_logs')
+    if (!log) return { error: { message: 'No log to send' } };
+
+    // Check network connectivity
+    const { error } = await supabase.from('daily_logs')
       .update({ sent_to_parents: true, sent_at: new Date().toISOString() })
       .eq('id', log.id);
+
+    if (error) {
+      // If it's a network/fetch error, treat as offline
+      if (error.message?.includes('fetch') || error.message?.includes('network') || error.code === 'PGRST301') {
+        return { error: null, offline: true };
+      }
+      return { error };
+    }
+
     setLog(prev => ({ ...prev, sent_to_parents: true }));
+    return { error: null, offline: false };
   }
 
   return {

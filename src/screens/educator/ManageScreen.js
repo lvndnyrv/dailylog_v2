@@ -199,8 +199,22 @@ function InviteParentForm({ classroomId, children }) {
         ))}
       </View>
 
+      {/* Child invite code — parents can self-link with this */}
+      {childId && (() => {
+        const selected = children.find(c => c.id === childId);
+        return selected?.invite_code ? (
+          <View style={styles.codeCard}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.codeLabel}>Child code for {selected.first_name}</Text>
+              <Text style={styles.codeValue}>{selected.invite_code}</Text>
+            </View>
+            <Text style={styles.codeHint}>Parent enters this{'\n'}in the app to link</Text>
+          </View>
+        ) : null;
+      })()}
+
       <Input
-        label="Parent's email address"
+        label="Or invite by email"
         value={email}
         onChangeText={setEmail}
         placeholder="parent@email.com"
@@ -221,15 +235,17 @@ export default function ManageScreen({ navigation }) {
   const [tab, setTab]                 = useState('children');
   const [searchQuery, setSearchQuery] = useState('');
   const [showAddChild, setShowAddChild] = useState(false);
+  const [daycareCode, setDaycareCode] = useState(null);
 
   async function load(isInitial = false) {
-    if (!profile?.classroom_id) return;
+    const roomId = activeClassroom?.id || profile?.classroom_id;
+    if (!roomId) return;
     if (isInitial) setLoading(true);
 
     const { data: kids } = await supabase
       .from('children')
       .select('*')
-      .eq('classroom_id', profile.classroom_id)
+      .eq('classroom_id', roomId)
       .is('archived_at', null)
       .order('first_name');
 
@@ -243,6 +259,16 @@ export default function ManageScreen({ navigation }) {
       setParents(links || []);
     }
 
+    // Daycare invite code (for onboarding educator colleagues)
+    if (profile?.daycare_id) {
+      const { data: dc } = await supabase
+        .from('daycares')
+        .select('invite_code')
+        .eq('id', profile.daycare_id)
+        .maybeSingle();
+      setDaycareCode(dc?.invite_code || null);
+    }
+
     setLoading(false);
   }
 
@@ -250,7 +276,7 @@ export default function ManageScreen({ navigation }) {
 
   useEffect(() => {
     if (isFocused && profile) load(true);
-  }, [isFocused, profile?.classroom_id]);
+  }, [isFocused, profile?.classroom_id, activeClassroom?.id]);
 
   // Remove the old focus listener useEffect
 
@@ -333,6 +359,17 @@ export default function ManageScreen({ navigation }) {
           </View>
           <Text style={styles.classroomChevron}>›</Text>
         </TouchableOpacity>
+      )}
+
+      {/* Daycare invite code — for educator colleagues */}
+      {daycareCode && (
+        <View style={styles.codeCard}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.codeLabel}>🔑 Daycare code</Text>
+            <Text style={styles.codeValue}>{daycareCode}</Text>
+          </View>
+          <Text style={styles.codeHint}>Colleagues use this to{'\n'}join during sign-up</Text>
+        </View>
       )}
 
       {/* Tabs */}
@@ -498,7 +535,7 @@ export default function ManageScreen({ navigation }) {
       <AddChildSheet
         visible={showAddChild}
         onClose={() => setShowAddChild(false)}
-        classroomId={profile.classroom_id}
+        classroomId={activeClassroom?.id || profile.classroom_id}
         onAdded={load}
         onCompleteProfile={(child) => navigation.navigate('ChildProfile', { child })}
       />
@@ -522,6 +559,15 @@ const styles = StyleSheet.create({
   announcementsBtnTitle: { fontSize: 15, fontWeight: '600', color: colors.textPrimary },
   announcementsBtnSub: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
   announcementsBtnChevron: { fontSize: 22, color: colors.textMuted },
+  codeCard: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.md,
+    backgroundColor: colors.primaryLight, borderRadius: radius.lg,
+    borderWidth: 1, borderColor: colors.primary + '33',
+    padding: spacing.lg, marginBottom: spacing.lg,
+  },
+  codeLabel: { fontSize: 12, fontWeight: '600', color: colors.textSecondary },
+  codeValue: { fontSize: 22, fontWeight: '800', color: colors.primary, letterSpacing: 3, marginTop: 2 },
+  codeHint: { fontSize: 11, color: colors.textSecondary, textAlign: 'right', lineHeight: 15 },
   tabs: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.lg, marginTop: spacing.lg },
   tab: {
     flex: 1, paddingVertical: spacing.sm, borderRadius: radius.lg,

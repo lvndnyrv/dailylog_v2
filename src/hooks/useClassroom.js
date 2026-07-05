@@ -136,7 +136,7 @@ export function ClassroomProvider({ children }) {
       joinClassroom,
       createAndJoinClassroom,
       leaveClassroom,
-      reload: loadClassrooms,
+      reload: profile?.role === 'admin' ? loadAllClassrooms : loadClassrooms,
     }}>
       {children}
     </ClassroomContext.Provider>

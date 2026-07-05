@@ -235,8 +235,149 @@ function StepChildren({ classroomId, onFinish, onBack }) {
   );
 }
 
+// ─── STEP 0: CREATE OR JOIN ──────────────────────────────────────────────────
+function StepChoice({ onCreate, onJoin }) {
+  return (
+    <View style={styles.stepCard}>
+      <Text style={styles.stepEmoji}>🏫</Text>
+      <Text style={styles.stepTitle}>Set up your daycare</Text>
+      <Text style={styles.stepDesc}>
+        Is your daycare already using DailyLog, or are you setting it up for the first time?
+      </Text>
+
+      <TouchableOpacity style={styles.choiceCard} onPress={onJoin} activeOpacity={0.7}>
+        <Text style={styles.choiceIcon}>🔑</Text>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.choiceTitle}>Join my daycare</Text>
+          <Text style={styles.choiceDesc}>A colleague or admin gave me an invite code</Text>
+        </View>
+        <Text style={styles.choiceChevron}>›</Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity style={styles.choiceCard} onPress={onCreate} activeOpacity={0.7}>
+        <Text style={styles.choiceIcon}>✨</Text>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.choiceTitle}>Create a new daycare</Text>
+          <Text style={styles.choiceDesc}>I'm the first person from my centre on DailyLog</Text>
+        </View>
+        <Text style={styles.choiceChevron}>›</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+// ─── JOIN FLOW: CODE ENTRY + ROOM PICK ───────────────────────────────────────
+function StepJoin({ onBack, onNeedNewRoom }) {
+  const { profile, user, fetchProfile } = useAuth();
+  const [code, setCode]           = useState('');
+  const [error, setError]         = useState(null);
+  const [joining, setJoining]     = useState(false);
+  const [daycare, setDaycare]     = useState(null); // { id, name } after join
+  const [rooms, setRooms]         = useState([]);
+  const [selecting, setSelecting] = useState(false);
+
+  async function handleJoin() {
+    if (!code.trim()) { setError('Enter the invite code from your daycare.'); return; }
+    setJoining(true);
+    setError(null);
+    const { data, error: rpcError } = await supabase.rpc('join_daycare_with_code', { p_code: code.trim() });
+    setJoining(false);
+    if (rpcError) { setError(rpcError.message); return; }
+
+    const joined = data?.[0];
+    if (!joined) { setError('Invalid invite code.'); return; }
+    setDaycare({ id: joined.daycare_id, name: joined.daycare_name });
+
+    // Load that daycare's classrooms for the room pick
+    const { data: roomRows } = await supabase.rpc('get_daycare_classrooms', { p_daycare_id: joined.daycare_id });
+    setRooms(roomRows || []);
+  }
+
+  async function pickRoom(room) {
+    setSelecting(true);
+    const { error: updateError } = await supabase
+      .from('profiles')
+      .update({ classroom_id: room.id })
+      .eq('id', profile.id);
+    if (!updateError) {
+      await supabase.from('educator_classrooms').upsert(
+        { educator_id: profile.id, classroom_id: room.id },
+        { onConflict: 'educator_id,classroom_id', ignoreDuplicates: true }
+      );
+      await fetchProfile(user.id); // routes away from onboarding
+    } else {
+      setError(updateError.message);
+    }
+    setSelecting(false);
+  }
+
+  // Phase 2: pick a classroom after successfully joining
+  if (daycare) {
+    return (
+      <View style={styles.stepCard}>
+        <Text style={styles.stepEmoji}>🎉</Text>
+        <Text style={styles.stepTitle}>Welcome to {daycare.name}!</Text>
+        <Text style={styles.stepDesc}>
+          {rooms.length
+            ? 'Pick the classroom you work in:'
+            : 'No classrooms exist yet — create the first one.'}
+        </Text>
+
+        {rooms.map(room => (
+          <TouchableOpacity
+            key={room.id}
+            style={styles.choiceCard}
+            onPress={() => pickRoom(room)}
+            disabled={selecting}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.choiceIcon}>🚪</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.choiceTitle}>{room.name}</Text>
+              {room.age_group ? <Text style={styles.choiceDesc}>{room.age_group}</Text> : null}
+            </View>
+            <Text style={styles.choiceChevron}>›</Text>
+          </TouchableOpacity>
+        ))}
+
+        {error && <Text style={styles.joinError}>{error}</Text>}
+
+        <Button
+          label="+ Create a new classroom"
+          variant="ghost"
+          onPress={() => onNeedNewRoom(daycare.id)}
+          style={{ marginTop: spacing.md }}
+        />
+      </View>
+    );
+  }
+
+  // Phase 1: enter the invite code
+  return (
+    <View style={styles.stepCard}>
+      <Text style={styles.stepEmoji}>🔑</Text>
+      <Text style={styles.stepTitle}>Enter your invite code</Text>
+      <Text style={styles.stepDesc}>
+        Ask your daycare admin or a colleague for the 6-character daycare code. They can find it in Settings.
+      </Text>
+
+      <Input
+        label="Invite code"
+        value={code}
+        onChangeText={(v) => { setCode(v.toUpperCase()); setError(null); }}
+        placeholder="e.g. K7PM3Q"
+        error={error}
+      />
+
+      <Button label="Join daycare" onPress={handleJoin} loading={joining} style={{ marginTop: spacing.sm }} />
+      <Button label="← Back" onPress={onBack} variant="ghost" style={{ marginTop: spacing.sm }} />
+    </View>
+  );
+}
+
 // ─── MAIN ONBOARDING SCREEN ───────────────────────────────────────────────────
 export default function OnboardingScreen() {
+  const [mode, setMode]   = useState('choice'); // choice | create | join
   const [step, setStep]   = useState(0);
   const [data, setData]   = useState({});
 
@@ -255,6 +396,13 @@ export default function OnboardingScreen() {
     // which will route away from onboarding automatically
   }
 
+  // Joined an existing daycare but needs to create a room in it:
+  function handleNeedNewRoom(daycareId) {
+    setData(prev => ({ ...prev, daycareId }));
+    setMode('create');
+    setStep(1); // jump straight to the classroom step
+  }
+
   return (
     <KeyboardAwareScrollView
       style={styles.container}
@@ -270,22 +418,39 @@ export default function OnboardingScreen() {
         <Text style={styles.headerSub}>Let's get you set up</Text>
       </View>
 
-      <StepIndicator current={step} />
-
-      {step === 0 && <StepDaycare onNext={handleStep1Done} />}
-      {step === 1 && (
-        <StepClassroom
-          daycareId={data.daycareId}
-          onNext={handleStep2Done}
-          onBack={() => setStep(0)}
+      {mode === 'choice' && (
+        <StepChoice
+          onCreate={() => { setMode('create'); setStep(0); }}
+          onJoin={() => setMode('join')}
         />
       )}
-      {step === 2 && (
-        <StepChildren
-          classroomId={data.classroomId}
-          onFinish={handleFinish}
-          onBack={() => setStep(1)}
+
+      {mode === 'join' && (
+        <StepJoin
+          onBack={() => setMode('choice')}
+          onNeedNewRoom={handleNeedNewRoom}
         />
+      )}
+
+      {mode === 'create' && (
+        <>
+          <StepIndicator current={step} />
+          {step === 0 && <StepDaycare onNext={handleStep1Done} />}
+          {step === 1 && (
+            <StepClassroom
+              daycareId={data.daycareId}
+              onNext={handleStep2Done}
+              onBack={() => (data.daycareName ? setStep(0) : setMode('choice'))}
+            />
+          )}
+          {step === 2 && (
+            <StepChildren
+              classroomId={data.classroomId}
+              onFinish={handleFinish}
+              onBack={() => setStep(1)}
+            />
+          )}
+        </>
       )}
 
       <View style={{ height: spacing.xxxl }} />
@@ -340,6 +505,19 @@ const styles = StyleSheet.create({
   chipTextSelected: { color: colors.primary, fontWeight: '600' },
 
   btnRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm },
+
+  // Choice cards (create vs join)
+  choiceCard: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.md,
+    backgroundColor: colors.bg, borderRadius: radius.lg,
+    borderWidth: 1.5, borderColor: colors.border,
+    padding: spacing.lg, marginBottom: spacing.md,
+  },
+  choiceIcon: { fontSize: 28 },
+  choiceTitle: { fontSize: 15, fontWeight: '600', color: colors.textPrimary },
+  choiceDesc: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
+  choiceChevron: { fontSize: 22, color: colors.textMuted },
+  joinError: { fontSize: 13, color: colors.danger, fontWeight: '500', textAlign: 'center', marginTop: spacing.sm },
 
   // Children step
   childRow: {

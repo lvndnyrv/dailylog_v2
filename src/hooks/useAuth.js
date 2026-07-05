@@ -9,29 +9,83 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [recovery, setRecovery] = useState(false); // password-recovery deep link in progress
+  const [recovery, setRecovery] = useState(false);
+  const [profileFailed, setProfileFailed] = useState(false); // true only after confirmed failure
 
   useEffect(() => {
-    // Get initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null);
-      if (session?.user) fetchProfile(session.user.id);
-      else setLoading(false);
-    });
+    let isMounted = true;
+    let fetchingProfile = false;
 
-    // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      if (event === 'PASSWORD_RECOVERY') setRecovery(true);
-      setUser(session?.user ?? null);
-      if (session?.user) fetchProfile(session.user.id);
-      else {
-        setProfile(null);
-        setRecovery(false);
+    async function handleSession(session) {
+      if (!session?.user) {
+        if (isMounted) {
+          setUser(null);
+          setProfile(null);
+          setProfileFailed(false);
+          setLoading(false);
+        }
+        return;
+      }
+
+      if (isMounted) {
+        setUser(session.user);
+        setLoading(true);
+        setProfileFailed(false);
+      }
+
+      // Prevent duplicate fetches
+      if (fetchingProfile) return;
+      fetchingProfile = true;
+
+      let data = null;
+      try {
+        const res = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', session.user.id)
+          .maybeSingle();
+        data = res.data;
+
+        if (!data) {
+          data = await ensureProfileFromMetadata();
+        }
+      } catch (e) {
+        // Network error — don't show failure screen, retry later
+      }
+
+      fetchingProfile = false;
+      if (isMounted) {
+        setProfile(data ?? null);
+        setProfileFailed(!data);
         setLoading(false);
       }
+    }
+
+    // Listen for auth changes (includes INITIAL_SESSION)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'PASSWORD_RECOVERY') setRecovery(true);
+      if (event === 'SIGNED_OUT') {
+        if (isMounted) {
+          setUser(null);
+          setProfile(null);
+          setRecovery(false);
+          setProfileFailed(false);
+          setLoading(false);
+        }
+        return;
+      }
+      handleSession(session);
     });
 
-    return () => subscription.unsubscribe();
+    // Fallback: get initial session in case INITIAL_SESSION event doesn't fire
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      handleSession(session);
+    });
+
+    return () => {
+      isMounted = false;
+      subscription.unsubscribe();
+    };
   }, []);
 
   // Fallback used when the DB trigger hasn't created a profile yet
@@ -102,8 +156,11 @@ export function AuthProvider({ children }) {
     // (covers databases where the trigger migration hasn't run).
     if (data?.session && data?.user) {
       await fetchProfile(data.user.id);
+      return { error: null, needsEmailConfirm: false };
     }
-    return { error: null };
+    // No session → Supabase email confirmation is enabled;
+    // the user must click the link in their inbox before signing in.
+    return { error: null, needsEmailConfirm: true };
   }
 
   async function resetPassword(email) {
@@ -136,7 +193,7 @@ export function AuthProvider({ children }) {
   return (
     <AuthContext.Provider
       value={{
-        user, profile, loading, recovery,
+        user, profile, loading, recovery, profileFailed,
         signIn, signUp, signOut, deleteAccount, fetchProfile,
         resetPassword, updatePassword, clearRecovery,
       }}

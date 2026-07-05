@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, Alert, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 import { useAuth } from '../../hooks/useAuth';
 import { Input, Button } from '../../components/ui';
@@ -10,16 +10,28 @@ export default function LoginScreen({ navigation }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [errors, setErrors] = useState({});
+
+  function validate() {
+    const errs = {};
+    if (!email.trim()) errs.email = 'Email is required';
+    else if (!/\S+@\S+\.\S+/.test(email.trim())) errs.email = 'Enter a valid email address';
+    if (!password) errs.password = 'Password is required';
+    setErrors(errs);
+    return Object.keys(errs).length === 0;
+  }
 
   async function handleLogin() {
-    if (!email || !password) {
-      Alert.alert('Missing fields', 'Please enter your email and password.');
-      return;
-    }
+    if (!validate()) return;
     setLoading(true);
+    setErrors({});
     const { error } = await signIn(email.trim().toLowerCase(), password);
     setLoading(false);
-    if (error) Alert.alert('Login failed', error.message);
+    if (error) {
+      setErrors({ general: error.message === 'Invalid login credentials'
+        ? 'Incorrect email or password. Please try again.'
+        : error.message });
+    }
   }
 
   return (
@@ -38,20 +50,28 @@ export default function LoginScreen({ navigation }) {
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Sign in</Text>
 
+        {errors.general && (
+          <View style={styles.errorBanner}>
+            <Text style={styles.errorBannerText}>{errors.general}</Text>
+          </View>
+        )}
+
         <Input
           label="Email"
           value={email}
-          onChangeText={setEmail}
+          onChangeText={(v) => { setEmail(v); if (errors.email) setErrors(e => ({ ...e, email: null })); }}
           placeholder="your@email.com"
           keyboardType="email-address"
+          error={errors.email}
         />
 
         <Input
           label="Password"
           value={password}
-          onChangeText={setPassword}
+          onChangeText={(v) => { setPassword(v); if (errors.password) setErrors(e => ({ ...e, password: null })); }}
           placeholder="••••••••"
           secureTextEntry
+          error={errors.password}
         />
 
         <Button
@@ -116,6 +136,19 @@ const styles = StyleSheet.create({
   },
   loginBtn: {
     marginTop: spacing.sm,
+  },
+  errorBanner: {
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    borderRadius: radius.md,
+    padding: spacing.md,
+    marginBottom: spacing.lg,
+  },
+  errorBannerText: {
+    fontSize: 13,
+    color: '#DC2626',
+    lineHeight: 18,
   },
   forgotLink: {
     alignItems: 'center',

@@ -65,34 +65,13 @@ export default function InboxScreen() {
           .limit(1)
           .maybeSingle();
 
-        // Count unread: messages from parents since educator's last message
-        let unread = 0;
-        const { data: myLastMsg } = await supabase
+        // Count unread: messages NOT from me where read_at is null
+        const { count: unread } = await supabase
           .from('messages')
-          .select('created_at')
+          .select('id', { count: 'exact', head: true })
           .eq('child_id', child.id)
-          .eq('sender_id', profile.id)
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .maybeSingle();
-
-        if (myLastMsg) {
-          const { count } = await supabase
-            .from('messages')
-            .select('id', { count: 'exact', head: true })
-            .eq('child_id', child.id)
-            .neq('sender_id', profile.id)
-            .gt('created_at', myLastMsg.created_at);
-          unread = count || 0;
-        } else if (lastMsg) {
-          // Educator never replied — all parent messages are "unread"
-          const { count } = await supabase
-            .from('messages')
-            .select('id', { count: 'exact', head: true })
-            .eq('child_id', child.id)
-            .neq('sender_id', profile.id);
-          unread = count || 0;
-        }
+          .neq('sender_id', profile.id)
+          .is('read_at', null);
 
         return {
           childId: child.id,
@@ -104,7 +83,7 @@ export default function InboxScreen() {
           lastSenderRole: lastMsg?.sender?.role || null,
           lastSenderName: lastMsg?.sender?.full_name || null,
           isMe: lastMsg?.sender_id === profile.id,
-          unread,
+          unread: unread || 0,
         };
       })
     );

@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { View, Text, StyleSheet, Alert, TouchableOpacity } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 import { useAuth } from '../../hooks/useAuth';
-import { Input, Button } from '../../components/ui';
+import { Input, Button, PasswordStrength } from '../../components/ui';
 import { colors, spacing, radius } from '../../theme';
 
 /**
@@ -14,25 +14,26 @@ export default function ResetPasswordScreen() {
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [saving, setSaving] = useState(false);
+  const [errors, setErrors] = useState({});
+
+  function validate() {
+    const errs = {};
+    if (!password) errs.password = 'Password is required';
+    else if (password.length < 6) errs.password = 'Password must be at least 6 characters';
+    if (!confirm) errs.confirm = 'Please confirm your password';
+    else if (password !== confirm) errs.confirm = 'Passwords do not match';
+    setErrors(errs);
+    return Object.keys(errs).length === 0;
+  }
 
   async function handleSave() {
-    if (!password) {
-      Alert.alert('Required', 'Please enter a new password.');
-      return;
-    }
-    if (password.length < 6) {
-      Alert.alert('Too short', 'Password must be at least 6 characters.');
-      return;
-    }
-    if (password !== confirm) {
-      Alert.alert('Mismatch', 'Passwords do not match.');
-      return;
-    }
+    if (!validate()) return;
     setSaving(true);
+    setErrors({});
     const { error } = await updatePassword(password);
     setSaving(false);
     if (error) {
-      Alert.alert('Error', error.message);
+      setErrors({ general: error.message });
     } else {
       Alert.alert('Password updated ✓', 'You are now signed in with your new password.');
     }
@@ -52,19 +53,28 @@ export default function ResetPasswordScreen() {
           You followed a password reset link. Set a new password for your account below.
         </Text>
 
+        {errors.general && (
+          <View style={styles.errorBanner}>
+            <Text style={styles.errorBannerText}>{errors.general}</Text>
+          </View>
+        )}
+
         <Input
           label="New password"
           value={password}
-          onChangeText={setPassword}
+          onChangeText={(v) => { setPassword(v); if (errors.password) setErrors(e => ({ ...e, password: null })); }}
           placeholder="Min. 6 characters"
           secureTextEntry
+          error={errors.password}
         />
+        <PasswordStrength password={password} />
         <Input
           label="Confirm new password"
           value={confirm}
-          onChangeText={setConfirm}
+          onChangeText={(v) => { setConfirm(v); if (errors.confirm) setErrors(e => ({ ...e, confirm: null })); }}
           placeholder="Repeat new password"
           secureTextEntry
+          error={errors.confirm}
         />
 
         <Button label="Set new password" onPress={handleSave} loading={saving} />
@@ -94,6 +104,19 @@ const styles = StyleSheet.create({
   desc: {
     fontSize: 14, color: colors.textSecondary, lineHeight: 20,
     textAlign: 'center', marginBottom: spacing.xl,
+  },
+  errorBanner: {
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    borderRadius: radius.md,
+    padding: spacing.md,
+    marginBottom: spacing.lg,
+  },
+  errorBannerText: {
+    fontSize: 13,
+    color: '#DC2626',
+    lineHeight: 18,
   },
   skip: { alignItems: 'center', marginTop: spacing.lg },
   skipText: { fontSize: 13, color: colors.textMuted },

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, RefreshControl } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, RefreshControl, TextInput } from 'react-native';
 import { useAuth } from '../../hooks/useAuth';
 import { supabase } from '../../lib/supabase';
 import { useDailyLog } from '../../hooks/useDailyLog';
@@ -15,6 +15,101 @@ const AMOUNT_STYLE = {
   some: { color: colors.amber, bg: colors.amberLight },
   none: { color: colors.danger, bg: colors.dangerLight },
 };
+
+// ─── EMPTY STATE with child invite code entry ────────────────────────────────
+function LinkChildEmptyState({ onLinked }) {
+  const [code, setCode] = useState('');
+  const [error, setError] = useState(null);
+  const [linking, setLinking] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+
+  async function handleLink() {
+    if (!code.trim()) { setError('Enter the code from your daycare.'); return; }
+    setLinking(true);
+    setError(null);
+    const { data, error: rpcError } = await supabase.rpc('link_child_with_code', { p_code: code.trim() });
+    setLinking(false);
+    if (rpcError) { setError(rpcError.message); return; }
+    const linked = data?.[0];
+    if (linked) onLinked();
+  }
+
+  async function handleRefresh() {
+    setRefreshing(true);
+    await onLinked();
+    setRefreshing(false);
+  }
+
+  return (
+    <ScrollView style={emptyStyles.container} contentContainerStyle={emptyStyles.content} keyboardShouldPersistTaps="handled">
+      <Text style={emptyStyles.icon}>👶</Text>
+      <Text style={emptyStyles.title}>Link your child</Text>
+      <Text style={emptyStyles.body}>
+        Your daycare educator can give you a 6-character child code, or they can
+        link you directly by email — in that case just refresh below.
+      </Text>
+
+      <View style={emptyStyles.card}>
+        <Text style={emptyStyles.cardLabel}>Child code</Text>
+        <TextInput
+          style={[emptyStyles.input, error && emptyStyles.inputError]}
+          value={code}
+          onChangeText={(v) => { setCode(v.toUpperCase()); setError(null); }}
+          placeholder="e.g. K7PM3Q"
+          placeholderTextColor={colors.textMuted}
+          autoCapitalize="characters"
+          autoCorrect={false}
+          maxLength={6}
+        />
+        {error && <Text style={emptyStyles.errorText}>{error}</Text>}
+        <TouchableOpacity
+          style={[emptyStyles.linkBtn, linking && { opacity: 0.6 }]}
+          onPress={handleLink}
+          disabled={linking}
+        >
+          <Text style={emptyStyles.linkBtnText}>{linking ? 'Linking...' : 'Link my child'}</Text>
+        </TouchableOpacity>
+      </View>
+
+      <TouchableOpacity onPress={handleRefresh} style={emptyStyles.refreshBtn} disabled={refreshing}>
+        <Text style={emptyStyles.refreshText}>
+          {refreshing ? 'Checking...' : '↻ My daycare already added me — refresh'}
+        </Text>
+      </TouchableOpacity>
+    </ScrollView>
+  );
+}
+
+const emptyStyles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: colors.bg },
+  content: { padding: spacing.xl, paddingTop: 80, alignItems: 'center' },
+  icon: { fontSize: 56, marginBottom: spacing.lg },
+  title: { fontSize: 24, fontWeight: '700', color: colors.textPrimary, marginBottom: spacing.md },
+  body: {
+    fontSize: 14, color: colors.textSecondary, textAlign: 'center',
+    lineHeight: 21, marginBottom: spacing.xl,
+  },
+  card: {
+    alignSelf: 'stretch', backgroundColor: colors.surface,
+    borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border,
+    padding: spacing.lg,
+  },
+  cardLabel: { fontSize: 13, fontWeight: '500', color: colors.textSecondary, marginBottom: spacing.sm },
+  input: {
+    borderWidth: 1.5, borderColor: colors.border, borderRadius: radius.md,
+    padding: spacing.md, fontSize: 18, letterSpacing: 4, textAlign: 'center',
+    color: colors.textPrimary, backgroundColor: colors.bg, fontWeight: '700',
+  },
+  inputError: { borderColor: colors.danger },
+  errorText: { fontSize: 12, color: colors.danger, fontWeight: '500', marginTop: spacing.xs },
+  linkBtn: {
+    backgroundColor: colors.primary, borderRadius: radius.md,
+    padding: spacing.md + 2, alignItems: 'center', marginTop: spacing.md,
+  },
+  linkBtnText: { fontSize: 15, fontWeight: '600', color: colors.white },
+  refreshBtn: { marginTop: spacing.xl, padding: spacing.md },
+  refreshText: { fontSize: 14, color: colors.primary, fontWeight: '500' },
+});
 
 export default function ParentHomeScreen({ navigation }) {
   const { profile } = useAuth();
@@ -113,9 +208,7 @@ export default function ParentHomeScreen({ navigation }) {
 
   if (!children.length) {
     return (
-      <View style={styles.container}>
-        <EmptyState icon="👶" message="No children linked to your account yet.\nAsk your daycare to add you." />
-      </View>
+      <LinkChildEmptyState onLinked={fetchChildren} />
     );
   }
 

@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity,
-  StyleSheet, ActivityIndicator
+  StyleSheet, ActivityIndicator, RefreshControl
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../../hooks/useAuth';
 import { supabase } from '../../lib/supabase';
 import { colors, spacing, radius } from '../../theme';
@@ -22,10 +22,14 @@ export default function ParentMessagesScreen() {
   const { profile }             = useAuth();
   const [threads, setThreads]   = useState([]);
   const [loading, setLoading]   = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
-  useEffect(() => {
-    loadThreads();
-  }, [profile]);
+  // Reload every time screen gains focus (catches returning from chat)
+  useFocusEffect(
+    useCallback(() => {
+      if (profile) loadThreads();
+    }, [profile?.id])
+  );
 
   async function loadThreads() {
     if (!profile) return;
@@ -38,46 +42,25 @@ export default function ParentMessagesScreen() {
 
     if (!links?.length) { setThreads([]); setLoading(false); return; }
 
-    // For each child, get the latest message
+    // For each child, get the latest message and unread count
     const threadData = await Promise.all(
       links.map(async (link) => {
         const child = link.child;
         const { data: lastMsg } = await supabase
           .from('messages')
-          .select('body, created_at, sender:profiles(full_name, role)')
+          .select('body, created_at, sender_id, sender:profiles(full_name, role)')
           .eq('child_id', child.id)
           .order('created_at', { ascending: false })
           .limit(1)
-          .single();
+          .maybeSingle();
 
-        // Count unread (messages from educators since parent's last message)
-        const { data: parentLastMsg } = await supabase
+        // Count unread: messages NOT from me where read_at is null
+        const { count: unread } = await supabase
           .from('messages')
-          .select('created_at')
+          .select('id', { count: 'exact', head: true })
           .eq('child_id', child.id)
-          .eq('sender_id', profile.id)
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .single();
-
-        let unread = 0;
-        if (parentLastMsg) {
-          const { count } = await supabase
-            .from('messages')
-            .select('id', { count: 'exact', head: true })
-            .eq('child_id', child.id)
-            .neq('sender_id', profile.id)
-            .gt('created_at', parentLastMsg.created_at);
-          unread = count || 0;
-        } else if (lastMsg) {
-          // Parent never sent a message — all educator messages are "unread"
-          const { count } = await supabase
-            .from('messages')
-            .select('id', { count: 'exact', head: true })
-            .eq('child_id', child.id)
-            .neq('sender_id', profile.id);
-          unread = count || 0;
-        }
+          .neq('sender_id', profile.id)
+          .is('read_at', null);
 
         return {
           childId: child.id,
@@ -88,16 +71,24 @@ export default function ParentMessagesScreen() {
           lastMessageTime: lastMsg?.created_at || null,
           lastSender: lastMsg?.sender?.full_name || null,
           lastSenderRole: lastMsg?.sender?.role || null,
-          unread,
+          isMe: lastMsg?.sender_id === profile.id,
+          unread: unread || 0,
         };
       })
     );
 
     setThreads(threadData);
     setLoading(false);
+    setRefreshing(false);
   }
 
   function renderThread({ item }) {
+    const previewPrefix = item.isMe
+      ? 'You: '
+      : item.lastSenderRole === 'educator' || item.lastSenderRole === 'admin'
+        ? `${item.lastSender}: `
+        : '';
+
     return (
       <TouchableOpacity
         style={styles.threadCard}
@@ -108,19 +99,22 @@ export default function ParentMessagesScreen() {
         activeOpacity={0.7}
       >
         <View style={[styles.threadAvatar, item.unread > 0 && styles.threadAvatarUnread]}>
-          <Text style={styles.threadInitial}>{item.initial}</Text>
+          <Text style={[styles.threadInitial, item.unread > 0 && styles.threadInitialUnread]}>
+            {item.initial}
+          </Text>
         </View>
         <View style={styles.threadBody}>
           <View style={styles.threadTop}>
             <Text style={styles.threadName}>{item.childName}</Text>
             {item.lastMessageTime && (
-              <Text style={styles.threadTime}>{formatTime(item.lastMessageTime)}</Text>
+              <Text style={[styles.threadTime, item.unread > 0 && styles.threadTimeUnread]}>
+                {formatTime(item.lastMessageTime)}
+              </Text>
             )}
           </View>
           {item.lastMessage ? (
             <Text style={[styles.threadPreview, item.unread > 0 && styles.threadPreviewUnread]} numberOfLines={2}>
-              {item.lastSenderRole === 'educator' ? `${item.lastSender}: ` : 'You: '}
-              {item.lastMessage}
+              {previewPrefix}{item.lastMessage}
             </Text>
           ) : (
             <Text style={styles.threadEmpty}>No messages yet — start a conversation</Text>
@@ -128,7 +122,7 @@ export default function ParentMessagesScreen() {
         </View>
         {item.unread > 0 && (
           <View style={styles.unreadBadge}>
-            <Text style={styles.unreadText}>{item.unread}</Text>
+            <Text style={styles.unreadText}>{item.unread > 99 ? '99+' : item.unread}</Text>
           </View>
         )}
       </TouchableOpacity>
@@ -152,6 +146,14 @@ export default function ParentMessagesScreen() {
           keyExtractor={t => t.childId}
           renderItem={renderThread}
           contentContainerStyle={styles.list}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={() => { setRefreshing(true); loadThreads(); }}
+              colors={[colors.primary]}
+              tintColor={colors.primary}
+            />
+          }
           ListEmptyComponent={
             <View style={styles.emptyWrap}>
               <Text style={styles.emptyIcon}>💬</Text>
@@ -189,16 +191,18 @@ const styles = StyleSheet.create({
   },
   threadAvatarUnread: { backgroundColor: colors.primary },
   threadInitial: { fontSize: 18, fontWeight: '700', color: colors.primary },
+  threadInitialUnread: { color: colors.white },
   threadBody: { flex: 1 },
   threadTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3 },
   threadName: { fontSize: 15, fontWeight: '600', color: colors.textPrimary },
   threadTime: { fontSize: 12, color: colors.textMuted },
+  threadTimeUnread: { color: colors.primary, fontWeight: '600' },
   threadPreview: { fontSize: 13, color: colors.textSecondary, lineHeight: 18 },
   threadPreviewUnread: { color: colors.textPrimary, fontWeight: '500' },
   threadEmpty: { fontSize: 13, color: colors.textMuted, fontStyle: 'italic' },
   unreadBadge: {
-    width: 22, height: 22, borderRadius: 11,
-    backgroundColor: colors.primary,
+    minWidth: 22, height: 22, borderRadius: 11,
+    backgroundColor: colors.primary, paddingHorizontal: 5,
     alignItems: 'center', justifyContent: 'center',
   },
   unreadText: { fontSize: 12, color: colors.white, fontWeight: '700' },

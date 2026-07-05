@@ -1,13 +1,37 @@
-import React, { useState } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Alert } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Alert, Switch } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as LocalAuthentication from 'expo-local-authentication';
 import { useAuth } from '../../hooks/useAuth';
+import { BIOMETRIC_KEY, biometricsAvailable } from '../../components/BiometricGate';
 import { Button, Divider } from '../../components/ui';
 import { colors, spacing, radius } from '../../theme';
 
 export default function SettingsScreen({ navigation }) {
   const { profile, signOut, deleteAccount } = useAuth();
   const [deleting, setDeleting] = useState(false);
+  const [bioSupported, setBioSupported] = useState(false);
+  const [bioEnabled, setBioEnabled] = useState(false);
   const isEducator = profile?.role === 'educator';
+
+  useEffect(() => {
+    (async () => {
+      setBioSupported(await biometricsAvailable());
+      setBioEnabled((await AsyncStorage.getItem(BIOMETRIC_KEY)) === 'on');
+    })();
+  }, []);
+
+  async function toggleBiometric(value) {
+    if (value) {
+      // Verify identity before enabling the lock
+      const result = await LocalAuthentication.authenticateAsync({
+        promptMessage: 'Confirm to enable app lock',
+      });
+      if (!result.success) return;
+    }
+    await AsyncStorage.setItem(BIOMETRIC_KEY, value ? 'on' : 'off');
+    setBioEnabled(value);
+  }
 
   function handleSignOut() {
     Alert.alert('Sign out', 'Are you sure you want to sign out?', [
@@ -52,7 +76,7 @@ export default function SettingsScreen({ navigation }) {
           <Text style={styles.profileEmail}>{profile?.email}</Text>
           <View style={styles.roleBadge}>
             <Text style={styles.roleText}>
-              {isEducator ? '👩‍🏫 Educator' : '👨‍👩‍👧 Parent'}
+              {profile?.role === 'admin' ? '👑 Admin' : isEducator ? '👩‍🏫 Educator' : '👨‍👩‍👧 Parent'}
             </Text>
           </View>
         </View>
@@ -69,6 +93,21 @@ export default function SettingsScreen({ navigation }) {
           </View>
           <Text style={styles.menuArrow}>›</Text>
         </TouchableOpacity>
+
+        {bioSupported && (
+          <View style={styles.menuItem}>
+            <View style={styles.menuLeft}>
+              <Text style={styles.menuIcon}>🔐</Text>
+              <Text style={styles.menuLabel}>Require Face ID / fingerprint</Text>
+            </View>
+            <Switch
+              value={bioEnabled}
+              onValueChange={toggleBiometric}
+              trackColor={{ true: colors.primary, false: colors.border }}
+              thumbColor={colors.white}
+            />
+          </View>
+        )}
       </View>
 
       {/* Legal section */}

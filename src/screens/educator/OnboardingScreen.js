@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity, Alert, ScrollView
+  View, Text, StyleSheet, TouchableOpacity, Alert
 } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 import { useAuth } from '../../hooks/useAuth';
@@ -235,63 +235,22 @@ function StepChildren({ classroomId, onFinish, onBack }) {
   );
 }
 
-// ─── STEP 0: CREATE OR JOIN ──────────────────────────────────────────────────
-function StepChoice({ onCreate, onJoin }) {
-  return (
-    <View style={styles.stepCard}>
-      <Text style={styles.stepEmoji}>🏫</Text>
-      <Text style={styles.stepTitle}>Set up your daycare</Text>
-      <Text style={styles.stepDesc}>
-        Is your daycare already using DailyLog, or are you setting it up for the first time?
-      </Text>
-
-      <TouchableOpacity style={styles.choiceCard} onPress={onJoin} activeOpacity={0.7}>
-        <Text style={styles.choiceIcon}>🔑</Text>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.choiceTitle}>Join my daycare</Text>
-          <Text style={styles.choiceDesc}>A colleague or admin gave me an invite code</Text>
-        </View>
-        <Text style={styles.choiceChevron}>›</Text>
-      </TouchableOpacity>
-
-      <TouchableOpacity style={styles.choiceCard} onPress={onCreate} activeOpacity={0.7}>
-        <Text style={styles.choiceIcon}>✨</Text>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.choiceTitle}>Create a new daycare</Text>
-          <Text style={styles.choiceDesc}>I'm the first person from my centre on DailyLog</Text>
-        </View>
-        <Text style={styles.choiceChevron}>›</Text>
-      </TouchableOpacity>
-    </View>
-  );
-}
-
-// ─── JOIN FLOW: CODE ENTRY + ROOM PICK ───────────────────────────────────────
-function StepJoin({ onBack, onNeedNewRoom }) {
+// ─── EDUCATOR: PICK OR CREATE CLASSROOM (invited flow) ───────────────────────
+// Invited educators already have daycare_id set by the staff-invite trigger.
+// They only need to pick their room (or create the first one).
+function StepPickClassroom({ daycareId, onCreateNew }) {
   const { profile, user, fetchProfile } = useAuth();
-  const [code, setCode]           = useState('');
+  const [rooms, setRooms]         = useState(null); // null = loading
   const [error, setError]         = useState(null);
-  const [joining, setJoining]     = useState(false);
-  const [daycare, setDaycare]     = useState(null); // { id, name } after join
-  const [rooms, setRooms]         = useState([]);
   const [selecting, setSelecting] = useState(false);
 
-  async function handleJoin() {
-    if (!code.trim()) { setError('Enter the invite code from your daycare.'); return; }
-    setJoining(true);
-    setError(null);
-    const { data, error: rpcError } = await supabase.rpc('join_daycare_with_code', { p_code: code.trim() });
-    setJoining(false);
-    if (rpcError) { setError(rpcError.message); return; }
-
-    const joined = data?.[0];
-    if (!joined) { setError('Invalid invite code.'); return; }
-    setDaycare({ id: joined.daycare_id, name: joined.daycare_name });
-
-    // Load that daycare's classrooms for the room pick
-    const { data: roomRows } = await supabase.rpc('get_daycare_classrooms', { p_daycare_id: joined.daycare_id });
-    setRooms(roomRows || []);
-  }
+  React.useEffect(() => {
+    async function load() {
+      const { data } = await supabase.rpc('get_daycare_classrooms', { p_daycare_id: daycareId });
+      setRooms(data || []);
+    }
+    load();
+  }, [daycareId]);
 
   async function pickRoom(room) {
     setSelecting(true);
@@ -311,75 +270,103 @@ function StepJoin({ onBack, onNeedNewRoom }) {
     setSelecting(false);
   }
 
-  // Phase 2: pick a classroom after successfully joining
-  if (daycare) {
-    return (
-      <View style={styles.stepCard}>
-        <Text style={styles.stepEmoji}>🎉</Text>
-        <Text style={styles.stepTitle}>Welcome to {daycare.name}!</Text>
-        <Text style={styles.stepDesc}>
-          {rooms.length
-            ? 'Pick the classroom you work in:'
+  return (
+    <View style={styles.stepCard}>
+      <Text style={styles.stepEmoji}>🚪</Text>
+      <Text style={styles.stepTitle}>Pick your classroom</Text>
+      <Text style={styles.stepDesc}>
+        {rooms === null
+          ? 'Loading your daycare\'s rooms...'
+          : rooms.length
+            ? 'Choose the room you work in — you can switch or add rooms later.'
             : 'No classrooms exist yet — create the first one.'}
-        </Text>
+      </Text>
 
-        {rooms.map(room => (
-          <TouchableOpacity
-            key={room.id}
-            style={styles.choiceCard}
-            onPress={() => pickRoom(room)}
-            disabled={selecting}
-            activeOpacity={0.7}
-          >
-            <Text style={styles.choiceIcon}>🚪</Text>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.choiceTitle}>{room.name}</Text>
-              {room.age_group ? <Text style={styles.choiceDesc}>{room.age_group}</Text> : null}
-            </View>
-            <Text style={styles.choiceChevron}>›</Text>
-          </TouchableOpacity>
-        ))}
+      {(rooms || []).map(room => (
+        <TouchableOpacity
+          key={room.id}
+          style={styles.choiceCard}
+          onPress={() => pickRoom(room)}
+          disabled={selecting}
+          activeOpacity={0.7}
+        >
+          <Text style={styles.choiceIcon}>🚪</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.choiceTitle}>{room.name}</Text>
+            {room.age_group ? <Text style={styles.choiceDesc}>{room.age_group}</Text> : null}
+          </View>
+          <Text style={styles.choiceChevron}>›</Text>
+        </TouchableOpacity>
+      ))}
 
-        {error && <Text style={styles.joinError}>{error}</Text>}
+      {error && <Text style={styles.joinError}>{error}</Text>}
 
-        <Button
-          label="+ Create a new classroom"
-          variant="ghost"
-          onPress={() => onNeedNewRoom(daycare.id)}
-          style={{ marginTop: spacing.md }}
-        />
-      </View>
-    );
+      <Button
+        label="+ Create a new classroom"
+        variant="ghost"
+        onPress={onCreateNew}
+        style={{ marginTop: spacing.md }}
+      />
+    </View>
+  );
+}
+
+// ─── EDUCATOR FALLBACK: legacy account with no daycare link ──────────────────
+// Educators can no longer self-register; this only appears for accounts
+// created before invite-gating. join_daycare_with_code is staff-only.
+function StepJoinFallback({ onJoined }) {
+  const [code, setCode]       = useState('');
+  const [error, setError]     = useState(null);
+  const [joining, setJoining] = useState(false);
+
+  async function handleJoin() {
+    if (!code.trim()) { setError('Enter the code from your daycare admin.'); return; }
+    setJoining(true);
+    setError(null);
+    const { data, error: rpcError } = await supabase.rpc('join_daycare_with_code', { p_code: code.trim() });
+    setJoining(false);
+    if (rpcError) { setError(rpcError.message); return; }
+    const joined = data?.[0];
+    if (!joined) { setError('Invalid invite code.'); return; }
+    onJoined(joined.daycare_id);
   }
 
-  // Phase 1: enter the invite code
   return (
     <View style={styles.stepCard}>
       <Text style={styles.stepEmoji}>🔑</Text>
-      <Text style={styles.stepTitle}>Enter your invite code</Text>
+      <Text style={styles.stepTitle}>Connect to your daycare</Text>
       <Text style={styles.stepDesc}>
-        Ask your daycare admin or a colleague for the 6-character daycare code. They can find it in Settings.
+        Your account isn't linked to a daycare yet. Ask your daycare admin for
+        the 6-character daycare code (they can find it in the admin panel).
       </Text>
 
       <Input
-        label="Invite code"
+        label="Daycare code"
         value={code}
         onChangeText={(v) => { setCode(v.toUpperCase()); setError(null); }}
         placeholder="e.g. K7PM3Q"
         error={error}
       />
 
-      <Button label="Join daycare" onPress={handleJoin} loading={joining} style={{ marginTop: spacing.sm }} />
-      <Button label="← Back" onPress={onBack} variant="ghost" style={{ marginTop: spacing.sm }} />
+      <Button label="Connect" onPress={handleJoin} loading={joining} style={{ marginTop: spacing.sm }} />
     </View>
   );
 }
 
 // ─── MAIN ONBOARDING SCREEN ───────────────────────────────────────────────────
+// Routing (from App.js):
+//   admin without daycare_id      → create daycare → first classroom → children
+//   educator without classroom_id → pick/create classroom in their daycare
 export default function OnboardingScreen() {
-  const [mode, setMode]   = useState('choice'); // choice | create | join
+  const { profile } = useAuth();
+  const isAdmin = profile?.role === 'admin';
+
   const [step, setStep]   = useState(0);
   const [data, setData]   = useState({});
+  // Educator with a daycare (invited) starts at the room picker;
+  // 'create-room' switches to the classroom-creation step.
+  const [educatorView, setEducatorView] = useState('pick'); // pick | create-room
+  const [educatorDaycareId, setEducatorDaycareId] = useState(profile?.daycare_id || null);
 
   function handleStep1Done({ daycareId, daycareName }) {
     setData(prev => ({ ...prev, daycareId, daycareName }));
@@ -396,13 +383,6 @@ export default function OnboardingScreen() {
     // which will route away from onboarding automatically
   }
 
-  // Joined an existing daycare but needs to create a room in it:
-  function handleNeedNewRoom(daycareId) {
-    setData(prev => ({ ...prev, daycareId }));
-    setMode('create');
-    setStep(1); // jump straight to the classroom step
-  }
-
   return (
     <KeyboardAwareScrollView
       style={styles.container}
@@ -415,24 +395,13 @@ export default function OnboardingScreen() {
       <View style={styles.header}>
         <Text style={styles.logo}>📋</Text>
         <Text style={styles.appName}>DailyLog</Text>
-        <Text style={styles.headerSub}>Let's get you set up</Text>
+        <Text style={styles.headerSub}>
+          {isAdmin ? "Let's set up your daycare" : "Let's get you set up"}
+        </Text>
       </View>
 
-      {mode === 'choice' && (
-        <StepChoice
-          onCreate={() => { setMode('create'); setStep(0); }}
-          onJoin={() => setMode('join')}
-        />
-      )}
-
-      {mode === 'join' && (
-        <StepJoin
-          onBack={() => setMode('choice')}
-          onNeedNewRoom={handleNeedNewRoom}
-        />
-      )}
-
-      {mode === 'create' && (
+      {isAdmin ? (
+        // ── Admin: create daycare → first classroom → children ──
         <>
           <StepIndicator current={step} />
           {step === 0 && <StepDaycare onNext={handleStep1Done} />}
@@ -440,7 +409,7 @@ export default function OnboardingScreen() {
             <StepClassroom
               daycareId={data.daycareId}
               onNext={handleStep2Done}
-              onBack={() => (data.daycareName ? setStep(0) : setMode('choice'))}
+              onBack={() => setStep(0)}
             />
           )}
           {step === 2 && (
@@ -451,6 +420,22 @@ export default function OnboardingScreen() {
             />
           )}
         </>
+      ) : !educatorDaycareId ? (
+        // ── Legacy educator with no daycare link: code fallback ──
+        <StepJoinFallback onJoined={(id) => setEducatorDaycareId(id)} />
+      ) : educatorView === 'pick' ? (
+        // ── Invited educator: pick a room in their daycare ──
+        <StepPickClassroom
+          daycareId={educatorDaycareId}
+          onCreateNew={() => setEducatorView('create-room')}
+        />
+      ) : (
+        // ── Invited educator: create the room ──
+        <StepClassroom
+          daycareId={educatorDaycareId}
+          onNext={handleFinish}
+          onBack={() => setEducatorView('pick')}
+        />
       )}
 
       <View style={{ height: spacing.xxxl }} />

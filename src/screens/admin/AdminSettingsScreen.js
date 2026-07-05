@@ -103,6 +103,19 @@ export default function AdminSettingsScreen() {
         )}
       </View>
 
+      {/* Daycare code — for reconnecting legacy staff accounts */}
+      {daycare?.invite_code && (
+        <View style={styles.codeCard}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.codeLabel}>🔑 Daycare code</Text>
+            <Text style={styles.codeValue}>{daycare.invite_code}</Text>
+          </View>
+          <Text style={styles.codeHint}>
+            For staff accounts that{'\n'}need to reconnect.{'\n'}New educators: use{'\n'}Users → Invite educator.
+          </Text>
+        </View>
+      )}
+
       <Divider />
 
       <Button label="Sign out" onPress={handleSignOut} variant="ghost" />
@@ -130,6 +143,15 @@ const styles = StyleSheet.create({
   avatarInitial: { fontSize: 20, fontWeight: '700', color: colors.purple },
   profileName: { fontSize: 16, fontWeight: '600', color: colors.textPrimary },
   profileMeta: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
+  codeCard: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.md,
+    backgroundColor: colors.primaryLight, borderRadius: radius.lg,
+    borderWidth: 1, borderColor: colors.primary + '33',
+    padding: spacing.lg, marginBottom: spacing.lg,
+  },
+  codeLabel: { fontSize: 12, fontWeight: '600', color: colors.textSecondary },
+  codeValue: { fontSize: 22, fontWeight: '800', color: colors.primary, letterSpacing: 3, marginTop: 2 },
+  codeHint: { fontSize: 11, color: colors.textSecondary, textAlign: 'right', lineHeight: 15 },
 });
 
 

@@ -1,9 +1,15 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../lib/supabase';
 
 const AuthContext = createContext({});
 
 const VALID_ROLES = ['educator', 'parent', 'admin'];
+
+// Remembered account (last successful sign-in) — survives logout on purpose,
+// so returning users only need to enter their password.
+const REMEMBERED_EMAIL_KEY = 'dailylog_remembered_email';
+const REMEMBERED_NAME_KEY = 'dailylog_remembered_name';
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
@@ -54,6 +60,11 @@ export function AuthProvider({ children }) {
       }
 
       fetchingProfile = false;
+      // Remember this account (email + display name) for fast future sign-in.
+      // Covers password logins AND magic-link/OTP invites.
+      if (data && session.user.email) {
+        saveRememberedAccount(session.user.email, data.full_name || '');
+      }
       if (isMounted) {
         setProfile(data ?? null);
         setProfileFailed(!data);
@@ -138,17 +149,72 @@ export function AuthProvider({ children }) {
 
   async function signIn(email, password) {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
+    // Remember the account on successful login (name is refreshed once the
+    // profile loads in handleSession).
+    if (!error) {
+      await saveRememberedAccount(email);
+    }
     return { error };
   }
 
-  async function signUp(email, password, fullName, role, phone = '') {
+  async function saveRememberedAccount(email, name) {
+    try {
+      if (name !== undefined) {
+        await AsyncStorage.multiSet([
+          [REMEMBERED_EMAIL_KEY, email],
+          [REMEMBERED_NAME_KEY, name || ''],
+        ]);
+      } else {
+        // Email-only update: drop a stale name if the account changed.
+        const prevEmail = await AsyncStorage.getItem(REMEMBERED_EMAIL_KEY);
+        if (prevEmail && prevEmail !== email) {
+          await AsyncStorage.removeItem(REMEMBERED_NAME_KEY);
+        }
+        await AsyncStorage.setItem(REMEMBERED_EMAIL_KEY, email);
+      }
+    } catch (e) {
+      console.warn('Failed to save remembered account:', e);
+    }
+  }
+
+  async function getRememberedAccount() {
+    try {
+      const [[, email], [, name]] = await AsyncStorage.multiGet([
+        REMEMBERED_EMAIL_KEY,
+        REMEMBERED_NAME_KEY,
+      ]);
+      return email ? { email, name: name || '' } : null;
+    } catch (e) {
+      console.warn('Failed to get remembered account:', e);
+      return null;
+    }
+  }
+
+  async function clearRememberedAccount() {
+    try {
+      await AsyncStorage.multiRemove([REMEMBERED_EMAIL_KEY, REMEMBERED_NAME_KEY]);
+    } catch (e) {
+      console.warn('Failed to clear remembered account:', e);
+    }
+  }
+
+  async function signUp(email, password, fullName, role, phone = '', activationCode = '') {
     // Metadata is consumed by the handle_new_user DB trigger, which
     // creates the profile server-side (works even when email
     // confirmation is enabled and there is no session yet).
+    // role='admin' additionally requires a valid activation_code —
+    // the trigger downgrades to 'parent' otherwise (server-enforced).
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      options: { data: { full_name: fullName, role, phone } },
+      options: {
+        data: {
+          full_name: fullName,
+          role,
+          phone,
+          ...(activationCode ? { activation_code: activationCode } : {}),
+        },
+      },
     });
     if (error) return { error };
 
@@ -181,11 +247,15 @@ export function AuthProvider({ children }) {
   }
 
   async function signOut() {
+    // Intentionally KEEP the remembered account: after logging out, the user
+    // should see their email on the login screen and only type the password.
     await supabase.auth.signOut();
   }
 
   async function deleteAccount() {
     const { error } = await supabase.rpc('delete_my_account');
+    // The account no longer exists — don't suggest it at next login.
+    await clearRememberedAccount();
     await supabase.auth.signOut();
     return { error };
   }
@@ -196,6 +266,7 @@ export function AuthProvider({ children }) {
         user, profile, loading, recovery, profileFailed,
         signIn, signUp, signOut, deleteAccount, fetchProfile,
         resetPassword, updatePassword, clearRecovery,
+        getRememberedAccount, clearRememberedAccount,
       }}
     >
       {children}

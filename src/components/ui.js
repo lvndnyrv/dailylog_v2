@@ -51,7 +51,7 @@ export function Button({ label, onPress, loading, disabled, variant = 'primary',
 }
 
 // ---- TEXT INPUT ----
-export function Input({ label, value, onChangeText, placeholder, secureTextEntry, keyboardType, multiline, error, style }) {
+export function Input({ label, value, onChangeText, placeholder, secureTextEntry, keyboardType, multiline, error, style, ...rest }) {
   const [showPassword, setShowPassword] = useLocalState(false);
   const isPassword = secureTextEntry;
 
@@ -68,6 +68,7 @@ export function Input({ label, value, onChangeText, placeholder, secureTextEntry
           keyboardType={keyboardType}
           multiline={multiline}
           numberOfLines={multiline ? 3 : 1}
+          {...rest}
           style={[styles.inputInner, multiline && styles.inputMulti]}
         />
         {isPassword && (

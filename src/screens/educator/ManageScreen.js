@@ -235,7 +235,6 @@ export default function ManageScreen({ navigation }) {
   const [tab, setTab]                 = useState('children');
   const [searchQuery, setSearchQuery] = useState('');
   const [showAddChild, setShowAddChild] = useState(false);
-  const [daycareCode, setDaycareCode] = useState(null);
 
   async function load(isInitial = false) {
     const roomId = activeClassroom?.id || profile?.classroom_id;
@@ -259,15 +258,6 @@ export default function ManageScreen({ navigation }) {
       setParents(links || []);
     }
 
-    // Daycare invite code (for onboarding educator colleagues)
-    if (profile?.daycare_id) {
-      const { data: dc } = await supabase
-        .from('daycares')
-        .select('invite_code')
-        .eq('id', profile.daycare_id)
-        .maybeSingle();
-      setDaycareCode(dc?.invite_code || null);
-    }
 
     setLoading(false);
   }
@@ -361,16 +351,6 @@ export default function ManageScreen({ navigation }) {
         </TouchableOpacity>
       )}
 
-      {/* Daycare invite code — for educator colleagues */}
-      {daycareCode && (
-        <View style={styles.codeCard}>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.codeLabel}>🔑 Daycare code</Text>
-            <Text style={styles.codeValue}>{daycareCode}</Text>
-          </View>
-          <Text style={styles.codeHint}>Colleagues use this to{'\n'}join during sign-up</Text>
-        </View>
-      )}
 
       {/* Tabs */}
       <View style={styles.tabs}>

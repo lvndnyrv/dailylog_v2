@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Linking } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 import { useAuth } from '../../hooks/useAuth';
+import { supabase } from '../../lib/supabase';
 import { Input, Button, PasswordStrength } from '../../components/ui';
 import { colors, spacing, radius } from '../../theme';
 
@@ -11,13 +12,14 @@ export default function SignupScreen({ navigation }) {
   const [email, setEmail]       = useState('');
   const [password, setPassword] = useState('');
   const [phone, setPhone]       = useState('');
-  const [role, setRole]         = useState('parent');
+  const [directorMode, setDirectorMode] = useState(false); // admin signup path
+  const [activationCode, setActivationCode] = useState('');
   const [agreedTos, setAgreedTos] = useState(false);
   const [loading, setLoading]   = useState(false);
   const [errors, setErrors]     = useState({});
   const [verifyEmailSent, setVerifyEmailSent] = useState(false);
 
-  const isParent = role === 'parent';
+  const isParent = !directorMode;
 
   function validate() {
     const errs = {};
@@ -27,6 +29,7 @@ export default function SignupScreen({ navigation }) {
     if (!password) errs.password = 'Password is required';
     else if (password.length < 6) errs.password = 'Password must be at least 6 characters';
     if (isParent && !phone.trim()) errs.phone = 'Phone number is required for parents';
+    if (directorMode && !activationCode.trim()) errs.activationCode = 'Activation code is required';
     if (!agreedTos) errs.tos = 'You must accept the Privacy Policy to continue';
     setErrors(errs);
     return Object.keys(errs).length === 0;
@@ -40,12 +43,27 @@ export default function SignupScreen({ navigation }) {
     if (!validate()) return;
     setLoading(true);
     setErrors({});
+
+    // Director path: pre-validate the activation code for inline feedback.
+    // (The DB trigger re-validates and consumes it — this check is UX only.)
+    if (directorMode) {
+      const { data: valid, error: checkError } = await supabase.rpc('check_daycare_signup_code', {
+        p_code: activationCode.trim(),
+      });
+      if (checkError || !valid) {
+        setLoading(false);
+        setErrors({ activationCode: 'Invalid or already-used activation code. Check your subscription email or contact sales.' });
+        return;
+      }
+    }
+
     const { error, needsEmailConfirm } = await signUp(
       email.trim().toLowerCase(),
       password,
       fullName.trim(),
-      role,
-      phone.trim()
+      directorMode ? 'admin' : 'parent', // educators are invite-only — never from public signup
+      phone.trim(),
+      directorMode ? activationCode.trim() : ''
     );
     setLoading(false);
     if (error) { setErrors({ general: error.message }); return; }
@@ -53,10 +71,6 @@ export default function SignupScreen({ navigation }) {
     // else: session exists → RootNavigator takes over automatically
   }
 
-  const roles = [
-    { key: 'parent',   label: '👨‍👩‍👧 Parent',   desc: "View your child's daily log" },
-    { key: 'educator', label: '👩‍🏫 Educator', desc: 'Fill in daily logs for your classroom' },
-  ];
 
   // ─── Email verification success state ───
   if (verifyEmailSent) {
@@ -92,7 +106,9 @@ export default function SignupScreen({ navigation }) {
       </TouchableOpacity>
 
       <View style={styles.card}>
-        <Text style={styles.cardTitle}>Create account</Text>
+        <Text style={styles.cardTitle}>
+          {directorMode ? 'Set up your center' : 'Create account'}
+        </Text>
 
         {errors.general && (
           <View style={styles.errorBanner}>
@@ -100,23 +116,28 @@ export default function SignupScreen({ navigation }) {
           </View>
         )}
 
-        <Text style={styles.roleLabel}>I am a...</Text>
-        <View style={styles.roleRow}>
-          {roles.map(r => (
-            <TouchableOpacity
-              key={r.key}
-              onPress={() => setRole(r.key)}
-              style={[styles.roleCard, role === r.key && styles.roleCardSelected]}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.roleIcon}>{r.label.split(' ')[0]}</Text>
-              <Text style={[styles.roleName, role === r.key && { color: colors.primary }]}>
-                {r.label.split(' ').slice(1).join(' ')}
+        {directorMode ? (
+          <View style={styles.directorBanner}>
+            <Text style={styles.directorBannerIcon}>👑</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.directorBannerTitle}>Director account</Text>
+              <Text style={styles.directorBannerText}>
+                Requires an active DailyLog subscription. Enter the activation code
+                from your welcome email — then create your daycare and invite educators.
               </Text>
-              <Text style={styles.roleDesc}>{r.desc}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
+            </View>
+          </View>
+        ) : (
+          <View style={styles.parentBanner}>
+            <Text style={styles.parentBannerIcon}>👨‍👩‍👧</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.parentBannerTitle}>Parent account</Text>
+              <Text style={styles.parentBannerText}>
+                See your child's meals, naps, photos and updates in real time.
+              </Text>
+            </View>
+          </View>
+        )}
 
         <Input
           label="Full name (required)"
@@ -158,6 +179,25 @@ export default function SignupScreen({ navigation }) {
           </Text>
         )}
 
+        {/* Activation code — director mode only (paid subscription) */}
+        {directorMode && (
+          <>
+            <Input
+              label="Activation code (required)"
+              value={activationCode}
+              onChangeText={(v) => { setActivationCode(v.toUpperCase()); clearError('activationCode'); }}
+              placeholder="e.g. K7PM3QW2"
+              autoCapitalize="characters"
+              error={errors.activationCode}
+            />
+            {!errors.activationCode && (
+              <Text style={styles.phoneHint}>
+                🔑 Sent with your DailyLog subscription. Don't have one? Contact sales to get started.
+              </Text>
+            )}
+          </>
+        )}
+
         {/* Terms & privacy acceptance */}
         <TouchableOpacity
           style={styles.tosRow}
@@ -178,7 +218,7 @@ export default function SignupScreen({ navigation }) {
         {errors.tos && <Text style={styles.tosError}>{errors.tos}</Text>}
 
         <Button
-          label="Create account"
+          label={directorMode ? 'Create director account' : 'Create account'}
           onPress={handleSignup}
           loading={loading}
           style={{ marginTop: spacing.md }}
@@ -190,6 +230,29 @@ export default function SignupScreen({ navigation }) {
             <Text style={{ color: colors.primary, fontWeight: '600' }}>Sign in</Text>
           </Text>
         </TouchableOpacity>
+      </View>
+
+      {/* Alternate paths */}
+      <View style={styles.altPaths}>
+        {directorMode ? (
+          <TouchableOpacity onPress={() => { setDirectorMode(false); setErrors({}); }}>
+            <Text style={styles.altPathText}>
+              ← Back to <Text style={styles.altPathLink}>parent sign-up</Text>
+            </Text>
+          </TouchableOpacity>
+        ) : (
+          <>
+            <TouchableOpacity onPress={() => { setDirectorMode(true); setErrors({}); }}>
+              <Text style={styles.altPathText}>
+                Daycare owner or director?{' '}
+                <Text style={styles.altPathLink}>Set up your center →</Text>
+              </Text>
+            </TouchableOpacity>
+            <Text style={styles.educatorHint}>
+              👩‍🏫 Educators: your daycare admin will send you an email invite — no sign-up needed here.
+            </Text>
+          </>
+        )}
       </View>
     </KeyboardAwareScrollView>
   );
@@ -221,16 +284,31 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   roleLabel: { fontSize: 13, fontWeight: '500', color: colors.textSecondary, marginBottom: spacing.sm },
-  roleRow: { flexDirection: 'row', gap: spacing.md, marginBottom: spacing.lg },
-  roleCard: {
-    flex: 1, borderWidth: 1.5, borderColor: colors.border,
-    borderRadius: radius.lg, padding: spacing.md,
-    alignItems: 'center', backgroundColor: colors.surface,
+  directorBanner: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.md,
+    backgroundColor: '#F5F3FF', borderRadius: radius.lg,
+    borderWidth: 1, borderColor: '#DDD6FE',
+    padding: spacing.md, marginBottom: spacing.lg,
   },
-  roleCardSelected: { borderColor: colors.primary, backgroundColor: colors.primaryLight },
-  roleIcon: { fontSize: 28, marginBottom: spacing.xs },
-  roleName: { fontSize: 14, fontWeight: '600', color: colors.textPrimary, marginBottom: 2 },
-  roleDesc: { fontSize: 11, color: colors.textSecondary, textAlign: 'center' },
+  directorBannerIcon: { fontSize: 24 },
+  directorBannerTitle: { fontSize: 14, fontWeight: '700', color: '#6D28D9' },
+  directorBannerText: { fontSize: 12, color: colors.textSecondary, marginTop: 2, lineHeight: 17 },
+  parentBanner: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.md,
+    backgroundColor: colors.primaryLight, borderRadius: radius.lg,
+    borderWidth: 1, borderColor: colors.primary + '33',
+    padding: spacing.md, marginBottom: spacing.lg,
+  },
+  parentBannerIcon: { fontSize: 24 },
+  parentBannerTitle: { fontSize: 14, fontWeight: '700', color: colors.primary },
+  parentBannerText: { fontSize: 12, color: colors.textSecondary, marginTop: 2, lineHeight: 17 },
+  altPaths: { alignItems: 'center', marginTop: spacing.xl, gap: spacing.md },
+  altPathText: { fontSize: 14, color: colors.textSecondary },
+  altPathLink: { color: colors.primary, fontWeight: '600' },
+  educatorHint: {
+    fontSize: 12, color: colors.textMuted, textAlign: 'center',
+    lineHeight: 17, paddingHorizontal: spacing.lg,
+  },
   phoneHint: {
     fontSize: 12, color: colors.textSecondary,
     marginTop: -spacing.xs, marginBottom: spacing.sm, lineHeight: 17,

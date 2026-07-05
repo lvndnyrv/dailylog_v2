@@ -258,7 +258,9 @@ function RootNavigator() {
     return <WelcomeScreen onDone={() => setWelcomeSeen(true)} />;
   }
 
-  const needsOnboarding = profile?.role === 'educator' && !profile?.classroom_id;
+  const needsOnboarding =
+    (profile?.role === 'educator' && !profile?.classroom_id) ||
+    (profile?.role === 'admin' && !profile?.daycare_id);
 
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>

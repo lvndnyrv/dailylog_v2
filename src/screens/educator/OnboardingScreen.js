@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity, Alert, ScrollView
+  View, Text, StyleSheet, TouchableOpacity, Alert
 } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 import { useAuth } from '../../hooks/useAuth';
@@ -235,10 +235,138 @@ function StepChildren({ classroomId, onFinish, onBack }) {
   );
 }
 
+// ─── EDUCATOR: PICK OR CREATE CLASSROOM (invited flow) ───────────────────────
+// Invited educators already have daycare_id set by the staff-invite trigger.
+// They only need to pick their room (or create the first one).
+function StepPickClassroom({ daycareId, onCreateNew }) {
+  const { profile, user, fetchProfile } = useAuth();
+  const [rooms, setRooms]         = useState(null); // null = loading
+  const [error, setError]         = useState(null);
+  const [selecting, setSelecting] = useState(false);
+
+  React.useEffect(() => {
+    async function load() {
+      const { data } = await supabase.rpc('get_daycare_classrooms', { p_daycare_id: daycareId });
+      setRooms(data || []);
+    }
+    load();
+  }, [daycareId]);
+
+  async function pickRoom(room) {
+    setSelecting(true);
+    const { error: updateError } = await supabase
+      .from('profiles')
+      .update({ classroom_id: room.id })
+      .eq('id', profile.id);
+    if (!updateError) {
+      await supabase.from('educator_classrooms').upsert(
+        { educator_id: profile.id, classroom_id: room.id },
+        { onConflict: 'educator_id,classroom_id', ignoreDuplicates: true }
+      );
+      await fetchProfile(user.id); // routes away from onboarding
+    } else {
+      setError(updateError.message);
+    }
+    setSelecting(false);
+  }
+
+  return (
+    <View style={styles.stepCard}>
+      <Text style={styles.stepEmoji}>🚪</Text>
+      <Text style={styles.stepTitle}>Pick your classroom</Text>
+      <Text style={styles.stepDesc}>
+        {rooms === null
+          ? 'Loading your daycare\'s rooms...'
+          : rooms.length
+            ? 'Choose the room you work in — you can switch or add rooms later.'
+            : 'No classrooms exist yet — create the first one.'}
+      </Text>
+
+      {(rooms || []).map(room => (
+        <TouchableOpacity
+          key={room.id}
+          style={styles.choiceCard}
+          onPress={() => pickRoom(room)}
+          disabled={selecting}
+          activeOpacity={0.7}
+        >
+          <Text style={styles.choiceIcon}>🚪</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.choiceTitle}>{room.name}</Text>
+            {room.age_group ? <Text style={styles.choiceDesc}>{room.age_group}</Text> : null}
+          </View>
+          <Text style={styles.choiceChevron}>›</Text>
+        </TouchableOpacity>
+      ))}
+
+      {error && <Text style={styles.joinError}>{error}</Text>}
+
+      <Button
+        label="+ Create a new classroom"
+        variant="ghost"
+        onPress={onCreateNew}
+        style={{ marginTop: spacing.md }}
+      />
+    </View>
+  );
+}
+
+// ─── EDUCATOR FALLBACK: legacy account with no daycare link ──────────────────
+// Educators can no longer self-register; this only appears for accounts
+// created before invite-gating. join_daycare_with_code is staff-only.
+function StepJoinFallback({ onJoined }) {
+  const [code, setCode]       = useState('');
+  const [error, setError]     = useState(null);
+  const [joining, setJoining] = useState(false);
+
+  async function handleJoin() {
+    if (!code.trim()) { setError('Enter the code from your daycare admin.'); return; }
+    setJoining(true);
+    setError(null);
+    const { data, error: rpcError } = await supabase.rpc('join_daycare_with_code', { p_code: code.trim() });
+    setJoining(false);
+    if (rpcError) { setError(rpcError.message); return; }
+    const joined = data?.[0];
+    if (!joined) { setError('Invalid invite code.'); return; }
+    onJoined(joined.daycare_id);
+  }
+
+  return (
+    <View style={styles.stepCard}>
+      <Text style={styles.stepEmoji}>🔑</Text>
+      <Text style={styles.stepTitle}>Connect to your daycare</Text>
+      <Text style={styles.stepDesc}>
+        Your account isn't linked to a daycare yet. Ask your daycare admin for
+        the 6-character daycare code (they can find it in the admin panel).
+      </Text>
+
+      <Input
+        label="Daycare code"
+        value={code}
+        onChangeText={(v) => { setCode(v.toUpperCase()); setError(null); }}
+        placeholder="e.g. K7PM3Q"
+        error={error}
+      />
+
+      <Button label="Connect" onPress={handleJoin} loading={joining} style={{ marginTop: spacing.sm }} />
+    </View>
+  );
+}
+
 // ─── MAIN ONBOARDING SCREEN ───────────────────────────────────────────────────
+// Routing (from App.js):
+//   admin without daycare_id      → create daycare → first classroom → children
+//   educator without classroom_id → pick/create classroom in their daycare
 export default function OnboardingScreen() {
+  const { profile } = useAuth();
+  const isAdmin = profile?.role === 'admin';
+
   const [step, setStep]   = useState(0);
   const [data, setData]   = useState({});
+  // Educator with a daycare (invited) starts at the room picker;
+  // 'create-room' switches to the classroom-creation step.
+  const [educatorView, setEducatorView] = useState('pick'); // pick | create-room
+  const [educatorDaycareId, setEducatorDaycareId] = useState(profile?.daycare_id || null);
 
   function handleStep1Done({ daycareId, daycareName }) {
     setData(prev => ({ ...prev, daycareId, daycareName }));
@@ -267,24 +395,46 @@ export default function OnboardingScreen() {
       <View style={styles.header}>
         <Text style={styles.logo}>📋</Text>
         <Text style={styles.appName}>DailyLog</Text>
-        <Text style={styles.headerSub}>Let's get you set up</Text>
+        <Text style={styles.headerSub}>
+          {isAdmin ? "Let's set up your daycare" : "Let's get you set up"}
+        </Text>
       </View>
 
-      <StepIndicator current={step} />
-
-      {step === 0 && <StepDaycare onNext={handleStep1Done} />}
-      {step === 1 && (
-        <StepClassroom
-          daycareId={data.daycareId}
-          onNext={handleStep2Done}
-          onBack={() => setStep(0)}
+      {isAdmin ? (
+        // ── Admin: create daycare → first classroom → children ──
+        <>
+          <StepIndicator current={step} />
+          {step === 0 && <StepDaycare onNext={handleStep1Done} />}
+          {step === 1 && (
+            <StepClassroom
+              daycareId={data.daycareId}
+              onNext={handleStep2Done}
+              onBack={() => setStep(0)}
+            />
+          )}
+          {step === 2 && (
+            <StepChildren
+              classroomId={data.classroomId}
+              onFinish={handleFinish}
+              onBack={() => setStep(1)}
+            />
+          )}
+        </>
+      ) : !educatorDaycareId ? (
+        // ── Legacy educator with no daycare link: code fallback ──
+        <StepJoinFallback onJoined={(id) => setEducatorDaycareId(id)} />
+      ) : educatorView === 'pick' ? (
+        // ── Invited educator: pick a room in their daycare ──
+        <StepPickClassroom
+          daycareId={educatorDaycareId}
+          onCreateNew={() => setEducatorView('create-room')}
         />
-      )}
-      {step === 2 && (
-        <StepChildren
-          classroomId={data.classroomId}
-          onFinish={handleFinish}
-          onBack={() => setStep(1)}
+      ) : (
+        // ── Invited educator: create the room ──
+        <StepClassroom
+          daycareId={educatorDaycareId}
+          onNext={handleFinish}
+          onBack={() => setEducatorView('pick')}
         />
       )}
 
@@ -340,6 +490,19 @@ const styles = StyleSheet.create({
   chipTextSelected: { color: colors.primary, fontWeight: '600' },
 
   btnRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm },
+
+  // Choice cards (create vs join)
+  choiceCard: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.md,
+    backgroundColor: colors.bg, borderRadius: radius.lg,
+    borderWidth: 1.5, borderColor: colors.border,
+    padding: spacing.lg, marginBottom: spacing.md,
+  },
+  choiceIcon: { fontSize: 28 },
+  choiceTitle: { fontSize: 15, fontWeight: '600', color: colors.textPrimary },
+  choiceDesc: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
+  choiceChevron: { fontSize: 22, color: colors.textMuted },
+  joinError: { fontSize: 13, color: colors.danger, fontWeight: '500', textAlign: 'center', marginTop: spacing.sm },
 
   // Children step
   childRow: {

@@ -4,6 +4,7 @@ import {
   StyleSheet, Alert, ActivityIndicator
 } from 'react-native';
 import { useAuth } from '../../hooks/useAuth';
+import { useClassroom } from '../../hooks/useClassroom';
 import { supabase } from '../../lib/supabase';
 import { colors, spacing, radius } from '../../theme';
 import { Button, Chip } from '../../components/ui';
@@ -27,6 +28,7 @@ const MOODS = [
 
 export default function BulkLogScreen({ navigation }) {
   const { profile }                     = useAuth();
+  const { active: activeClassroom }     = useClassroom();
   const [children, setChildren]         = useState([]);
   const [selectedChildren, setSelected] = useState(new Set());
   const [selectedActivities, setActivities] = useState(new Set());
@@ -35,12 +37,15 @@ export default function BulkLogScreen({ navigation }) {
   const [saving, setSaving]             = useState(false);
   const today                           = format(new Date(), 'yyyy-MM-dd');
 
+  const classroomId = activeClassroom?.id || profile?.classroom_id;
+
   useEffect(() => {
     async function load() {
       const { data } = await supabase
         .from('children')
         .select('*')
-        .eq('classroom_id', profile.classroom_id)
+        .eq('classroom_id', classroomId)
+        .is('archived_at', null)
         .order('first_name');
       const kids = data || [];
       setChildren(kids);
@@ -48,8 +53,8 @@ export default function BulkLogScreen({ navigation }) {
       setSelected(new Set(kids.map(k => k.id)));
       setLoading(false);
     }
-    if (profile?.classroom_id) load();
-  }, [profile]);
+    if (classroomId) load();
+  }, [classroomId]);
 
   function toggleChild(id) {
     setSelected(prev => {
@@ -95,29 +100,36 @@ export default function BulkLogScreen({ navigation }) {
 
     setSaving(true);
 
-    // Get or create today's log for each selected child
     const childIds = [...selectedChildren];
-    const logIds = [];
 
-    for (const childId of childIds) {
-      let { data: log } = await supabase
-        .from('daily_logs')
-        .select('id, moods')
-        .eq('child_id', childId)
-        .eq('log_date', today)
-        .single();
-
-      if (!log) {
-        const { data: newLog } = await supabase
-          .from('daily_logs')
-          .insert({ child_id: childId, log_date: today })
-          .select()
-          .single();
-        log = newLog;
-      }
-
-      logIds.push({ childId, logId: log.id, currentMoods: log.moods || [] });
+    // Batch get-or-create: race-safe upsert (DO NOTHING on conflict), then one select
+    const { error: upsertError } = await supabase.from('daily_logs').upsert(
+      childIds.map(childId => ({
+        child_id: childId,
+        log_date: today,
+        educator_id: profile.id,
+      })),
+      { onConflict: 'child_id,log_date', ignoreDuplicates: true }
+    );
+    if (upsertError) {
+      setSaving(false);
+      Alert.alert('Error', upsertError.message);
+      return;
     }
+
+    const { data: logs, error: logsError } = await supabase
+      .from('daily_logs')
+      .select('id, child_id, moods')
+      .in('child_id', childIds)
+      .eq('log_date', today);
+
+    if (logsError || !logs?.length) {
+      setSaving(false);
+      Alert.alert('Error', logsError?.message || 'Could not load daily logs.');
+      return;
+    }
+
+    const logIds = logs.map(l => ({ childId: l.child_id, logId: l.id, currentMoods: l.moods || [] }));
 
     // Apply moods — merge with existing
     if (selectedMoods.size) {
@@ -129,22 +141,24 @@ export default function BulkLogScreen({ navigation }) {
       );
     }
 
-    // Apply activities — skip duplicates per child
+    // Apply activities — one query for existing, one bulk insert for missing
     if (selectedActivities.size) {
+      const { data: existing } = await supabase
+        .from('activity_entries')
+        .select('daily_log_id, activity_name')
+        .in('daily_log_id', logIds.map(l => l.logId));
+
+      const existingSet = new Set((existing || []).map(a => `${a.daily_log_id}:${a.activity_name}`));
+      const toInsert = [];
       for (const { logId } of logIds) {
-        const { data: existing } = await supabase
-          .from('activity_entries')
-          .select('activity_name')
-          .eq('daily_log_id', logId);
-
-        const existingSet = new Set((existing || []).map(a => a.activity_name));
-        const toInsert = [...selectedActivities]
-          .filter(a => !existingSet.has(a))
-          .map(a => ({ daily_log_id: logId, activity_name: a }));
-
-        if (toInsert.length) {
-          await supabase.from('activity_entries').insert(toInsert);
+        for (const activity of selectedActivities) {
+          if (!existingSet.has(`${logId}:${activity}`)) {
+            toInsert.push({ daily_log_id: logId, activity_name: activity });
+          }
         }
+      }
+      if (toInsert.length) {
+        await supabase.from('activity_entries').insert(toInsert);
       }
     }
 

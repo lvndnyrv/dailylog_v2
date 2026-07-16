@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, TouchableOpacity, TextInput, StyleSheet,
-  Alert, Linking
+  Alert, Linking, Modal, KeyboardAvoidingView, Platform
 } from 'react-native';
 import { useIsFocused } from '@react-navigation/native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
@@ -16,56 +16,110 @@ import { ClassroomSwitcher } from '../../components/ClassroomSwitcher';
 import { DatePickerField } from '../../components/DatePickerField';
 
 
-// ─── ADD CHILD FORM ───────────────────────────────────────────────────────────
-function AddChildForm({ classroomId, onAdded }) {
+// ─── ADD CHILD BOTTOM SHEET ───────────────────────────────────────────────────
+function AddChildSheet({ visible, onClose, classroomId, onAdded, onCompleteProfile }) {
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName]   = useState('');
   const [dob, setDob]             = useState('');
   const [saving, setSaving]       = useState(false);
+  const [errors, setErrors]       = useState({});
+  const [addedChild, setAddedChild] = useState(null); // success state
+
+  function validate() {
+    const errs = {};
+    if (!firstName.trim()) errs.firstName = 'First name is required';
+    if (!lastName.trim()) errs.lastName = 'Last name is required';
+    setErrors(errs);
+    return Object.keys(errs).length === 0;
+  }
 
   async function handleAdd() {
-    if (!firstName.trim()) {
-      Alert.alert('Required', "Please enter the child's first name.");
-      return;
-    }
+    if (!validate()) return;
     setSaving(true);
-    const { error } = await supabase.from('children').insert({
+    const { data, error } = await supabase.from('children').insert({
       classroom_id: classroomId,
       first_name: firstName.trim(),
       last_name: lastName.trim(),
       date_of_birth: dob || null,
-    });
+    }).select().single();
     setSaving(false);
     if (error) {
       Alert.alert('Error', error.message);
     } else {
-      setFirstName(''); setLastName(''); setDob('');
       onAdded();
+      setAddedChild(data);
     }
   }
 
+  function handleClose() {
+    setFirstName(''); setLastName(''); setDob(''); setErrors({});
+    setAddedChild(null);
+    onClose();
+  }
+
+  function handleCompleteProfile() {
+    const child = addedChild;
+    handleClose();
+    onCompleteProfile(child);
+  }
+
   return (
-    <View style={styles.formCard}>
-      <Text style={styles.formTitle}>Add a child</Text>
-      <Input
-        label="First name *"
-        value={firstName}
-        onChangeText={setFirstName}
-        placeholder="e.g. Emma"
-      />
-      <Input
-        label="Last name"
-        value={lastName}
-        onChangeText={setLastName}
-        placeholder="e.g. Smith"
-      />
-      <DatePickerField
-        label="Date of birth (optional)"
-        value={dob}
-        onChange={setDob}
-      />
-      <Button label="Add child" onPress={handleAdd} loading={saving} style={{ marginTop: spacing.sm }} />
-    </View>
+    <Modal visible={visible} transparent animationType="slide">
+      <KeyboardAvoidingView
+        style={styles.sheetOverlay}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
+        <TouchableOpacity style={styles.sheetDismiss} activeOpacity={1} onPress={handleClose} />
+        <View style={styles.sheetContainer}>
+          {!addedChild ? (
+            <>
+              <View style={styles.sheetHeader}>
+                <Text style={styles.sheetTitle}>Add a child</Text>
+                <TouchableOpacity onPress={handleClose}>
+                  <Text style={styles.sheetClose}>✕</Text>
+                </TouchableOpacity>
+              </View>
+              <Input
+                label="First name (required)"
+                value={firstName}
+                onChangeText={(v) => { setFirstName(v); if (errors.firstName) setErrors(e => ({ ...e, firstName: null })); }}
+                placeholder="e.g. Emma"
+                error={errors.firstName}
+              />
+              <Input
+                label="Last name (required)"
+                value={lastName}
+                onChangeText={(v) => { setLastName(v); if (errors.lastName) setErrors(e => ({ ...e, lastName: null })); }}
+                placeholder="e.g. Smith"
+                error={errors.lastName}
+              />
+              <DatePickerField
+                label="Date of birth (optional)"
+                value={dob}
+                onChange={setDob}
+              />
+              <Button label="Add child" onPress={handleAdd} loading={saving} style={{ marginTop: spacing.sm }} />
+            </>
+          ) : (
+            <View style={styles.successState}>
+              <Text style={styles.successIcon}>✓</Text>
+              <Text style={styles.successTitle}>{addedChild.first_name} has been added!</Text>
+              <Text style={styles.successSub}>
+                Complete their profile to add medical info, allergies, emergency contacts, and link parents.
+              </Text>
+              <Button
+                label="Complete profile →"
+                onPress={handleCompleteProfile}
+                style={{ marginTop: spacing.xl, alignSelf: 'stretch' }}
+              />
+              <TouchableOpacity onPress={handleClose} style={styles.laterBtn}>
+                <Text style={styles.laterBtnText}>I'll do it later</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
   );
 }
 
@@ -97,7 +151,9 @@ function InviteParentForm({ classroomId, children }) {
         .from('parent_children')
         .upsert(
           { parent_id: existing.id, child_id: childId },
-          { onConflict: 'parent_id,child_id' }
+          // DO NOTHING (not DO UPDATE): Phase 2 restricts UPDATE on
+          // parent_children to consent_given_at only.
+          { onConflict: 'parent_id,child_id', ignoreDuplicates: true }
         );
       setSending(false);
       if (error) { Alert.alert('Error', error.message); return; }
@@ -107,7 +163,11 @@ function InviteParentForm({ classroomId, children }) {
     } else {
       const { error } = await supabase.auth.signInWithOtp({
         email: email.trim().toLowerCase(),
-        options: { data: { pending_child_id: childId, role: 'parent' }, shouldCreateUser: true },
+        options: {
+          data: { pending_child_id: childId, role: 'parent' },
+          shouldCreateUser: true,
+          emailRedirectTo: 'dailylog://auth',
+        },
       });
       setSending(false);
       if (error) { Alert.alert('Error', error.message); return; }
@@ -139,8 +199,22 @@ function InviteParentForm({ classroomId, children }) {
         ))}
       </View>
 
+      {/* Child invite code — parents can self-link with this */}
+      {childId && (() => {
+        const selected = children.find(c => c.id === childId);
+        return selected?.invite_code ? (
+          <View style={styles.codeCard}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.codeLabel}>Child code for {selected.first_name}</Text>
+              <Text style={styles.codeValue}>{selected.invite_code}</Text>
+            </View>
+            <Text style={styles.codeHint}>Parent enters this{'\n'}in the app to link</Text>
+          </View>
+        ) : null;
+      })()}
+
       <Input
-        label="Parent's email address"
+        label="Or invite by email"
         value={email}
         onChangeText={setEmail}
         placeholder="parent@email.com"
@@ -154,27 +228,24 @@ function InviteParentForm({ classroomId, children }) {
 // ─── MAIN SCREEN ──────────────────────────────────────────────────────────────
 export default function ManageScreen({ navigation }) {
   const { profile }                   = useAuth();
-  const { active: activeClassroom, classrooms, reload: reloadClassrooms, leaveClassroom } = useClassroom();
+  const { active: activeClassroom, classrooms } = useClassroom();
   const [children, setChildren]       = useState([]);
   const [parents, setParents]         = useState([]);
   const [loading, setLoading]         = useState(true);
   const [tab, setTab]                 = useState('children');
   const [searchQuery, setSearchQuery] = useState('');
+  const [showAddChild, setShowAddChild] = useState(false);
 
-  // Classroom editing
-  const [editingClassroom, setEditingClassroom] = useState(false);
-  const [classroomName, setClassroomName]       = useState('');
-  const [classroomAge, setClassroomAge]         = useState('');
-  const [savingClassroom, setSavingClassroom]   = useState(false);
-
-  async function load() {
-    if (!profile?.classroom_id) return;
-    setLoading(true);
+  async function load(isInitial = false) {
+    const roomId = activeClassroom?.id || profile?.classroom_id;
+    if (!roomId) return;
+    if (isInitial) setLoading(true);
 
     const { data: kids } = await supabase
       .from('children')
       .select('*')
-      .eq('classroom_id', profile.classroom_id)
+      .eq('classroom_id', roomId)
+      .is('archived_at', null)
       .order('first_name');
 
     setChildren(kids || []);
@@ -187,14 +258,15 @@ export default function ManageScreen({ navigation }) {
       setParents(links || []);
     }
 
+
     setLoading(false);
   }
 
   const isFocused = useIsFocused();
 
   useEffect(() => {
-    if (isFocused && profile) load();
-  }, [isFocused, profile?.classroom_id]);
+    if (isFocused && profile) load(true);
+  }, [isFocused, profile?.classroom_id, activeClassroom?.id]);
 
   // Remove the old focus listener useEffect
 
@@ -205,7 +277,12 @@ export default function ManageScreen({ navigation }) {
       [
         { text: 'Cancel', style: 'cancel' },
         { text: 'Remove', style: 'destructive', onPress: async () => {
-          await supabase.from('children').delete().eq('id', child.id);
+          // Soft delete — archiving preserves logs, incidents and parent links
+          const { error } = await supabase
+            .from('children')
+            .update({ archived_at: new Date().toISOString() })
+            .eq('id', child.id);
+          if (error) Alert.alert('Error', error.message);
           load();
         }},
       ]
@@ -222,56 +299,6 @@ export default function ManageScreen({ navigation }) {
     ]);
   }
 
-  function startEditClassroom() {
-    setClassroomName(activeClassroom?.name || '');
-    setClassroomAge(activeClassroom?.age_group || '');
-    setEditingClassroom(true);
-  }
-
-  async function saveClassroom() {
-    if (!classroomName.trim()) {
-      Alert.alert('Required', 'Please enter a classroom name.');
-      return;
-    }
-    setSavingClassroom(true);
-    const { error } = await supabase
-      .from('classrooms')
-      .update({ name: classroomName.trim(), age_group: classroomAge.trim() || null })
-      .eq('id', activeClassroom.id);
-    setSavingClassroom(false);
-    if (error) {
-      Alert.alert('Error', error.message);
-    } else {
-      setEditingClassroom(false);
-      await reloadClassrooms();
-    }
-  }
-
-  function handleDeleteClassroom() {
-    if (children.length > 0) {
-      Alert.alert(
-        'Cannot delete',
-        `This classroom still has ${children.length} children. Move or remove all children first before deleting the classroom.`
-      );
-      return;
-    }
-    Alert.alert(
-      `Delete "${activeClassroom?.name}"?`,
-      'This will permanently remove this classroom. This action cannot be undone.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete', style: 'destructive',
-          onPress: async () => {
-            await supabase.from('classrooms').delete().eq('id', activeClassroom.id);
-            await leaveClassroom(activeClassroom.id);
-            await reloadClassrooms();
-          },
-        },
-      ]
-    );
-  }
-
   if (loading) return <LoadingScreen />;
 
   return (
@@ -286,64 +313,44 @@ export default function ManageScreen({ navigation }) {
 
       <ClassroomSwitcher />
 
+      {/* Announcements shortcut */}
+      <TouchableOpacity
+        style={styles.announcementsBtn}
+        onPress={() => navigation.navigate('Announcements')}
+        activeOpacity={0.7}
+      >
+        <Text style={styles.announcementsBtnIcon}>📢</Text>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.announcementsBtnTitle}>Announcements</Text>
+          <Text style={styles.announcementsBtnSub}>Broadcast to all parents or one room</Text>
+        </View>
+        <Text style={styles.announcementsBtnChevron}>›</Text>
+      </TouchableOpacity>
+
       {/* Classroom Settings Card */}
       {activeClassroom && (
-        <View style={styles.classroomCard}>
-          {!editingClassroom ? (
-            <>
-              <View style={styles.classroomCardHeader}>
-                <View style={styles.classroomCardInfo}>
-                  <Text style={styles.classroomCardName}>{activeClassroom.name}</Text>
-                  {activeClassroom.age_group && (
-                    <Text style={styles.classroomCardAge}>{activeClassroom.age_group}</Text>
-                  )}
-                  <Text style={styles.classroomCardMeta}>
-                    {children.length} {children.length === 1 ? 'child' : 'children'} enrolled
-                  </Text>
-                </View>
-                <View style={styles.classroomCardActions}>
-                  <TouchableOpacity onPress={startEditClassroom} style={styles.classroomEditBtn}>
-                    <Text style={styles.classroomEditBtnText}>✏️ Edit</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity onPress={handleDeleteClassroom} style={styles.classroomDeleteBtn}>
-                    <Text style={styles.classroomDeleteBtnText}>🗑</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            </>
-          ) : (
-            <>
-              <Text style={styles.classroomEditTitle}>Edit classroom</Text>
-              <Input
-                label="Classroom name *"
-                value={classroomName}
-                onChangeText={setClassroomName}
-                placeholder="e.g. Toddlers Room 1"
-              />
-              <Input
-                label="Age group (optional)"
-                value={classroomAge}
-                onChangeText={setClassroomAge}
-                placeholder="e.g. 2–3 years"
-              />
-              <View style={styles.classroomEditBtns}>
-                <TouchableOpacity
-                  onPress={() => setEditingClassroom(false)}
-                  style={styles.classroomCancelBtn}
-                >
-                  <Text style={styles.classroomCancelBtnText}>Cancel</Text>
-                </TouchableOpacity>
-                <Button
-                  label={savingClassroom ? 'Saving...' : 'Save'}
-                  onPress={saveClassroom}
-                  loading={savingClassroom}
-                  style={{ flex: 2 }}
-                />
-              </View>
-            </>
-          )}
-        </View>
+        <TouchableOpacity
+          style={styles.classroomCard}
+          activeOpacity={0.7}
+          onPress={() => navigation.navigate('ClassroomEdit', {
+            classroom: activeClassroom,
+            childrenCount: children.length,
+            canDelete: classrooms.length > 1,
+          })}
+        >
+          <View style={styles.classroomCardInfo}>
+            <Text style={styles.classroomCardName}>{activeClassroom.name}</Text>
+            {activeClassroom.age_group && (
+              <Text style={styles.classroomCardAge}>{activeClassroom.age_group}</Text>
+            )}
+            <Text style={styles.classroomCardMeta}>
+              {children.length} {children.length === 1 ? 'child' : 'children'} enrolled
+            </Text>
+          </View>
+          <Text style={styles.classroomChevron}>›</Text>
+        </TouchableOpacity>
       )}
+
 
       {/* Tabs */}
       <View style={styles.tabs}>
@@ -364,6 +371,16 @@ export default function ManageScreen({ navigation }) {
 
       {tab === 'children' ? (
         <>
+          {/* Add child button - always accessible at top */}
+          <TouchableOpacity
+            style={styles.addChildBtn}
+            onPress={() => setShowAddChild(true)}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.addChildBtnIcon}>＋</Text>
+            <Text style={styles.addChildBtnText}>Add new child</Text>
+          </TouchableOpacity>
+
           {children.length > 5 && (
             <View style={styles.searchBar}>
               <Text style={styles.searchIcon}>🔍</Text>
@@ -390,7 +407,9 @@ export default function ManageScreen({ navigation }) {
                   const q = searchQuery.toLowerCase().trim();
                   return `${child.first_name} ${child.last_name}`.toLowerCase().includes(q);
                 })
-                .map((child, i) => (
+                .map((child, i) => {
+                const isIncomplete = !child.allergies?.length && !child.emergency_contacts?.length;
+                return (
                 <View key={child.id}>
                   {i > 0 && <Divider />}
                   <TouchableOpacity
@@ -401,17 +420,20 @@ export default function ManageScreen({ navigation }) {
                     <ChildAvatar child={child} size={40} />
                     <View style={styles.listInfo}>
                       <Text style={styles.listName}>{child.first_name} {child.last_name}</Text>
-                      {child.date_of_birth && (
+                      {child.date_of_birth ? (
                         <Text style={styles.listSub}>Born {child.date_of_birth}</Text>
-                      )}
+                      ) : isIncomplete ? (
+                        <Text style={styles.listIncomplete}>⚠ Profile incomplete</Text>
+                      ) : null}
                     </View>
+                    {isIncomplete && <View style={styles.incompleteDot} />}
                     <Text style={styles.chevron}>›</Text>
                   </TouchableOpacity>
                 </View>
-              ))}
+                );
+              })}
             </View>
           )}
-          <AddChildForm classroomId={profile.classroom_id} onAdded={load} />
         </>
       ) : (
         <>
@@ -488,6 +510,15 @@ export default function ManageScreen({ navigation }) {
       )}
 
       <View style={{ height: spacing.xxxl }} />
+
+      {/* Add child bottom sheet */}
+      <AddChildSheet
+        visible={showAddChild}
+        onClose={() => setShowAddChild(false)}
+        classroomId={activeClassroom?.id || profile.classroom_id}
+        onAdded={load}
+        onCompleteProfile={(child) => navigation.navigate('ChildProfile', { child })}
+      />
     </KeyboardAwareScrollView>
   );
 }
@@ -495,7 +526,28 @@ export default function ManageScreen({ navigation }) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
   content: { padding: spacing.xl },
-  pageTitle: { fontSize: 24, fontWeight: '700', color: colors.textPrimary, marginBottom: spacing.sm },
+  pageTitle: { fontSize: 24, fontWeight: '700', color: colors.textPrimary, marginBottom: spacing.xs },
+
+  // Announcements shortcut
+  announcementsBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.md,
+    backgroundColor: colors.amberLight, borderRadius: radius.lg,
+    borderWidth: 1, borderColor: colors.amber + '44',
+    padding: spacing.lg, marginTop: spacing.lg, marginBottom: spacing.lg,
+  },
+  announcementsBtnIcon: { fontSize: 22 },
+  announcementsBtnTitle: { fontSize: 15, fontWeight: '600', color: colors.textPrimary },
+  announcementsBtnSub: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
+  announcementsBtnChevron: { fontSize: 22, color: colors.textMuted },
+  codeCard: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.md,
+    backgroundColor: colors.primaryLight, borderRadius: radius.lg,
+    borderWidth: 1, borderColor: colors.primary + '33',
+    padding: spacing.lg, marginBottom: spacing.lg,
+  },
+  codeLabel: { fontSize: 12, fontWeight: '600', color: colors.textSecondary },
+  codeValue: { fontSize: 22, fontWeight: '800', color: colors.primary, letterSpacing: 3, marginTop: 2 },
+  codeHint: { fontSize: 11, color: colors.textSecondary, textAlign: 'right', lineHeight: 15 },
   tabs: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.lg, marginTop: spacing.lg },
   tab: {
     flex: 1, paddingVertical: spacing.sm, borderRadius: radius.lg,
@@ -505,6 +557,52 @@ const styles = StyleSheet.create({
   tabSelected: { borderColor: colors.primary, backgroundColor: colors.primaryLight },
   tabText: { fontSize: 13, fontWeight: '500', color: colors.textSecondary },
   tabTextSelected: { color: colors.primary },
+
+  // Add child button
+  addChildBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: spacing.sm, backgroundColor: colors.primaryLight,
+    borderRadius: radius.lg, borderWidth: 1.5, borderColor: colors.primary + '44',
+    paddingVertical: spacing.md, marginBottom: spacing.lg,
+  },
+  addChildBtnIcon: { fontSize: 16, color: colors.primary, fontWeight: '700' },
+  addChildBtnText: { fontSize: 14, fontWeight: '600', color: colors.primary },
+
+  // Success state after adding child
+  successState: { alignItems: 'center', paddingVertical: spacing.xl, paddingHorizontal: spacing.sm },
+  successIcon: {
+    fontSize: 36, color: colors.primary, fontWeight: '700',
+    width: 56, height: 56, lineHeight: 56, textAlign: 'center',
+    backgroundColor: colors.primaryLight, borderRadius: 28,
+    overflow: 'hidden', marginBottom: spacing.md,
+  },
+  successTitle: { fontSize: 17, fontWeight: '700', color: colors.textPrimary, marginBottom: spacing.sm },
+  successSub: { fontSize: 13, color: colors.textSecondary, textAlign: 'center', lineHeight: 19, paddingHorizontal: spacing.sm },
+  laterBtn: { marginTop: spacing.lg, paddingVertical: spacing.md },
+  laterBtnText: { fontSize: 14, color: colors.textMuted, fontWeight: '500' },
+
+  // Incomplete profile indicators
+  listIncomplete: { fontSize: 12, color: colors.amber, fontWeight: '500', marginTop: 2 },
+  incompleteDot: {
+    width: 8, height: 8, borderRadius: 4,
+    backgroundColor: colors.amber, marginRight: spacing.xs,
+  },
+
+  // Bottom sheet
+  sheetOverlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.45)' },
+  sheetDismiss: { flex: 1 },
+  sheetContainer: {
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: 24, borderTopRightRadius: 24,
+    padding: spacing.xl, paddingBottom: 40,
+  },
+  sheetHeader: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    marginBottom: spacing.lg,
+  },
+  sheetTitle: { fontSize: 18, fontWeight: '600', color: colors.textPrimary },
+  sheetClose: { fontSize: 20, color: colors.textMuted, fontWeight: '600', padding: spacing.sm },
+
   searchBar: {
     flexDirection: 'row', alignItems: 'center',
     marginBottom: spacing.md,
@@ -568,25 +666,17 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface, borderRadius: radius.lg,
     borderWidth: 1, borderColor: colors.border,
     padding: spacing.lg, marginTop: spacing.md,
+    flexDirection: 'row', alignItems: 'center',
   },
   classroomCardHeader: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start',
+    flexDirection: 'row', alignItems: 'center',
   },
   classroomCardInfo: { flex: 1 },
   classroomCardName: { fontSize: 17, fontWeight: '700', color: colors.textPrimary },
   classroomCardAge: { fontSize: 13, color: colors.textSecondary, marginTop: 3 },
   classroomCardMeta: { fontSize: 12, color: colors.textMuted, marginTop: 4 },
   classroomCardActions: { flexDirection: 'row', gap: spacing.sm, alignItems: 'center' },
-  classroomEditBtn: {
-    backgroundColor: colors.primaryLight, paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs + 2, borderRadius: radius.full,
-  },
-  classroomEditBtnText: { fontSize: 12, fontWeight: '600', color: colors.primary },
-  classroomDeleteBtn: {
-    backgroundColor: colors.dangerLight, width: 32, height: 32,
-    borderRadius: 16, alignItems: 'center', justifyContent: 'center',
-  },
-  classroomDeleteBtnText: { fontSize: 14 },
+  classroomChevron: { fontSize: 24, color: colors.textMuted, marginLeft: spacing.sm },
   classroomEditTitle: { fontSize: 15, fontWeight: '600', color: colors.textPrimary, marginBottom: spacing.md },
   classroomEditBtns: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm },
   classroomCancelBtn: {

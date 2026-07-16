@@ -247,8 +247,8 @@ export default function WeeklySummaryScreen({ route }) {
                 <View key={activity} style={styles.actRow}>
                   <Text style={styles.actName}>{activity}</Text>
                   <View style={styles.actBarWrap}>
-                    <View style={[styles.actBar, { flex: count }]} />
-                    <View style={{ flex: 7 - count }} />
+                    <View style={[styles.actBar, { flex: Math.min(count, 7) }]} />
+                    <View style={{ flex: Math.max(7 - count, 0) }} />
                   </View>
                   <Text style={styles.actCount}>{count}×</Text>
                 </View>

@@ -1,8 +1,18 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
-import { format } from 'date-fns';
+import { format, subDays } from 'date-fns';
 
-export function useDailyLog(childId, date = new Date()) {
+/**
+ * Daily log hook.
+ *
+ * @param {string} childId
+ * @param {Date}   date            Day to load (defaults to today).
+ * @param {object} options
+ * @param {boolean} options.createIfMissing  Create the log row when absent
+ *                                           (educators only — parents must pass false).
+ * @param {string}  options.educatorId       Attributed author for created logs.
+ */
+export function useDailyLog(childId, date = new Date(), { createIfMissing = false, educatorId = null } = {}) {
   const dateStr = format(date, 'yyyy-MM-dd');
   const [log, setLog] = useState(null);
   const [meals, setMeals] = useState([]);
@@ -11,32 +21,49 @@ export function useDailyLog(childId, date = new Date()) {
   const [activities, setActivities] = useState([]);
   const [supplies, setSupplies] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
-  // Get or create the daily log record
+  // Get (and for educators, create) the daily log record — race-safe:
+  // ON CONFLICT DO NOTHING + re-select instead of blind insert.
   const getOrCreateLog = useCallback(async () => {
     if (!childId) return;
     setLoading(true);
+    setError(null);
 
-    let { data } = await supabase
+    let { data, error: selectError } = await supabase
       .from('daily_logs')
       .select('*')
       .eq('child_id', childId)
       .eq('log_date', dateStr)
-      .single();
+      .maybeSingle();
 
-    if (!data) {
-      const { data: newLog } = await supabase
+    if (selectError) setError(selectError.message);
+
+    if (!data && createIfMissing) {
+      const insert = { child_id: childId, log_date: dateStr };
+      if (educatorId) insert.educator_id = educatorId;
+
+      const { error: insertError } = await supabase
         .from('daily_logs')
-        .insert({ child_id: childId, log_date: dateStr })
-        .select()
-        .single();
-      data = newLog;
+        .upsert(insert, { onConflict: 'child_id,log_date', ignoreDuplicates: true });
+
+      if (insertError) setError(insertError.message);
+
+      ({ data } = await supabase
+        .from('daily_logs')
+        .select('*')
+        .eq('child_id', childId)
+        .eq('log_date', dateStr)
+        .maybeSingle());
     }
 
-    setLog(data);
+    setLog(data ?? null);
     if (data) await fetchAllEntries(data.id);
+    else {
+      setMeals([]); setDiapers([]); setSleeps([]); setActivities([]); setSupplies([]);
+    }
     setLoading(false);
-  }, [childId, dateStr]);
+  }, [childId, dateStr, createIfMissing, educatorId]);
 
   async function fetchAllEntries(logId) {
     const [mealsRes, diapersRes, sleepsRes, activitiesRes, suppliesRes] = await Promise.all([
@@ -164,15 +191,27 @@ export function useDailyLog(childId, date = new Date()) {
 
   // ---- SEND TO PARENTS ----
   async function sendToParents() {
-    if (!log) return;
-    await supabase.from('daily_logs')
+    if (!log) return { error: { message: 'No log to send' } };
+
+    // Check network connectivity
+    const { error } = await supabase.from('daily_logs')
       .update({ sent_to_parents: true, sent_at: new Date().toISOString() })
       .eq('id', log.id);
+
+    if (error) {
+      // If it's a network/fetch error, treat as offline
+      if (error.message?.includes('fetch') || error.message?.includes('network') || error.code === 'PGRST301') {
+        return { error: null, offline: true };
+      }
+      return { error };
+    }
+
     setLog(prev => ({ ...prev, sent_to_parents: true }));
+    return { error: null, offline: false };
   }
 
   return {
-    log, meals, diapers, sleeps, activities, supplies, loading,
+    log, meals, diapers, sleeps, activities, supplies, loading, error,
     updateMoods, updateNotes,
     addMeal, updateMeal, deleteMeal,
     addDiaper, updateDiaper, deleteDiaper,
@@ -183,20 +222,19 @@ export function useDailyLog(childId, date = new Date()) {
   };
 }
 
-// ---- COPY YESTERDAY ----
-// Standalone function — copies yesterday's meals and activities into today's log
-export async function copyYesterdayLog(childId, todayLogId) {
-  const yesterday = new Date();
-  yesterday.setDate(yesterday.getDate() - 1);
-  const yesterdayStr = format(yesterday, 'yyyy-MM-dd');
+// ---- COPY PREVIOUS DAY ----
+// Standalone function — copies the previous day's meals and activities
+// into the target log. `baseDate` is the day being edited (defaults to today).
+export async function copyYesterdayLog(childId, todayLogId, baseDate = new Date()) {
+  const yesterdayStr = format(subDays(baseDate, 1), 'yyyy-MM-dd');
 
-  // Find yesterday's log
+  // Find the previous day's log
   const { data: yLog } = await supabase
     .from('daily_logs')
     .select('id, moods')
     .eq('child_id', childId)
     .eq('log_date', yesterdayStr)
-    .single();
+    .maybeSingle();
 
   if (!yLog) return { copied: false, reason: 'No log found for yesterday.' };
 

@@ -192,16 +192,31 @@ export default function IncidentReportScreen({ route, navigation }) {
   async function handleSubmit() {
     setSaving(true);
 
-    // Upload photos
+    // Upload photos — a failure (e.g. offline on the playground) must not
+    // block the incident report itself
     const uploadedPaths = [];
+    let photoFailure = null;
     for (const uri of photos) {
       const { path, error } = await uploadPhoto(reportId, child.id, uri);
-      if (error) {
-        Alert.alert('Photo upload failed', error.message);
+      if (error) { photoFailure = error; break; }
+      uploadedPaths.push(path);
+    }
+
+    if (photoFailure) {
+      const proceed = await new Promise(resolve => {
+        Alert.alert(
+          'Photo upload failed',
+          `${photoFailure.message || 'Network error'}\n\nSubmit the report without the remaining photos? You can add photos later.`,
+          [
+            { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
+            { text: 'Submit without photos', onPress: () => resolve(true) },
+          ]
+        );
+      });
+      if (!proceed) {
         setSaving(false);
         return;
       }
-      uploadedPaths.push(path);
     }
 
     // Combine first aid text
@@ -219,7 +234,7 @@ export default function IncidentReportScreen({ route, navigation }) {
     });
 
     // Submit and notify
-    const { error } = await submitReport(reportId);
+    const { error, queued } = await submitReport(reportId);
     setSaving(false);
 
     if (error) {
@@ -227,17 +242,22 @@ export default function IncidentReportScreen({ route, navigation }) {
       return;
     }
 
-    // Send push notification to parents
-    try {
-      await notifyIncident(child.id, child.first_name, severity);
-    } catch (e) {
-      // Non-blocking: notification failure shouldn't block the form
-      console.warn('Push notification failed:', e);
+    // Send push notification to parents (skipped when offline — the queued
+    // report syncs on reconnect, but pushes need a live connection)
+    if (!queued) {
+      try {
+        await notifyIncident(child.id, child.first_name, severity);
+      } catch (e) {
+        // Non-blocking: notification failure shouldn't block the form
+        console.warn('Push notification failed:', e);
+      }
     }
 
     Alert.alert(
-      'Report submitted ✓',
-      `The incident report for ${child.first_name} has been submitted and parents have been notified.`,
+      queued ? 'Report saved — will submit when online' : 'Report submitted ✓',
+      queued
+        ? `You're offline. ${child.first_name}'s incident report is saved and will be submitted automatically when you reconnect. Notify parents in person or by phone in the meantime.`
+        : `The incident report for ${child.first_name} has been submitted and parents have been notified.`,
       [{ text: 'Done', onPress: () => navigation.goBack() }]
     );
   }

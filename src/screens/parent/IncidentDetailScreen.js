@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import {
-  View, Text, ScrollView, TouchableOpacity,
+  View, Text, TouchableOpacity,
   StyleSheet, Alert, TextInput, Image, ActivityIndicator
 } from 'react-native';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 import { useAuth } from '../../hooks/useAuth';
 import { useIncidentForm } from '../../hooks/useIncidentReport';
+import { exportIncidentPdf } from '../../lib/export';
 import { ChildAvatar } from '../../components/ChildAvatar';
 import { Button } from '../../components/ui';
 import { colors, spacing, radius } from '../../theme';
@@ -50,15 +52,31 @@ export default function IncidentDetailScreen({ route, navigation }) {
       return;
     }
     setAcknowledging(true);
-    const { error } = await acknowledgeReport(incident.id, ackName.trim());
+    const { error, queued } = await acknowledgeReport(incident.id, ackName.trim());
     setAcknowledging(false);
     if (error) {
       Alert.alert('Error', error.message);
       return;
     }
+    if (queued) {
+      Alert.alert(
+        'Saved — will sync',
+        "You're offline right now. Your acknowledgment has been saved and will be submitted automatically when you reconnect.",
+        [{ text: 'OK', onPress: () => navigation.goBack() }]
+      );
+      return;
+    }
     Alert.alert('Acknowledged ✓', 'Thank you. This report has been marked as reviewed.', [
       { text: 'OK', onPress: () => navigation.goBack() },
     ]);
+  }
+
+  async function handleExportPdf() {
+    try {
+      await exportIncidentPdf({ incident, child });
+    } catch (err) {
+      Alert.alert('Export failed', err.message);
+    }
   }
 
   return (
@@ -69,10 +87,18 @@ export default function IncidentDetailScreen({ route, navigation }) {
           <Text style={styles.back}>← Back</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Incident report</Text>
-        <View style={{ width: 60 }} />
+        <TouchableOpacity onPress={handleExportPdf} accessibilityLabel="Export as PDF" style={{ width: 60, alignItems: 'flex-end' }}>
+          <Text style={{ fontSize: 18 }}>📄</Text>
+        </TouchableOpacity>
       </View>
 
-      <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
+      <KeyboardAwareScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.content}
+        enableOnAndroid
+        extraScrollHeight={40}
+        keyboardShouldPersistTaps="handled"
+      >
         {/* Severity banner */}
         <View style={[styles.severityBanner, { backgroundColor: sev.bg, borderColor: sev.color + '44' }]}>
           <Text style={styles.severityEmoji}>{sev.emoji}</Text>
@@ -182,7 +208,7 @@ export default function IncidentDetailScreen({ route, navigation }) {
         )}
 
         <View style={{ height: spacing.xxxl * 2 }} />
-      </ScrollView>
+      </KeyboardAwareScrollView>
     </View>
   );
 }

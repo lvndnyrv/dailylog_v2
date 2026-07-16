@@ -3,13 +3,16 @@ import {
   View, Text, ScrollView, TouchableOpacity,
   StyleSheet, Alert, TextInput, Modal, Linking
 } from 'react-native';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
+import { useAuth } from '../../hooks/useAuth';
 import { useDailyLog, copyYesterdayLog } from '../../hooks/useDailyLog';
 import { notifyParents } from '../../hooks/usePushNotifications';
 import { supabase } from '../../lib/supabase';
+import { exportDailyLogPdf } from '../../lib/export';
 import { Section, Chip, Button, LoadingScreen, Badge } from '../../components/ui';
 import { PhotoSection } from '../../components/PhotoSection';
 import { colors, spacing, radius } from '../../theme';
-import { format } from 'date-fns';
+import { format, isToday as checkIsToday } from 'date-fns';
 
 const MOODS = [
   { label: 'Happy', emoji: '😊' },
@@ -131,15 +134,17 @@ function TimePicker({ value, onChange, onClose }) {
 // Shows the current time value, opens picker on tap
 function TimeButton({ value, onChange }) {
   const [open, setOpen] = useState(false);
+  // Strip seconds if present (DB returns HH:mm:ss, we only need HH:mm)
+  const display = value ? value.substring(0, 5) : '--:--';
   return (
     <>
       <TouchableOpacity onPress={() => setOpen(true)} style={styles.timeBtn} activeOpacity={0.7}>
-        <Text style={styles.timeBtnText}>{value || '--:--'}</Text>
+        <Text style={styles.timeBtnText}>{display}</Text>
         <Text style={styles.timeBtnIcon}>🕐</Text>
       </TouchableOpacity>
       {open && (
         <TimePicker
-          value={value}
+          value={value ? value.substring(0, 5) : value}
           onChange={onChange}
           onClose={() => setOpen(false)}
         />
@@ -234,14 +239,21 @@ function DiaperRow({ d, onUpdate, onDelete }) {
 function SleepRow({ s, onUpdate, onDelete }) {
   return (
     <View style={styles.sleepCard}>
+      <View style={styles.sleepCardHeader}>
+        <Text style={styles.sleepCardTitle}>😴 Nap</Text>
+        <TouchableOpacity
+          onPress={() => onDelete(s.id)}
+          style={styles.sleepDeleteBtn}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        >
+          <Text style={styles.sleepDeleteText}>Remove</Text>
+        </TouchableOpacity>
+      </View>
       <View style={styles.sleepRow}>
         <Text style={styles.sleepLabel}>Start</Text>
         <TimeButton value={s.start_time} onChange={t => onUpdate(s.id, { start_time: t })} />
         <Text style={styles.sleepLabel}>End</Text>
         <TimeButton value={s.end_time || ''} onChange={t => onUpdate(s.id, { end_time: t })} />
-        <TouchableOpacity onPress={() => onDelete(s.id)} style={styles.deleteBtn}>
-          <Text style={styles.deleteX}>✕</Text>
-        </TouchableOpacity>
       </View>
       {s.start_time && s.end_time && (
         <Text style={styles.sleepDuration}>
@@ -261,18 +273,57 @@ function calcDuration(start, end) {
   return `${Math.floor(mins / 60)}h ${mins % 60}m`;
 }
 
+// ---- CUSTOM ITEM INPUT ----
+// Inline input for adding custom activities or supply items
+function CustomItemInput({ placeholder, onAdd, color }) {
+  const [text, setText] = useState('');
+
+  function handleAdd() {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    onAdd(trimmed);
+    setText('');
+  }
+
+  return (
+    <View style={styles.customInputRow}>
+      <TextInput
+        value={text}
+        onChangeText={setText}
+        placeholder={placeholder}
+        placeholderTextColor={colors.textMuted}
+        style={styles.customInput}
+        returnKeyType="done"
+        onSubmitEditing={handleAdd}
+        maxLength={40}
+      />
+      <TouchableOpacity
+        onPress={handleAdd}
+        disabled={!text.trim()}
+        style={[styles.customAddBtn, { backgroundColor: text.trim() ? color : colors.border }]}
+      >
+        <Text style={styles.customAddBtnText}>+</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
 // ---- MAIN SCREEN ----
 export default function DailyLogScreen({ route, navigation }) {
-  const { child } = route.params;
+  const { child, date } = route.params;
+  const { profile } = useAuth();
+  // Date comes from the roster's date navigation (defaults to today)
+  const logDate = date ? new Date(`${date}T00:00:00`) : new Date();
+  const isToday = checkIsToday(logDate);
   const {
-    log, meals, diapers, sleeps, activities, supplies, loading,
+    log, meals, diapers, sleeps, activities, supplies, loading, error,
     updateMoods, updateNotes,
     addMeal, updateMeal, deleteMeal,
     addDiaper, updateDiaper, deleteDiaper,
     addSleep, updateSleep, deleteSleep,
     toggleActivity, toggleSupply,
     sendToParents,
-  } = useDailyLog(child.id);
+  } = useDailyLog(child.id, logDate, { createIfMissing: true, educatorId: profile?.id });
 
   const [notes, setNotes] = useState('');
   const [comments, setComments] = useState('');
@@ -287,6 +338,18 @@ export default function DailyLogScreen({ route, navigation }) {
   }, [log?.id]);
 
   if (loading) return <LoadingScreen />;
+
+  if (!log) {
+    return (
+      <View style={styles.errorWrap}>
+        <Text style={styles.errorIcon}>⚠️</Text>
+        <Text style={styles.errorText}>
+          Couldn't open this log{error ? `:\n${error}` : '.'}
+        </Text>
+        <Button label="← Back to roster" onPress={() => navigation.goBack()} variant="ghost" />
+      </View>
+    );
+  }
 
   const selectedMoods = log?.moods || [];
   const selectedActivities = activities.map(a => a.activity_name);
@@ -330,22 +393,22 @@ export default function DailyLogScreen({ route, navigation }) {
   async function handleCopyYesterday() {
     if (!log) return;
     Alert.alert(
-      'Copy yesterday\'s log?',
-      'This will copy yesterday\'s meals and activities into today\'s log. Existing entries won\'t be replaced.',
+      'Copy previous day\'s log?',
+      'This will copy the previous day\'s meals and activities into this log. Existing entries won\'t be replaced.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Copy',
           onPress: async () => {
             setCopying(true);
-            const result = await copyYesterdayLog(child.id, log.id);
+            const result = await copyYesterdayLog(child.id, log.id, logDate);
             setCopying(false);
             if (!result.copied) {
               Alert.alert('Nothing to copy', result.reason);
             } else {
               Alert.alert(
                 'Copied ✓',
-                `Copied ${result.mealCount} meals and ${result.activityCount} activities from yesterday.`
+                `Copied ${result.mealCount} meals and ${result.activityCount} activities from the previous day.`
               );
             }
           },
@@ -357,27 +420,63 @@ export default function DailyLogScreen({ route, navigation }) {
   async function handleSend() {
     setSending(true);
     await updateNotes(notes, comments);
-    await sendToParents();
-    await notifyParents(child.id, child.first_name, format(new Date(), 'yyyy-MM-dd'));
+    const { error: sendError, offline } = await sendToParents();
+    if (offline) {
+      setSending(false);
+      Alert.alert(
+        "You're offline",
+        'Sending to parents needs a connection so they get notified. Your entries are saved — try again once you\'re back online.'
+      );
+      return;
+    }
+    if (sendError) {
+      setSending(false);
+      Alert.alert('Could not send', sendError.message);
+      return;
+    }
+    await notifyParents(child.id, child.first_name, format(logDate, 'yyyy-MM-dd'));
     setSending(false);
     Alert.alert('Sent! ✓', `${child.first_name}'s daily log has been sent to parents.`, [
       { text: 'OK', onPress: () => navigation.goBack() }
     ]);
   }
 
+  async function handleExportPdf() {
+    try {
+      await exportDailyLogPdf({
+        child, log, meals, diapers, sleeps, activities, supplies,
+        dateStr: format(logDate, 'EEEE, MMMM d, yyyy'),
+      });
+    } catch (err) {
+      Alert.alert('Export failed', err.message);
+    }
+  }
+
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+    <KeyboardAwareScrollView
+      style={styles.container}
+      contentContainerStyle={styles.content}
+      keyboardShouldPersistTaps="handled"
+      extraScrollHeight={120}
+      enableOnAndroid
+      enableResetScrollToCoords={false}
+    >
 
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()}>
           <Text style={styles.back}>← Roster</Text>
         </TouchableOpacity>
-        <View style={styles.childPill}>
+        <View style={[styles.childPill, !isToday && styles.childPillPast]}>
           <Text style={styles.childName}>{child.first_name} {child.last_name}</Text>
-          <Text style={styles.headerDate}>{format(new Date(), 'MMM d')}</Text>
+          <Text style={styles.headerDate}>
+            {isToday ? format(logDate, 'MMM d') : `📅 ${format(logDate, 'EEE, MMM d')}`}
+          </Text>
         </View>
         <View style={styles.headerActions}>
+          <TouchableOpacity onPress={handleExportPdf} style={styles.headerBtn} accessibilityLabel="Export as PDF">
+            <Text style={styles.headerBtnText}>📄</Text>
+          </TouchableOpacity>
           <TouchableOpacity onPress={handleCallParents} style={styles.headerBtn}>
             <Text style={styles.headerBtnText}>📞</Text>
           </TouchableOpacity>
@@ -389,6 +488,15 @@ export default function DailyLogScreen({ route, navigation }) {
           </TouchableOpacity>
         </View>
       </View>
+
+      {/* Allergy warning banner */}
+      {child.allergies?.length > 0 && (
+        <View style={styles.allergyBanner}>
+          <Text style={styles.allergyBannerText}>
+            ⚠️ Allergies: {child.allergies.join(', ')}
+          </Text>
+        </View>
+      )}
 
       {/* Copy yesterday shortcut */}
       {!log?.sent_to_parents && (
@@ -469,7 +577,17 @@ export default function DailyLogScreen({ route, navigation }) {
             <Chip key={a} label={a} selected={selectedActivities.includes(a)}
               onPress={() => toggleActivity(a)} color={colors.purple} lightColor={colors.purpleLight} />
           ))}
+          {/* Show custom activities not in default list */}
+          {selectedActivities.filter(a => !ACTIVITIES.includes(a)).map(a => (
+            <Chip key={a} label={a} selected onPress={() => toggleActivity(a)}
+              color={colors.purple} lightColor={colors.purpleLight} />
+          ))}
         </View>
+        <CustomItemInput
+          placeholder="Add custom activity..."
+          onAdd={(name) => toggleActivity(name)}
+          color={colors.purple}
+        />
       </Section>
 
       {/* SUPPLIES */}
@@ -479,7 +597,17 @@ export default function DailyLogScreen({ route, navigation }) {
             <Chip key={s.label} label={`${s.emoji} ${s.label}`} selected={selectedSupplies.includes(s.label)}
               onPress={() => toggleSupply(s.label)} color={colors.coral} lightColor={colors.coralLight} />
           ))}
+          {/* Show custom supplies not in default list */}
+          {selectedSupplies.filter(s => !SUPPLIES.some(def => def.label === s)).map(s => (
+            <Chip key={s} label={s} selected onPress={() => toggleSupply(s)}
+              color={colors.coral} lightColor={colors.coralLight} />
+          ))}
         </View>
+        <CustomItemInput
+          placeholder="Add custom item..."
+          onAdd={(name) => toggleSupply(name)}
+          color={colors.coral}
+        />
       </Section>
 
       {/* NOTES */}
@@ -513,7 +641,7 @@ export default function DailyLogScreen({ route, navigation }) {
         style={styles.sendBtn}
       />
       <View style={{ height: spacing.xxxl }} />
-    </ScrollView>
+    </KeyboardAwareScrollView>
   );
 }
 
@@ -526,9 +654,37 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primaryLight, borderRadius: radius.full,
     paddingHorizontal: spacing.lg, paddingVertical: spacing.sm, alignItems: 'center',
   },
+  childPillPast: { backgroundColor: colors.amberLight },
   childName: { fontSize: 15, fontWeight: '600', color: colors.primary },
   headerDate: { fontSize: 12, color: colors.primaryDark },
   chipWrap: { flexDirection: 'row', flexWrap: 'wrap' },
+  customInputRow: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  customInput: {
+    flex: 1, fontSize: 14, color: colors.textPrimary,
+    backgroundColor: colors.bg, borderWidth: 1.5,
+    borderColor: colors.border, borderRadius: radius.md,
+    paddingHorizontal: spacing.md, paddingVertical: spacing.sm,
+    minHeight: 38,
+  },
+  customAddBtn: {
+    width: 38, height: 38, borderRadius: radius.md,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  customAddBtnText: { fontSize: 20, color: colors.white, fontWeight: '700', marginTop: -1 },
+
+  // Error state
+  errorWrap: {
+    flex: 1, justifyContent: 'center', alignItems: 'center',
+    backgroundColor: colors.bg, padding: spacing.xl,
+  },
+  errorIcon: { fontSize: 40, marginBottom: spacing.md },
+  errorText: {
+    fontSize: 14, color: colors.textSecondary, textAlign: 'center',
+    lineHeight: 20, marginBottom: spacing.xl,
+  },
 
   // Time button
   timeBtn: {
@@ -584,7 +740,18 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: colors.border,
     padding: spacing.md, marginBottom: spacing.sm,
   },
-  sleepRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  sleepCardHeader: {
+    flexDirection: 'row', justifyContent: 'space-between',
+    alignItems: 'center', marginBottom: spacing.sm,
+  },
+  sleepCardTitle: { fontSize: 13, fontWeight: '600', color: colors.textSecondary },
+  sleepDeleteBtn: {
+    paddingHorizontal: spacing.md, paddingVertical: spacing.xs + 2,
+    borderRadius: radius.full, backgroundColor: colors.dangerLight,
+    borderWidth: 1, borderColor: colors.danger + '33',
+  },
+  sleepDeleteText: { fontSize: 12, color: colors.danger, fontWeight: '600' },
+  sleepRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flexWrap: 'wrap' },
   sleepLabel: { fontSize: 13, color: colors.textSecondary, fontWeight: '500' },
   sleepDuration: { fontSize: 12, color: colors.success, marginTop: spacing.sm, fontWeight: '500' },
 
@@ -614,6 +781,12 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: colors.danger + '33',
   },
   incidentBtnText: { fontSize: 14, color: colors.danger, fontWeight: '600' },
+  allergyBanner: {
+    backgroundColor: colors.dangerLight, borderRadius: radius.md,
+    padding: spacing.md, marginBottom: spacing.md,
+    borderWidth: 1.5, borderColor: colors.danger,
+  },
+  allergyBannerText: { fontSize: 13, color: colors.danger, fontWeight: '700', textAlign: 'center' },
   headerActions: { flexDirection: 'row', gap: spacing.sm },
   headerBtn: {
     width: 36, height: 36, borderRadius: 18,
@@ -623,24 +796,47 @@ const styles = StyleSheet.create({
   headerBtnText: { fontSize: 16 },
 });
 
-// Time picker styles
+// TimePicker styles
 const tp = StyleSheet.create({
-  overlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' },
-  sheet: { backgroundColor: colors.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingBottom: 40 },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: spacing.lg, borderBottomWidth: 1, borderBottomColor: colors.border },
+  overlay: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'flex-end',
+  },
+  sheet: {
+    backgroundColor: colors.surface, borderTopLeftRadius: radius.xl,
+    borderTopRightRadius: radius.xl, padding: spacing.xl,
+    paddingBottom: spacing.xxxl + spacing.xl,
+  },
+  header: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    marginBottom: spacing.lg,
+  },
+  cancel: { fontSize: 15, color: colors.textMuted, fontWeight: '500' },
   title: { fontSize: 16, fontWeight: '600', color: colors.textPrimary },
-  cancel: { fontSize: 16, color: colors.textSecondary },
-  done: { fontSize: 16, color: colors.primary, fontWeight: '600' },
-  pickerRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'center', padding: spacing.lg },
-  col: { width: 100, alignItems: 'center' },
-  colLabel: { fontSize: 12, color: colors.textMuted, marginBottom: spacing.sm, fontWeight: '500', textTransform: 'uppercase' },
-  scroll: { height: 200 },
-  item: { paddingVertical: spacing.sm, paddingHorizontal: spacing.lg, borderRadius: radius.md, width: '100%', alignItems: 'center' },
+  done: { fontSize: 15, color: colors.primary, fontWeight: '600' },
+  pickerRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: spacing.md,
+  },
+  col: { flex: 1, alignItems: 'center' },
+  colLabel: { fontSize: 12, color: colors.textMuted, fontWeight: '500', marginBottom: spacing.sm },
+  scroll: { height: 180 },
+  item: {
+    paddingVertical: spacing.sm, paddingHorizontal: spacing.lg,
+    borderRadius: radius.md, marginBottom: 2, alignItems: 'center',
+  },
   itemSelected: { backgroundColor: colors.primaryLight },
-  itemText: { fontSize: 22, color: colors.textSecondary, fontWeight: '400' },
+  itemText: { fontSize: 16, color: colors.textSecondary },
   itemTextSelected: { color: colors.primary, fontWeight: '700' },
-  colon: { fontSize: 28, fontWeight: '700', color: colors.textPrimary, marginTop: 48, marginHorizontal: spacing.md },
-  quickRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, paddingHorizontal: spacing.lg, paddingTop: spacing.sm },
-  quick: { backgroundColor: colors.bg, borderRadius: radius.full, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderWidth: 1, borderColor: colors.border },
-  quickText: { fontSize: 13, color: colors.textSecondary, fontWeight: '500' },
+  colon: { fontSize: 24, fontWeight: '700', color: colors.textPrimary, marginTop: spacing.lg },
+  quickRow: {
+    flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm,
+    marginTop: spacing.lg, justifyContent: 'center',
+  },
+  quick: {
+    paddingHorizontal: spacing.md, paddingVertical: spacing.xs + 2,
+    borderRadius: radius.full, backgroundColor: colors.bg,
+    borderWidth: 1, borderColor: colors.border,
+  },
+  quickText: { fontSize: 12, color: colors.textSecondary, fontWeight: '500' },
 });

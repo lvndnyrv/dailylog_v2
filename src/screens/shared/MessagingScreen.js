@@ -6,6 +6,9 @@ import {
 } from 'react-native';
 import { useAuth } from '../../hooks/useAuth';
 import { supabase } from '../../lib/supabase';
+import { mutate } from '../../lib/offlineQueue';
+import { newId } from '../../lib/uuid';
+import { toastError } from '../../components/Toast';
 import { colors, spacing, radius } from '../../theme';
 import { format, isToday, isYesterday } from 'date-fns';
 
@@ -20,6 +23,7 @@ export default function MessagingScreen({ route, navigation }) {
   const { childId, childName } = route.params;
   const { profile }            = useAuth();
   const [messages, setMessages] = useState([]);
+  const [participants, setParticipants] = useState({ educator: null, parent: null });
   const [text, setText]         = useState('');
   const [loading, setLoading]   = useState(true);
   const [sending, setSending]   = useState(false);
@@ -28,7 +32,7 @@ export default function MessagingScreen({ route, navigation }) {
   useEffect(() => {
     loadMessages();
 
-    // Real-time subscription
+    // Real-time subscription — dedupes against optimistic sends by id
     const channel = supabase
       .channel(`messages:${childId}`)
       .on('postgres_changes', {
@@ -37,13 +41,30 @@ export default function MessagingScreen({ route, navigation }) {
         table: 'messages',
         filter: `child_id=eq.${childId}`,
       }, payload => {
-        setMessages(prev => [...prev, payload.new]);
+        setMessages(prev => prev.some(m => m.id === payload.new.id)
+          ? prev.map(m => (m.id === payload.new.id ? { ...m, ...payload.new } : m))
+          : [...prev, payload.new]);
         setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 100);
+        // Mark incoming messages as read immediately if they're not mine
+        if (payload.new.sender_id !== profile.id) {
+          markMessagesAsRead([payload.new.id]);
+        }
       })
       .subscribe();
 
     return () => supabase.removeChannel(channel);
   }, [childId]);
+
+  // Mark messages from others as read
+  async function markMessagesAsRead(messageIds) {
+    if (!messageIds?.length) return;
+    await supabase
+      .from('messages')
+      .update({ read_at: new Date().toISOString() })
+      .in('id', messageIds)
+      .is('read_at', null)
+      .neq('sender_id', profile.id);
+  }
 
   async function loadMessages() {
     const { data } = await supabase
@@ -54,6 +75,26 @@ export default function MessagingScreen({ route, navigation }) {
     setMessages(data || []);
     setLoading(false);
     setTimeout(() => listRef.current?.scrollToEnd({ animated: false }), 100);
+
+    // Extract participant names from messages
+    if (data?.length) {
+      const educatorMsg = data.find(m => m.sender?.role === 'educator' || m.sender?.role === 'admin');
+      const parentMsg = data.find(m => m.sender?.role === 'parent');
+      setParticipants({
+        educator: educatorMsg?.sender?.full_name || null,
+        parent: parentMsg?.sender?.full_name || null,
+      });
+    }
+
+    // Mark all unread messages from others as read
+    if (data?.length) {
+      const unreadFromOthers = data.filter(
+        m => m.sender_id !== profile.id && !m.read_at
+      );
+      if (unreadFromOthers.length > 0) {
+        markMessagesAsRead(unreadFromOthers.map(m => m.id));
+      }
+    }
   }
 
   async function handleSend() {
@@ -61,11 +102,28 @@ export default function MessagingScreen({ route, navigation }) {
     if (!trimmed || sending) return;
     setSending(true);
     setText('');
-    await supabase.from('messages').insert({
+
+    // Optimistic append with a client-generated id (works offline too)
+    const row = {
+      id: newId(),
       child_id: childId,
       sender_id: profile.id,
       body: trimmed,
-    });
+    };
+    setMessages(prev => [...prev, {
+      ...row,
+      created_at: new Date().toISOString(),
+      sender: { full_name: profile.full_name, role: profile.role },
+    }]);
+    setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 50);
+
+    const { error } = await mutate({ type: 'insert', table: 'messages', data: row });
+    if (error) {
+      // Hard failure — roll back and restore the draft
+      setMessages(prev => prev.filter(m => m.id !== row.id));
+      setText(trimmed);
+      toastError('Message not sent', error);
+    }
     setSending(false);
   }
 
@@ -77,7 +135,9 @@ export default function MessagingScreen({ route, navigation }) {
     return (
       <View style={[styles.msgWrap, isMe && styles.msgWrapMe]}>
         {showName && (
-          <Text style={styles.msgSender}>{item.sender?.full_name}</Text>
+          <Text style={styles.msgSender}>
+            {item.sender?.full_name || (item.sender?.role === 'parent' ? 'Parent' : 'Educator')}
+          </Text>
         )}
         <View style={[styles.bubble, isMe && styles.bubbleMe]}>
           <Text style={[styles.bubbleText, isMe && styles.bubbleTextMe]}>{item.body}</Text>
@@ -88,6 +148,15 @@ export default function MessagingScreen({ route, navigation }) {
       </View>
     );
   }
+
+  // Build header subtitle showing participant names
+  const headerSub = participants.educator && participants.parent
+    ? `${participants.educator} ↔ ${participants.parent}`
+    : participants.educator
+      ? `${participants.educator} · Educator`
+      : participants.parent
+        ? `${participants.parent} · Parent`
+        : 'Educator ↔ Parent';
 
   return (
     <KeyboardAvoidingView
@@ -102,7 +171,7 @@ export default function MessagingScreen({ route, navigation }) {
         </TouchableOpacity>
         <View style={styles.headerCenter}>
           <Text style={styles.headerTitle}>{childName}</Text>
-          <Text style={styles.headerSub}>Educator ↔ Parent</Text>
+          <Text style={styles.headerSub}>{headerSub}</Text>
         </View>
         <View style={{ width: 60 }} />
       </View>

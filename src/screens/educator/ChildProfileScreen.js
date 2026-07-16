@@ -24,6 +24,7 @@ export default function ChildProfileScreen({ route, navigation }) {
   const [photoUrl, setPhotoUrl]   = useState(child.photo_url || null);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [saving, setSaving]       = useState(false);
+  const [errors, setErrors]       = useState({});
   const [removing, setRemoving]   = useState(false);
   const [movingClass, setMovingClass] = useState(false);
   const [showMovePicker, setShowMovePicker] = useState(false);
@@ -36,9 +37,19 @@ export default function ChildProfileScreen({ route, navigation }) {
   // Invite new parent
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviting, setInviting]       = useState(false);
+  const [existingParents, setExistingParents] = useState([]);
+  const [showParentPicker, setShowParentPicker] = useState(false);
 
   // Incidents history
   const [incidents, setIncidents] = useState([]);
+
+  // Medical profile
+  const [allergies, setAllergies]           = useState(child.allergies || []);
+  const [newAllergy, setNewAllergy]         = useState('');
+  const [medicalNotes, setMedicalNotes]     = useState(child.medical_notes || '');
+  const [contacts, setContacts]             = useState(child.emergency_contacts || []);
+  const [newContact, setNewContact]         = useState({ name: '', relation: '', phone: '' });
+  const [savingMedical, setSavingMedical]   = useState(false);
 
   const hasChanges =
     firstName.trim() !== (child.first_name   || '') ||
@@ -48,7 +59,33 @@ export default function ChildProfileScreen({ route, navigation }) {
   useEffect(() => {
     loadParents();
     loadIncidents();
+    loadExistingParents();
   }, []);
+
+  // Load all parents in the daycare (for "link existing" picker)
+  async function loadExistingParents() {
+    const { data } = await supabase
+      .from('profiles')
+      .select('id, full_name, email')
+      .eq('role', 'parent')
+      .order('full_name');
+    setExistingParents(data || []);
+  }
+
+  async function linkExistingParent(parent) {
+    const { error } = await supabase
+      .from('parent_children')
+      .upsert(
+        { parent_id: parent.id, child_id: child.id },
+        { onConflict: 'parent_id,child_id', ignoreDuplicates: true }
+      );
+    setShowParentPicker(false);
+    if (error) {
+      Alert.alert('Error', error.message);
+    } else {
+      await loadParents();
+    }
+  }
 
   // ─── PROFILE PHOTO ────────────────────────────────────────────────────────
   function handleChangePhoto() {
@@ -100,8 +137,9 @@ export default function ChildProfileScreen({ route, navigation }) {
         { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG }
       );
 
+      // Read file as ArrayBuffer (reliable in React Native unlike blob)
       const response = await fetch(manipResult.uri);
-      const blob = await response.blob();
+      const arrayBuffer = await response.arrayBuffer();
       const path = `${child.id}/avatar_${Date.now()}.jpg`;
 
       // Remove old avatar if exists
@@ -112,7 +150,7 @@ export default function ChildProfileScreen({ route, navigation }) {
       // Upload new avatar
       const { error: uploadError } = await supabase.storage
         .from('child-avatars')
-        .upload(path, blob, { contentType: 'image/jpeg', upsert: true });
+        .upload(path, arrayBuffer, { contentType: 'image/jpeg', upsert: true });
 
       if (uploadError) throw uploadError;
 
@@ -165,11 +203,56 @@ export default function ChildProfileScreen({ route, navigation }) {
     setIncidents(data || []);
   }
 
-  async function handleSave() {
-    if (!firstName.trim()) {
-      Alert.alert('Required', "Please enter the child's first name.");
+  // ─── MEDICAL PROFILE ──────────────────────────────────────────────────────
+  async function saveMedical(updates) {
+    setSavingMedical(true);
+    const { error } = await supabase
+      .from('children')
+      .update(updates)
+      .eq('id', child.id);
+    setSavingMedical(false);
+    if (error) Alert.alert('Error', error.message);
+  }
+
+  function addAllergy() {
+    const a = newAllergy.trim();
+    if (!a || allergies.includes(a)) { setNewAllergy(''); return; }
+    const next = [...allergies, a];
+    setAllergies(next);
+    setNewAllergy('');
+    saveMedical({ allergies: next });
+  }
+
+  function removeAllergy(a) {
+    const next = allergies.filter(x => x !== a);
+    setAllergies(next);
+    saveMedical({ allergies: next });
+  }
+
+  function addContact() {
+    if (!newContact.name.trim() || !newContact.phone.trim()) {
+      Alert.alert('Required', 'Please enter at least a name and phone number.');
       return;
     }
+    const next = [...contacts, { ...newContact, name: newContact.name.trim(), phone: newContact.phone.trim() }];
+    setContacts(next);
+    setNewContact({ name: '', relation: '', phone: '' });
+    saveMedical({ emergency_contacts: next });
+  }
+
+  function removeContact(idx) {
+    const next = contacts.filter((_, i) => i !== idx);
+    setContacts(next);
+    saveMedical({ emergency_contacts: next });
+  }
+
+  async function handleSave() {
+    const errs = {};
+    if (!firstName.trim()) errs.firstName = 'First name is required';
+    if (!lastName.trim()) errs.lastName = 'Last name is required';
+    setErrors(errs);
+    if (Object.keys(errs).length > 0) return;
+
     setSaving(true);
     const { error } = await supabase
       .from('children')
@@ -205,20 +288,29 @@ export default function ChildProfileScreen({ route, navigation }) {
       .single();
 
     if (existing) {
-      // Already has an account — link directly
+      // Already has an account — link directly. DO NOTHING (not DO UPDATE):
+      // Phase 2 restricts UPDATE on parent_children to consent_given_at only.
       const { error } = await supabase
         .from('parent_children')
-        .upsert({ parent_id: existing.id, child_id: child.id }, { onConflict: 'parent_id,child_id' });
+        .upsert(
+          { parent_id: existing.id, child_id: child.id },
+          { onConflict: 'parent_id,child_id', ignoreDuplicates: true }
+        );
       setInviting(false);
       if (error) { Alert.alert('Error', error.message); return; }
       setInviteEmail('');
       await loadParents();
       Alert.alert('Linked ✓', `${existing.full_name} has been linked to ${child.first_name}.`);
     } else {
-      // Send magic link invite
+      // Send magic link invite — pending_child_id is processed by the
+      // handle_new_user trigger to auto-link parent → child on signup
       const { error } = await supabase.auth.signInWithOtp({
         email: inviteEmail.trim().toLowerCase(),
-        options: { data: { role: 'parent' }, shouldCreateUser: true },
+        options: {
+          data: { role: 'parent', pending_child_id: child.id },
+          shouldCreateUser: true,
+          emailRedirectTo: 'dailylog://auth',
+        },
       });
       setInviting(false);
       if (error) { Alert.alert('Error', error.message); return; }
@@ -292,8 +384,16 @@ export default function ChildProfileScreen({ route, navigation }) {
           text: 'Remove', style: 'destructive',
           onPress: async () => {
             setRemoving(true);
-            await supabase.from('children').delete().eq('id', child.id);
+            // Soft delete — archiving preserves logs, incidents and parent links
+            const { error } = await supabase
+              .from('children')
+              .update({ archived_at: new Date().toISOString() })
+              .eq('id', child.id);
             setRemoving(false);
+            if (error) {
+              Alert.alert('Error', error.message);
+              return;
+            }
             navigation.goBack();
           },
         },
@@ -347,12 +447,42 @@ export default function ChildProfileScreen({ route, navigation }) {
         <Text style={styles.changePhotoHint}>Tap to change photo</Text>
       </TouchableOpacity>
 
+      {/* Profile completeness nudge */}
+      {(() => {
+        const missing = [];
+        if (!allergies?.length && !medicalNotes) missing.push('Medical info');
+        if (!contacts?.length) missing.push('Emergency contacts');
+        if (parents.length === 0 && !loadingParents) missing.push('Linked parents');
+        if (!dob) missing.push('Date of birth');
+        if (missing.length === 0) return null;
+        return (
+          <View style={styles.completenessCard}>
+            <Text style={styles.completenessTitle}>⚠️ Profile needs attention</Text>
+            <Text style={styles.completenessText}>
+              Missing: {missing.join(' · ')}
+            </Text>
+          </View>
+        );
+      })()}
+
       {/* Details form */}
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Details</Text>
-        <Input label="First name *" value={firstName} onChangeText={setFirstName} placeholder="e.g. Emma" />
-        <Input label="Last name" value={lastName} onChangeText={setLastName} placeholder="e.g. Smith" />
-        <DatePickerField label="Date of birth" value={dob} onChange={setDob} />
+        <Input
+          label="First name (required)"
+          value={firstName}
+          onChangeText={(v) => { setFirstName(v); if (errors.firstName) setErrors(e => ({ ...e, firstName: null })); }}
+          placeholder="e.g. Emma"
+          error={errors.firstName}
+        />
+        <Input
+          label="Last name (required)"
+          value={lastName}
+          onChangeText={(v) => { setLastName(v); if (errors.lastName) setErrors(e => ({ ...e, lastName: null })); }}
+          placeholder="e.g. Smith"
+          error={errors.lastName}
+        />
+        <DatePickerField label="Date of birth (optional)" value={dob} onChange={setDob} />
       </View>
 
       {hasChanges && (
@@ -465,6 +595,127 @@ export default function ChildProfileScreen({ route, navigation }) {
         )}
       </View>
 
+      {/* Medical profile */}
+      <View style={styles.card}>
+        <Text style={styles.cardTitle}>🏥 Medical & emergency info</Text>
+
+        {/* Allergies */}
+        <Text style={styles.medLabel}>Allergies</Text>
+        {allergies.length > 0 && (
+          <View style={styles.allergyWrap}>
+            {allergies.map(a => (
+              <TouchableOpacity
+                key={a}
+                style={styles.allergyChip}
+                onLongPress={() => Alert.alert('Remove allergy', `Remove "${a}"?`, [
+                  { text: 'Cancel', style: 'cancel' },
+                  { text: 'Remove', style: 'destructive', onPress: () => removeAllergy(a) },
+                ])}
+              >
+                <Text style={styles.allergyChipText}>⚠️ {a}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
+        <View style={styles.medAddRow}>
+          <Input
+            value={newAllergy}
+            onChangeText={setNewAllergy}
+            placeholder="e.g. Peanuts"
+            style={{ flex: 1, marginBottom: 0 }}
+          />
+          <TouchableOpacity
+            onPress={addAllergy}
+            disabled={!newAllergy.trim()}
+            style={[styles.medAddBtn, !newAllergy.trim() && styles.medAddBtnDisabled]}
+          >
+            <Text style={styles.medAddBtnText}>Add</Text>
+          </TouchableOpacity>
+        </View>
+        {allergies.length > 0 && (
+          <Text style={styles.medHint}>Hold an allergy chip to remove it.</Text>
+        )}
+
+        <Divider />
+
+        {/* Emergency contacts */}
+        <Text style={styles.medLabel}>Emergency contacts</Text>
+        {contacts.map((c, idx) => (
+          <View key={idx} style={styles.contactRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.contactName}>{c.name}{c.relation ? ` · ${c.relation}` : ''}</Text>
+              <TouchableOpacity onPress={() => Linking.openURL(`tel:${c.phone}`)}>
+                <Text style={styles.contactPhone}>📞 {c.phone}</Text>
+              </TouchableOpacity>
+            </View>
+            <TouchableOpacity onPress={() => removeContact(idx)} style={styles.unlinkBtn}>
+              <Text style={styles.unlinkBtnText}>Remove</Text>
+            </TouchableOpacity>
+          </View>
+        ))}
+        <Input
+          value={newContact.name}
+          onChangeText={t => setNewContact(p => ({ ...p, name: t }))}
+          placeholder="Contact name"
+        />
+        <View style={styles.medAddRow}>
+          <Input
+            value={newContact.relation}
+            onChangeText={t => setNewContact(p => ({ ...p, relation: t }))}
+            placeholder="Relation (e.g. Grandma)"
+            style={{ flex: 1, marginBottom: 0 }}
+          />
+          <Input
+            value={newContact.phone}
+            onChangeText={t => setNewContact(p => ({ ...p, phone: t }))}
+            placeholder="Phone"
+            keyboardType="phone-pad"
+            style={{ flex: 1, marginBottom: 0 }}
+          />
+        </View>
+        <TouchableOpacity
+          onPress={addContact}
+          style={[styles.medAddBtn, { alignSelf: 'flex-start', marginTop: spacing.sm }]}
+        >
+          <Text style={styles.medAddBtnText}>+ Add contact</Text>
+        </TouchableOpacity>
+
+        <Divider />
+
+        {/* Medical notes */}
+        <Text style={styles.medLabel}>Medical notes</Text>
+        <Input
+          value={medicalNotes}
+          onChangeText={setMedicalNotes}
+          placeholder="e.g. Carries EpiPen; inhaler in cubby"
+          multiline
+        />
+        <TouchableOpacity
+          onPress={() => saveMedical({ medical_notes: medicalNotes.trim() || null })}
+          disabled={savingMedical}
+          style={[styles.medAddBtn, { alignSelf: 'flex-start' }]}
+        >
+          {savingMedical
+            ? <ActivityIndicator color={colors.white} size="small" />
+            : <Text style={styles.medAddBtnText}>Save notes</Text>}
+        </TouchableOpacity>
+
+        <Divider />
+
+        {/* Medications link */}
+        <TouchableOpacity
+          onPress={() => navigation.navigate('Medication', { child: { ...child, first_name: firstName, last_name: lastName } })}
+          style={styles.medLink}
+        >
+          <Text style={styles.medLinkIcon}>💊</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.medLinkTitle}>Medications</Text>
+            <Text style={styles.medLinkSub}>Authorizations & administration log</Text>
+          </View>
+          <Text style={styles.moveRoomArrow}>→</Text>
+        </TouchableOpacity>
+      </View>
+
       {/* Linked parents */}
       <View style={styles.card}>
         <Text style={styles.cardTitle}>👨‍👩‍👧 Linked parents</Text>
@@ -509,8 +760,24 @@ export default function ChildProfileScreen({ route, navigation }) {
 
         <Divider />
 
-        {/* Invite / link parent */}
-        <Text style={styles.inviteLabel}>Link a parent by email</Text>
+        {/* Link existing parent */}
+        {existingParents.filter(p => !parents.find(lp => lp.id === p.id)).length > 0 && (
+          <>
+            <Text style={styles.inviteLabel}>Link an existing parent</Text>
+            <TouchableOpacity
+              style={styles.linkExistingBtn}
+              onPress={() => setShowParentPicker(true)}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.linkExistingBtnText}>Choose from existing parents</Text>
+              <Text style={styles.linkExistingChevron}>›</Text>
+            </TouchableOpacity>
+            <Divider />
+          </>
+        )}
+
+        {/* Invite / link parent by email */}
+        <Text style={styles.inviteLabel}>Invite a new parent by email</Text>
         <View style={styles.inviteRow}>
           <Input
             value={inviteEmail}
@@ -526,14 +793,55 @@ export default function ChildProfileScreen({ route, navigation }) {
           >
             {inviting
               ? <ActivityIndicator color={colors.white} size="small" />
-              : <Text style={styles.inviteBtnText}>Link</Text>
+              : <Text style={styles.inviteBtnText}>Invite</Text>
             }
           </TouchableOpacity>
         </View>
         <Text style={styles.inviteHint}>
-          If they already have an account they'll be linked immediately. If not, they'll receive an invitation email.
+          They'll receive an email invitation. Once they sign up, they'll be automatically linked.
         </Text>
       </View>
+
+      {/* Parent picker modal */}
+      <Modal visible={showParentPicker} transparent animationType="slide">
+        <View style={styles.moveOverlay}>
+          <TouchableOpacity style={{ flex: 1 }} activeOpacity={1} onPress={() => setShowParentPicker(false)} />
+          <View style={styles.moveSheet}>
+            <View style={styles.moveSheetHeader}>
+              <Text style={styles.moveSheetTitle}>Link a parent</Text>
+              <TouchableOpacity onPress={() => setShowParentPicker(false)}>
+                <Text style={styles.moveSheetClose}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={styles.moveList}>
+              {existingParents
+                .filter(p => !parents.find(lp => lp.id === p.id))
+                .map(parent => (
+                  <TouchableOpacity
+                    key={parent.id}
+                    onPress={() => linkExistingParent(parent)}
+                    style={styles.moveRoomRow}
+                    activeOpacity={0.7}
+                  >
+                    <View style={[styles.parentAvatar, { width: 36, height: 36, borderRadius: 18 }]}>
+                      <Text style={styles.parentInitial}>{parent.full_name?.[0] || '?'}</Text>
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.moveRoomName}>{parent.full_name}</Text>
+                      <Text style={styles.moveRoomAge}>{parent.email}</Text>
+                    </View>
+                    <Text style={styles.linkExistingChevron}>+</Text>
+                  </TouchableOpacity>
+                ))}
+              {existingParents.filter(p => !parents.find(lp => lp.id === p.id)).length === 0 && (
+                <Text style={[styles.noParents, { padding: spacing.xl, textAlign: 'center' }]}>
+                  No other parents available to link.
+                </Text>
+              )}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
 
       <Divider />
 
@@ -593,6 +901,15 @@ const styles = StyleSheet.create({
   avatarDob: { fontSize: 13, color: colors.textSecondary, marginTop: 3 },
   changePhotoHint: { fontSize: 12, color: colors.primary, marginTop: spacing.xs, fontWeight: '500' },
 
+  // Profile completeness
+  completenessCard: {
+    backgroundColor: colors.amberLight, borderRadius: radius.lg,
+    borderWidth: 1, borderColor: colors.amber + '44',
+    padding: spacing.lg, marginBottom: spacing.lg,
+  },
+  completenessTitle: { fontSize: 14, fontWeight: '600', color: colors.amber, marginBottom: spacing.xs },
+  completenessText: { fontSize: 13, color: colors.textSecondary, lineHeight: 18 },
+
   card: {
     backgroundColor: colors.surface, borderRadius: radius.lg,
     borderWidth: 1, borderColor: colors.border,
@@ -620,6 +937,17 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.xs + 1, borderRadius: radius.full,
   },
   unlinkBtnText: { fontSize: 12, color: colors.danger, fontWeight: '500' },
+
+  // Link existing parent
+  linkExistingBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    backgroundColor: colors.primaryLight, borderRadius: radius.md,
+    borderWidth: 1, borderColor: colors.primary + '33',
+    paddingHorizontal: spacing.lg, paddingVertical: spacing.md,
+    marginBottom: spacing.md,
+  },
+  linkExistingBtnText: { fontSize: 14, fontWeight: '500', color: colors.primary },
+  linkExistingChevron: { fontSize: 20, color: colors.primary, fontWeight: '600' },
 
   inviteLabel: { fontSize: 13, fontWeight: '500', color: colors.textSecondary, marginBottom: spacing.sm },
   inviteRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.sm },
@@ -696,4 +1024,35 @@ const styles = StyleSheet.create({
     fontSize: 12, color: colors.textMuted, lineHeight: 17,
     paddingHorizontal: spacing.xl, paddingVertical: spacing.md,
   },
+
+  // Medical section
+  medLabel: { fontSize: 13, fontWeight: '600', color: colors.textSecondary, marginBottom: spacing.sm },
+  allergyWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.sm },
+  allergyChip: {
+    backgroundColor: colors.dangerLight, borderWidth: 1, borderColor: colors.danger + '55',
+    paddingHorizontal: spacing.md, paddingVertical: spacing.xs + 2, borderRadius: radius.full,
+  },
+  allergyChipText: { fontSize: 13, color: colors.danger, fontWeight: '600' },
+  medAddRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  medAddBtn: {
+    backgroundColor: colors.primary, paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm + 2, borderRadius: radius.md,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  medAddBtnDisabled: { backgroundColor: colors.border },
+  medAddBtnText: { fontSize: 13, color: colors.white, fontWeight: '600' },
+  medHint: { fontSize: 11, color: colors.textMuted, marginTop: spacing.xs },
+  contactRow: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  contactName: { fontSize: 14, fontWeight: '600', color: colors.textPrimary },
+  contactPhone: { fontSize: 13, color: colors.primary, marginTop: 2, fontWeight: '500' },
+  medLink: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  medLinkIcon: { fontSize: 22 },
+  medLinkTitle: { fontSize: 14, fontWeight: '600', color: colors.textPrimary },
+  medLinkSub: { fontSize: 12, color: colors.textSecondary, marginTop: 1 },
 });

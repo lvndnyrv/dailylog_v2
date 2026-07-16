@@ -1,0 +1,1251 @@
+{
+  "parent": {
+    "file": "DailyLog Mobile - Parent.dc.html",
+    "count": 35,
+    "screens": [
+      {
+        "id": "16a",
+        "label": "Onboarding parent 1",
+        "surface": ""
+      },
+      {
+        "id": "16a2",
+        "label": "Onboarding parent 2",
+        "surface": ""
+      },
+      {
+        "id": "16a3",
+        "label": "Onboarding parent 3",
+        "surface": ""
+      },
+      {
+        "id": "16b",
+        "label": "Parent sign in",
+        "surface": ""
+      },
+      {
+        "id": "16c",
+        "label": "Parent create account",
+        "surface": ""
+      },
+      {
+        "id": "16d",
+        "label": "Enter invite code",
+        "surface": ""
+      },
+      {
+        "id": "16e",
+        "label": "Confirm child link",
+        "surface": ""
+      },
+      {
+        "id": "16f",
+        "label": "Parent notifications",
+        "surface": ""
+      },
+      {
+        "id": "17a",
+        "label": "Announcements feed",
+        "surface": ""
+      },
+      {
+        "id": "17b",
+        "label": "Announcement RSVP",
+        "surface": ""
+      },
+      {
+        "id": "18a",
+        "label": "Parent chat inbox",
+        "surface": ""
+      },
+      {
+        "id": "18b",
+        "label": "Parent chat thread",
+        "surface": ""
+      },
+      {
+        "id": "19a",
+        "label": "Report absence",
+        "surface": ""
+      },
+      {
+        "id": "19b",
+        "label": "Family pickup pass",
+        "surface": ""
+      },
+      {
+        "id": "19c",
+        "label": "Authorized pickups",
+        "surface": ""
+      },
+      {
+        "id": "20a",
+        "label": "Incident report",
+        "surface": ""
+      },
+      {
+        "id": "20b",
+        "label": "Incident acknowledged",
+        "surface": ""
+      },
+      {
+        "id": "21a",
+        "label": "Billing home",
+        "surface": ""
+      },
+      {
+        "id": "21b",
+        "label": "Invoice detail",
+        "surface": ""
+      },
+      {
+        "id": "21c",
+        "label": "Autopay settings",
+        "surface": ""
+      },
+      {
+        "id": "21d",
+        "label": "Statements and tax",
+        "surface": ""
+      },
+      {
+        "id": "22a",
+        "label": "Me hub",
+        "surface": ""
+      },
+      {
+        "id": "22b",
+        "label": "Notification settings",
+        "surface": ""
+      },
+      {
+        "id": "22c",
+        "label": "Children and guardians",
+        "surface": ""
+      },
+      {
+        "id": "22d",
+        "label": "Privacy and data",
+        "surface": ""
+      },
+      {
+        "id": "23a",
+        "label": "Medication history",
+        "surface": ""
+      },
+      {
+        "id": "15b",
+        "label": "Authorize medication 15b",
+        "surface": ""
+      },
+      {
+        "id": "14a",
+        "label": "Parent consent 14a",
+        "surface": ""
+      },
+      {
+        "id": "14b",
+        "label": "Parent consent checked 14b",
+        "surface": ""
+      },
+      {
+        "id": "14c",
+        "label": "Consent decline sheet 14c",
+        "surface": ""
+      },
+      {
+        "id": "6a",
+        "label": "Parent Today",
+        "surface": ""
+      },
+      {
+        "id": "6b",
+        "label": "Parent Today 6b",
+        "surface": ""
+      },
+      {
+        "id": "5a",
+        "label": "Weekly summary",
+        "surface": ""
+      },
+      {
+        "id": "5b",
+        "label": "Weekly story 5b",
+        "surface": ""
+      },
+      {
+        "id": "5c",
+        "label": "Weekly trends 5c",
+        "surface": ""
+      }
+    ],
+    "linkTargets": {
+      "t16": 1,
+      "16a": 1,
+      "16b": 7,
+      "16a2": 2,
+      "16a3": 2,
+      "16c": 4,
+      "16d": 2,
+      "18a": 13,
+      "16e": 1,
+      "16f": 1,
+      "t17": 1,
+      "17a": 2,
+      "6a": 15,
+      "17b": 2,
+      "5a": 9,
+      "22a": 14,
+      "t18": 1,
+      "18b": 4,
+      "t19": 1,
+      "19a": 1,
+      "19b": 2,
+      "19c": 3,
+      "t20": 1,
+      "20a": 1,
+      "20b": 1,
+      "t21": 1,
+      "21a": 5,
+      "21b": 5,
+      "21c": 2,
+      "21d": 2,
+      "t22": 1,
+      "22c": 4,
+      "22b": 2,
+      "22d": 6,
+      "t23": 1,
+      "23a": 1,
+      "15b": 2,
+      "t15": 1,
+      "t14": 1,
+      "14a": 2,
+      "14b": 2,
+      "14c": 3,
+      "t6": 1,
+      "5b": 2,
+      "5c": 2,
+      "6b": 1,
+      "t5": 1
+    }
+  },
+  "educator": {
+    "file": "DailyLog Mobile - Educator.dc.html",
+    "count": 34,
+    "screens": [
+      {
+        "id": "15a",
+        "label": "Medications hub 15a",
+        "surface": ""
+      },
+      {
+        "id": "15c",
+        "label": "Log dose sheet 15c",
+        "surface": ""
+      },
+      {
+        "id": "2d",
+        "label": "Manage classroom",
+        "surface": ""
+      },
+      {
+        "id": "2e",
+        "label": "Add child sheet",
+        "surface": ""
+      },
+      {
+        "id": "13a",
+        "label": "Child details 13a",
+        "surface": ""
+      },
+      {
+        "id": "13b",
+        "label": "Child setup checklist 13b",
+        "surface": ""
+      },
+      {
+        "id": "13c",
+        "label": "Child setup wizard 13c",
+        "surface": ""
+      },
+      {
+        "id": "2f",
+        "label": "Switch classroom sheet",
+        "surface": ""
+      },
+      {
+        "id": "12a",
+        "label": "Register center 12a",
+        "surface": ""
+      },
+      {
+        "id": "12b",
+        "label": "Register center 12b",
+        "surface": ""
+      },
+      {
+        "id": "12c",
+        "label": "Register center 12c",
+        "surface": ""
+      },
+      {
+        "id": "11a",
+        "label": "Meal menu manager",
+        "surface": ""
+      },
+      {
+        "id": "11b",
+        "label": "Prefilled meal log",
+        "surface": ""
+      },
+      {
+        "id": "10a",
+        "label": "Quick log sheet",
+        "surface": ""
+      },
+      {
+        "id": "9a",
+        "label": "Nav 9a",
+        "surface": ""
+      },
+      {
+        "id": "9b",
+        "label": "Nav 9b",
+        "surface": ""
+      },
+      {
+        "id": "9c",
+        "label": "Nav 9c",
+        "surface": ""
+      },
+      {
+        "id": "8a",
+        "label": "Announcements",
+        "surface": ""
+      },
+      {
+        "id": "8b",
+        "label": "Educator chat",
+        "surface": ""
+      },
+      {
+        "id": "8c",
+        "label": "Attachment tray",
+        "surface": ""
+      },
+      {
+        "id": "7a",
+        "label": "Chat inbox",
+        "surface": ""
+      },
+      {
+        "id": "7b",
+        "label": "Chat thread",
+        "surface": ""
+      },
+      {
+        "id": "4a",
+        "label": "Notifications dialog",
+        "surface": ""
+      },
+      {
+        "id": "3a",
+        "label": "Onboarding 1",
+        "surface": ""
+      },
+      {
+        "id": "3b",
+        "label": "Onboarding 2",
+        "surface": ""
+      },
+      {
+        "id": "3c",
+        "label": "Onboarding 3",
+        "surface": ""
+      },
+      {
+        "id": "2a",
+        "label": "Home 2a",
+        "surface": ""
+      },
+      {
+        "id": "2b",
+        "label": "Home 2b",
+        "surface": ""
+      },
+      {
+        "id": "2c",
+        "label": "Home 2c",
+        "surface": ""
+      },
+      {
+        "id": "2g",
+        "label": "Settings",
+        "surface": ""
+      },
+      {
+        "id": "1a",
+        "label": "Welcome back",
+        "surface": ""
+      },
+      {
+        "id": "1b",
+        "label": "Sign in",
+        "surface": ""
+      },
+      {
+        "id": "1c",
+        "label": "Create account",
+        "surface": ""
+      },
+      {
+        "id": "1d",
+        "label": "Profile error",
+        "surface": ""
+      }
+    ],
+    "linkTargets": {
+      "t15": 1,
+      "15a": 2,
+      "15c": 2,
+      "2b": 4,
+      "t13": 2,
+      "2d": 4,
+      "2e": 3,
+      "2f": 2,
+      "t2": 2,
+      "13a": 2,
+      "13b": 2,
+      "13c": 3,
+      "t12": 1,
+      "12a": 2,
+      "12b": 2,
+      "12c": 2,
+      "1c": 6,
+      "1b": 6,
+      "t11": 1,
+      "11a": 2,
+      "11b": 2,
+      "t10": 1,
+      "10a": 1,
+      "t9": 1,
+      "9a": 2,
+      "9b": 3,
+      "9c": 2,
+      "t8": 1,
+      "7a": 4,
+      "7b": 3,
+      "8a": 2,
+      "8b": 2,
+      "8c": 2,
+      "t7": 1,
+      "t4": 1,
+      "4a": 1,
+      "t3": 1,
+      "3a": 1,
+      "3b": 1,
+      "3c": 1,
+      "1a": 5,
+      "2a": 3,
+      "2c": 2,
+      "2g": 1,
+      "t1": 1,
+      "1d": 1
+    }
+  },
+  "admin": {
+    "file": "DailyLog WEB - Admin.dc.html",
+    "count": 133,
+    "screens": [
+      {
+        "id": "20a",
+        "label": "Children roster 20a",
+        "surface": ""
+      },
+      {
+        "id": "20b",
+        "label": "Medical register 20b",
+        "surface": ""
+      },
+      {
+        "id": "19a",
+        "label": "Child profile 19a",
+        "surface": ""
+      },
+      {
+        "id": "19b",
+        "label": "Child setup panel 19b",
+        "surface": ""
+      },
+      {
+        "id": "19c",
+        "label": "Add pickup modal 19c",
+        "surface": "popover"
+      },
+      {
+        "id": "19d",
+        "label": "Edit child profile 19d",
+        "surface": "modal"
+      },
+      {
+        "id": "18a",
+        "label": "Row action menu 18a",
+        "surface": "popover"
+      },
+      {
+        "id": "18b",
+        "label": "Create menu 18b",
+        "surface": "popover"
+      },
+      {
+        "id": "18c",
+        "label": "Bulk select 18c",
+        "surface": "popover"
+      },
+      {
+        "id": "18d",
+        "label": "Location switcher 18d",
+        "surface": "popover"
+      },
+      {
+        "id": "17a",
+        "label": "Help panel 17a",
+        "surface": "popover"
+      },
+      {
+        "id": "17b",
+        "label": "Help article 17b",
+        "surface": "modal"
+      },
+      {
+        "id": "17c",
+        "label": "Message support 17c",
+        "surface": "modal"
+      },
+      {
+        "id": "17d",
+        "label": "Keyboard shortcuts 17d",
+        "surface": "overlay"
+      },
+      {
+        "id": "16a",
+        "label": "Devices &amp; sessions 16a",
+        "surface": "modal"
+      },
+      {
+        "id": "16b",
+        "label": "Review sign-in 16b",
+        "surface": "modal"
+      },
+      {
+        "id": "16c",
+        "label": "Signed out everywhere 16c",
+        "surface": "modal"
+      },
+      {
+        "id": "15a",
+        "label": "Notification tray 15a",
+        "surface": "popover"
+      },
+      {
+        "id": "15b",
+        "label": "Activity center 15b",
+        "surface": "admin-screen"
+      },
+      {
+        "id": "15c",
+        "label": "Notification settings 15c",
+        "surface": "modal"
+      },
+      {
+        "id": "15d",
+        "label": "Real-time toast 15d",
+        "surface": "toast"
+      },
+      {
+        "id": "15e",
+        "label": "Mobile push 15e",
+        "surface": "mobile"
+      },
+      {
+        "id": "14a",
+        "label": "Account menu 14a",
+        "surface": "popover"
+      },
+      {
+        "id": "14b",
+        "label": "Sign-out confirm 14b",
+        "surface": "modal"
+      },
+      {
+        "id": "14d",
+        "label": "Admin profile 14d",
+        "surface": "modal"
+      },
+      {
+        "id": "14c",
+        "label": "Signed-out landing 14c",
+        "surface": "web"
+      },
+      {
+        "id": "13a",
+        "label": "Reports 13a",
+        "surface": "admin-screen"
+      },
+      {
+        "id": "13b",
+        "label": "Report viewer 13b",
+        "surface": "export"
+      },
+      {
+        "id": "13c",
+        "label": "Schedule report modal 13c",
+        "surface": "modal"
+      },
+      {
+        "id": "13d",
+        "label": "Manage schedules 13d",
+        "surface": "inline-panel"
+      },
+      {
+        "id": "13e",
+        "label": "Timesheet export modal 13e",
+        "surface": "modal"
+      },
+      {
+        "id": "12a",
+        "label": "Compliance 12a",
+        "surface": "admin-screen"
+      },
+      {
+        "id": "12b",
+        "label": "Log drill modal 12b",
+        "surface": "modal"
+      },
+      {
+        "id": "12c",
+        "label": "Staff file checklist 12c",
+        "surface": "inline-panel"
+      },
+      {
+        "id": "12d",
+        "label": "Vault upload modal 12d",
+        "surface": "modal"
+      },
+      {
+        "id": "12e",
+        "label": "Inspection pack 12e",
+        "surface": "export"
+      },
+      {
+        "id": "11a",
+        "label": "Settings 11a",
+        "surface": "admin-screen"
+      },
+      {
+        "id": "11b",
+        "label": "Edit center profile 11b",
+        "surface": "modal"
+      },
+      {
+        "id": "11c",
+        "label": "Add closure modal 11c",
+        "surface": "modal"
+      },
+      {
+        "id": "11d",
+        "label": "Audit log 11d",
+        "surface": "inline-panel"
+      },
+      {
+        "id": "11e",
+        "label": "Late pickup policy modal 11e",
+        "surface": "modal"
+      },
+      {
+        "id": "10a",
+        "label": "Sign in 10a",
+        "surface": "web"
+      },
+      {
+        "id": "10b",
+        "label": "Two-step check 10b",
+        "surface": "web"
+      },
+      {
+        "id": "10c",
+        "label": "Forgot password 10c",
+        "surface": "web"
+      },
+      {
+        "id": "10d",
+        "label": "Accept invite 10d",
+        "surface": "web"
+      },
+      {
+        "id": "10e",
+        "label": "Start a center 10e",
+        "surface": "web"
+      },
+      {
+        "id": "9a",
+        "label": "Dashboard 9a",
+        "surface": "admin-screen"
+      },
+      {
+        "id": "9b",
+        "label": "Incident sign-off modal 9b",
+        "surface": "modal"
+      },
+      {
+        "id": "9b",
+        "label": "Incident report parent view 9b",
+        "surface": "parent-app"
+      },
+      {
+        "id": "9c",
+        "label": "Send reminders modal 9c",
+        "surface": "modal"
+      },
+      {
+        "id": "9d",
+        "label": "Global search overlay 9d",
+        "surface": "overlay"
+      },
+      {
+        "id": "9e",
+        "label": "Quiet room popover 9e",
+        "surface": "popover"
+      },
+      {
+        "id": "9e",
+        "label": "Room tablet nudge 9e",
+        "surface": "kiosk"
+      },
+      {
+        "id": "9f",
+        "label": "Cert reminder modal 9f",
+        "surface": "modal"
+      },
+      {
+        "id": "8a",
+        "label": "Attendance 8a",
+        "surface": "admin-screen"
+      },
+      {
+        "id": "8b",
+        "label": "Check-in kiosk 8b",
+        "surface": "kiosk"
+      },
+      {
+        "id": "8b",
+        "label": "Family pass 8b",
+        "surface": "parent-app"
+      },
+      {
+        "id": "8c",
+        "label": "Fix check-out modal 8c",
+        "surface": "modal"
+      },
+      {
+        "id": "8c",
+        "label": "Late pickup modal 8c",
+        "surface": "modal"
+      },
+      {
+        "id": "8d",
+        "label": "Report absence 8d",
+        "surface": "parent-app"
+      },
+      {
+        "id": "8d",
+        "label": "No-show follow-up modal 8d",
+        "surface": "modal"
+      },
+      {
+        "id": "8e",
+        "label": "Monthly attendance record 8e",
+        "surface": "export"
+      },
+      {
+        "id": "8e",
+        "label": "Daily sign-in sheet 8e",
+        "surface": "export"
+      },
+      {
+        "id": "8f",
+        "label": "Approved pickups panel 8f",
+        "surface": "inline-panel"
+      },
+      {
+        "id": "8f",
+        "label": "Unknown pickup modal 8f",
+        "surface": "modal"
+      },
+      {
+        "id": "7a",
+        "label": "Rooms and ratios 7a",
+        "surface": "admin-screen"
+      },
+      {
+        "id": "7b",
+        "label": "Room detail 7b",
+        "surface": "admin-screen"
+      },
+      {
+        "id": "7c",
+        "label": "Assign floater modal 7c",
+        "surface": "modal"
+      },
+      {
+        "id": "7c",
+        "label": "Over-ratio alert modal 7c",
+        "surface": "modal"
+      },
+      {
+        "id": "7d",
+        "label": "Ratio rules modal 7d",
+        "surface": "modal"
+      },
+      {
+        "id": "7d",
+        "label": "Add room modal 7d",
+        "surface": "modal"
+      },
+      {
+        "id": "7e",
+        "label": "Upcoming transitions panel 7e",
+        "surface": "inline-panel"
+      },
+      {
+        "id": "7e",
+        "label": "Plan move modal 7e",
+        "surface": "modal"
+      },
+      {
+        "id": "7f",
+        "label": "Combine rooms modal 7f",
+        "surface": "modal"
+      },
+      {
+        "id": "7f",
+        "label": "Mixed-age rule popover 7f",
+        "surface": "popover"
+      },
+      {
+        "id": "6a",
+        "label": "Billing 6a",
+        "surface": ""
+      },
+      {
+        "id": "6b",
+        "label": "Family statement 6b",
+        "surface": ""
+      },
+      {
+        "id": "6c",
+        "label": "Tax forms 6c",
+        "surface": ""
+      },
+      {
+        "id": "6d",
+        "label": "Parent app tax forms 6d",
+        "surface": ""
+      },
+      {
+        "id": "6e",
+        "label": "Tax statement PDF 6e",
+        "surface": ""
+      },
+      {
+        "id": "6e",
+        "label": "Publish statement modal 6e",
+        "surface": ""
+      },
+      {
+        "id": "6f",
+        "label": "Ledger mismatch modal 6f",
+        "surface": ""
+      },
+      {
+        "id": "6g",
+        "label": "Send reminder modal 6g",
+        "surface": ""
+      },
+      {
+        "id": "6g",
+        "label": "Adjust plan modal 6g",
+        "surface": ""
+      },
+      {
+        "id": "6h",
+        "label": "Autopay invite modal 6h",
+        "surface": ""
+      },
+      {
+        "id": "6h",
+        "label": "Autopay nudge modal 6h",
+        "surface": ""
+      },
+      {
+        "id": "6i",
+        "label": "New invoice modal 6i",
+        "surface": ""
+      },
+      {
+        "id": "6i",
+        "label": "Payment receipt 6i",
+        "surface": ""
+      },
+      {
+        "id": "6i",
+        "label": "Export menu 6i",
+        "surface": ""
+      },
+      {
+        "id": "6j",
+        "label": "Rates editor modal 6j",
+        "surface": ""
+      },
+      {
+        "id": "6j",
+        "label": "Tax profile modal 6j",
+        "surface": ""
+      },
+      {
+        "id": "5a",
+        "label": "Messages inbox 5a",
+        "surface": ""
+      },
+      {
+        "id": "5b",
+        "label": "New broadcast modal 5b",
+        "surface": "modal"
+      },
+      {
+        "id": "5c",
+        "label": "Broadcast history 5c",
+        "surface": "inline-panel"
+      },
+      {
+        "id": "4a",
+        "label": "Staff roster full 4a",
+        "surface": ""
+      },
+      {
+        "id": "4b",
+        "label": "Educator profile 4b",
+        "surface": ""
+      },
+      {
+        "id": "4c",
+        "label": "Timesheets 4c",
+        "surface": ""
+      },
+      {
+        "id": "4d",
+        "label": "Invite lifecycle 4d",
+        "surface": ""
+      },
+      {
+        "id": "4e",
+        "label": "Permissions matrix 4e",
+        "surface": "modal"
+      },
+      {
+        "id": "4f",
+        "label": "Invite educator 4f",
+        "surface": "modal"
+      },
+      {
+        "id": "4g",
+        "label": "Delegations 4g",
+        "surface": "inline-panel"
+      },
+      {
+        "id": "4h",
+        "label": "Delegate admin 4h",
+        "surface": "modal"
+      },
+      {
+        "id": "4i",
+        "label": "Edit profile 4i",
+        "surface": "modal"
+      },
+      {
+        "id": "4j",
+        "label": "Timesheet detail 4j",
+        "surface": "modal"
+      },
+      {
+        "id": "4k",
+        "label": "Time-off calendar 4k",
+        "surface": "inline-panel"
+      },
+      {
+        "id": "4l",
+        "label": "Decline time off 4l",
+        "surface": "modal"
+      },
+      {
+        "id": "4m",
+        "label": "Export to payroll 4m",
+        "surface": "modal"
+      },
+      {
+        "id": "4n",
+        "label": "Bulk actions bar 4n",
+        "surface": "toolbar"
+      },
+      {
+        "id": "4n",
+        "label": "Row action menu 4n",
+        "surface": "popover"
+      },
+      {
+        "id": "4o",
+        "label": "Roles 4o",
+        "surface": "admin-screen"
+      },
+      {
+        "id": "2b",
+        "label": "Enrollment 2b",
+        "surface": "admin-screen"
+      },
+      {
+        "id": "2d",
+        "label": "Enrollment pipeline 2d",
+        "surface": "admin-screen"
+      },
+      {
+        "id": "2e",
+        "label": "Family application 2e",
+        "surface": "admin-screen"
+      },
+      {
+        "id": "2f",
+        "label": "Enrollment lifecycle 2f",
+        "surface": "inline-panel"
+      },
+      {
+        "id": "2g",
+        "label": "Public inquiry form 2g",
+        "surface": "public-form"
+      },
+      {
+        "id": "2g",
+        "label": "Add family modal 2g",
+        "surface": "modal"
+      },
+      {
+        "id": "2g",
+        "label": "Share link popover 2g",
+        "surface": "popover"
+      },
+      {
+        "id": "2h",
+        "label": "Tour slots modal 2h",
+        "surface": "modal"
+      },
+      {
+        "id": "2h",
+        "label": "Book tour modal 2h",
+        "surface": "modal"
+      },
+      {
+        "id": "2i",
+        "label": "Request documents modal 2i",
+        "surface": "modal"
+      },
+      {
+        "id": "2i",
+        "label": "Offer nudge modal 2i",
+        "surface": "modal"
+      },
+      {
+        "id": "2i",
+        "label": "Parent offer acceptance 2i",
+        "surface": "parent-app"
+      },
+      {
+        "id": "2j",
+        "label": "Add to waitlist modal 2j",
+        "surface": "modal"
+      },
+      {
+        "id": "2j",
+        "label": "Withdraw offer modal 2j",
+        "surface": "modal"
+      },
+      {
+        "id": "2j",
+        "label": "Waitlist rules 2j",
+        "surface": "popover"
+      },
+      {
+        "id": "2k",
+        "label": "Log tour outcome modal 2k",
+        "surface": "modal"
+      },
+      {
+        "id": "2k",
+        "label": "Family application form 2k",
+        "surface": "parent-app"
+      },
+      {
+        "id": "2l",
+        "label": "Close inquiry modal 2l",
+        "surface": "modal"
+      },
+      {
+        "id": "2l",
+        "label": "Waitlist check-in modal 2l",
+        "surface": "modal"
+      },
+      {
+        "id": "2m",
+        "label": "Withdraw child modal 2m",
+        "surface": "modal"
+      },
+      {
+        "id": "2m",
+        "label": "Alumni popover 2m",
+        "surface": "popover"
+      },
+      {
+        "id": "2c",
+        "label": "Record payment modal 2c",
+        "surface": "modal"
+      },
+      {
+        "id": "2c",
+        "label": "Waitlist offer modal 2c",
+        "surface": "modal"
+      }
+    ],
+    "linkTargets": {
+      "t20": 1,
+      "20a": 25,
+      "20b": 3,
+      "19a": 19,
+      "t19": 1,
+      "19b": 5,
+      "19c": 5,
+      "4b": 22,
+      "5b": 10,
+      "19d": 3,
+      "15a": 7,
+      "7b": 3,
+      "t18": 1,
+      "18a": 2,
+      "18b": 3,
+      "9a": 17,
+      "18c": 2,
+      "18d": 2,
+      "11a": 17,
+      "14d": 4,
+      "4f": 8,
+      "6a": 8,
+      "9b": 8,
+      "9c": 5,
+      "t17": 1,
+      "17a": 6,
+      "17b": 6,
+      "17c": 4,
+      "17d": 3,
+      "14a": 6,
+      "t16": 1,
+      "14b": 6,
+      "15b": 6,
+      "16a": 7,
+      "16b": 3,
+      "16c": 4,
+      "10c": 8,
+      "10b": 7,
+      "11d": 13,
+      "t15": 1,
+      "12a": 13,
+      "15c": 8,
+      "15d": 2,
+      "15e": 2,
+      "7c": 12,
+      "9f": 8,
+      "t14": 1,
+      "14c": 3,
+      "10a": 7,
+      "11b": 6,
+      "10e": 4,
+      "t13": 1,
+      "13a": 8,
+      "13b": 9,
+      "13c": 12,
+      "13d": 7,
+      "13e": 4,
+      "12e": 6,
+      "8a": 6,
+      "8c": 7,
+      "t12": 1,
+      "12b": 6,
+      "12c": 4,
+      "12d": 9,
+      "8e": 5,
+      "7a": 11,
+      "t11": 1,
+      "11c": 4,
+      "11e": 5,
+      "6i": 13,
+      "2b": 19,
+      "2d": 9,
+      "t10": 1,
+      "10d": 2,
+      "4d": 5,
+      "t9": 1,
+      "9d": 3,
+      "9e": 3,
+      "4a": 9,
+      "5a": 10,
+      "6b": 7,
+      "8d": 3,
+      "t8": 1,
+      "8b": 3,
+      "8f": 4,
+      "t7": 1,
+      "7d": 8,
+      "7e": 7,
+      "6j": 7,
+      "7f": 4,
+      "2g": 6,
+      "t6": 1,
+      "6c": 8,
+      "6d": 9,
+      "6e": 4,
+      "6f": 4,
+      "6g": 11,
+      "6h": 4,
+      "2c": 9,
+      "t5": 1,
+      "5c": 3,
+      "4n": 19,
+      "t4": 1,
+      "4c": 14,
+      "4e": 8,
+      "4g": 9,
+      "4h": 4,
+      "4i": 5,
+      "4j": 7,
+      "4k": 3,
+      "4l": 5,
+      "4m": 3,
+      "4o": 6,
+      "t2": 1,
+      "2e": 11,
+      "2f": 3,
+      "2h": 11,
+      "2i": 11,
+      "2j": 3,
+      "2k": 2,
+      "2l": 2,
+      "2m": 2
+    }
+  }
+}

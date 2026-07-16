@@ -1,0 +1,64 @@
+# DECISIONS.md — running log
+
+Format: date · decision · why · reversibility
+
+- 2026-07-15 · Next.js App Router + TS + Tailwind for web admin · routing fits 130+ surfaces; best Claude Code ergonomics · moderate (React screens portable)
+- 2026-07-15 · Keep Supabase · already proven by mobile (auth/logs/chat); Postgres underneath · sticky-ish (data exports cleanly; auth/RLS/realtime would need rework)
+- 2026-07-15 · Keep Expo app, restyle-as-you-touch · working auth/logging/chat code is reusable · easy
+- 2026-07-15 · pnpm monorepo · one context for Claude Code; shared types · easy
+- 2026-07-15 · Vercel + Supabase Cloud + EAS · zero-ops solo; scales · easy
+- 2026-07-15 · Offline-tolerant (queued writes), not offline-first · complexity/benefit · easy to deepen later
+- 2026-07-15 · `center_id` on every table from day one; single-center UX · cheap insurance for multi-center · easy
+- 2026-07-15 · Payments deferred to Phase 4; Stripe default candidate · not needed for core ops · open
+- 2026-07-16 · Keep existing schema vocabulary: `daycares`/`classrooms`/`parent_children`/`incident_reports`/`medication_logs` over the design's `centers`/`rooms`/`guardians`/`incidents`/`medication_doses` · PHASE_0 allows "rename to match what exists"; keeps the shipping mobile app working · sticky (rename = full app migration)
+- 2026-07-16 · Fresh squashed baseline migration; 15 hand-applied SQL files archived to `supabase/legacy/` · coherent foundation over accumulated drift · existing live DB needs a reset or a hand-written catch-up before it matches
+- 2026-07-16 · `medication_authorizations`, `medication_logs` + RPCs `is_staff`, `get_daycare_stats`, `get_daycare_users`, `admin_set_user_role`, `get_attendance_range` reconstructed from mobile call sites · **RESOLVED same day: read-only diff against the live DB confirms none of them exist there either** — the mobile screens calling them are broken in production; our baseline is their first real definition · closed
+- 2026-07-16 · Live-DB diff notes (read-only, gskikhnfgikldhshskmn): 3-role constraint (no owner_admin), `children.invite_code` column (baseline moved codes to `child_invite_codes`), `staff_invites.consumed_at` (baseline: `accepted_at` + `code` + `expires_at`), tiny dataset (5 profiles, 12 children) · when mobile cuts over, migrate that data with a small script into the new schema rather than evolving the live one in place · open until cutover
+- 2026-07-16 · DB execution deferred: no Docker/Supabase CLI on this machine · migrations/seed/RLS tests authored as files; two acceptance boxes (RLS tests pass, seeded children page) remain unchecked until run · easy
+- 2026-07-16 · Seed has 4 rooms (Infant/Toddler/Preschool/Kindergarten), not PHASE_0's "3 rooms" · the designs visibly show 4; seed exists to compare screens side-by-side · easy
+- 2026-07-16 · `conversations` table added; `messages.conversation_id` nullable for backfill of existing child-scoped chat · admin inbox 5a needs threads; can't break mobile chat · easy
+- 2026-07-16 · `incident_reports.status` gains `signed_off` between `submitted` and `acknowledged` · design 9b admin sign-off step · easy
+- 2026-07-16 · Web fonts: Lato 600→700, 800→900 · Google Fonts only ships Lato 100/300/400/700/900 · easy
+- 2026-07-16 · Phase 0 acceptance page has a minimal email/password sign-in (server action) · RLS deny-by-default means an anonymous page can't list seeded children · easy (Phase 1 auth screens replace it)
+- 2026-07-16 · pnpm installed via `npm i -g pnpm` (corepack shim blocked by /usr/local perms) · easy
+- 2026-07-16 · **buttonShape = Rounded, app-wide** (owner decision, closes the OPEN item) · tokens: web `--radius-btn: 12px` in globals.css, mobile `theme.buttonRadius = radius.md` · design pills (999px) are deliberately overridden everywhere · easy (one token per platform)
+- 2026-07-16 · 10e gains a "Create a password" field (design showed 3 fields with no credential) · owner must be able to sign back in · easy
+- 2026-07-16 · Added /reset page (mirrors 10d password card) as the destination of 10c's recovery email · design covers only the request side · easy
+- 2026-07-16 · Educators/parents signing into the web console land on /use-the-app interstitial; only owner_admin/admin reach /dashboard · PHASE_1: "educators → mobile-app interstitial" · easy
+- 2026-07-16 · 10a magic link uses shouldCreateUser:false · sign-in screen must not silently create accounts · easy
+- 2026-07-16 · 10b (two-step) not built in Phase 1 session 1 — owner's module list omits it · 2FA method stays open
+- 2026-07-16 · 14c signed-out landing drops the personalized "See you tomorrow, Amara" · session is gone post-signout and names don't belong in URLs · easy
+- 2026-07-16 · 14d omits the design's "Display name" field · schema has a single full_name · easy (add a column if it ever matters)
+- 2026-07-16 · 14b ships confirm + "end every session" (Supabase scope:global); the design's device list waits for the sessions feature (16a, Phase 5) · easy
+- 2026-07-16 · Account-menu items "Notification prefs" and "Devices & sessions" render disabled with a "Later" tag · their screens are later phases · easy
+- 2026-07-16 · Authorized pickups get their own table `child_pickups` (name/relation/phone/4-digit PIN) · they're people, not app users; the PIN backs the mobile family pass · easy
+- 2026-07-16 · Setup checklist (19b) is DERIVED from the record (photo, medical, contacts, linked parents), not stored state · can't drift from reality; same math as mobile 13b · easy
+- 2026-07-16 · Parent invites create a single-use code shown to the admin to pass along; email delivery is a later phase (needs an email provider decision) · Phase 1 keeps the loop closable in person · easy
+- 2026-07-16 · 19d photo upload deferred to Phase 2 (storage wiring); "Duplicate" row action deferred; child delete is archive-only per schema · easy
+- 2026-07-16 · Design staff roles "Educator / Lead educator / Delegated admin" map to schema roles `educator`/`admin`; "Lead educator" is a `staff_members.job_title`, not a role · keeps RLS's 4-role model intact · easy
+- 2026-07-16 · Staff invites (4f) show a copyable /invite link instead of sending email — same as parent invites · no email provider chosen yet · easy (slot an email send into inviteStaffAction later)
+- 2026-07-16 · 4f "Require background check first" toggle deferred to Phase 5 compliance; Timesheets/Time off/Delegations tabs render locked · out of Phase 1 scope per spec · easy
+- 2026-07-16 · Staff departure = `staff_members.status='inactive'` + `ended_on`; the auth account and history stay · compliance needs the trail · easy
+- 2026-07-16 · Live verification against dev project uxieegqydrowgcygsnmq: all 6 migrations + seed applied, 16/16 RLS assertions pass, every Phase 1 acceptance flow walked in the browser · fixes found and applied: (1) seeded auth users need `auth.identities` rows + non-NULL token fields or GoTrue rejects the password (seed.sql updated); (2) educators must READ whole-center children per spec — roster policy widened, caught by the smoke test; (3) parents adopt `daycare_id` on first child link (RPC + seed) or staff can't see guardian names; (4) `staff_invites.full_name` added (migration 000600) — 4f collects it, accept carries it into the profile; (5) accept page is idempotent — falls back to sign-in when the account already exists (needed when Confirm-email is on); (6) `profiles→classrooms` embeds must pin `!profiles_classroom_id_fkey` (ambiguous via educator_classrooms)
+- 2026-07-16 · Hosted GoTrue rejects `.test` emails at real signup · seed logins fine (direct insert); use routable addresses for real invites · note for testing
+- 2026-07-16 · Dev project has Confirm-email ON; invite flow still completes (confirm → reopen link → sign-in fallback) · disabling it in Auth settings skips the email hop · owner's call
+- 2026-07-16 · Rooms & ratios (7a/7b): live ratio = children checked in today vs educators ASSIGNED — staff clock-ins join the count with timesheets (Phase 5) · UI says so · easy (swap the count source later)
+- 2026-07-16 · 7a's hour-by-hour coverage timeline and 7f combine-rooms deferred — both need a staff-shifts model that belongs to scheduling (Phase 5) · rooms ships cards + floater pool + transitions instead · logged, not stalled
+- 2026-07-16 · 7e "Plan move" ships as immediate "Move now" · scheduled future moves need their own table; enrollment phase owns it · easy
+- 2026-07-16 · Floater = educator with no classroom assignment; assigning sets profiles.classroom_id + educator_classrooms (the RLS write path) · easy
+- 2026-07-16 · Kiosk (8b) = staff-signed-in door tablet; the family's 4-digit pickup PIN (19c) authorizes each check via definer RPCs (`kiosk_lookup_pin`/`kiosk_check`) · QR family passes need the mobile app work — PIN is the working subset · easy to extend
+- 2026-07-16 · attendance_records gains dropped_off_by / picked_up_by / notes (8a's log columns) · kiosk fills them from the PIN's pickup person; manual check-in types them · easy
+- 2026-07-16 · 8e ships as a print-friendly /attendance-sheet route (browser print → PDF); CSV/monthly exports land with Reports (Phase 5) · easy
+- 2026-07-16 · 8a's automated "families pinged at 9:30" no-show flow needs push/messaging — Phase 3; "Mark absent" is the manual stand-in · logged
+- 2026-07-16 · Dashboard 9a: EDUCATORS tile counts room assignments (labeled so); OUTSTANDING BALANCES tile is a muted Phase 4 placeholder; waitlist attention items are Phase 5 · honest placeholders over fake numbers
+- 2026-07-16 · Incident sign-off 9b lives as a queue on the dashboard (its design home); a dedicated incident log screen belongs to Compliance 12a (Phase 5) · easy
+- 2026-07-16 · Inbox threads (5a) are child-keyed conversations, labeled "«child»'s family" · that's what the shipping mobile chat writes; true family grouping needs a family/household entity · revisit if multi-child families clutter the inbox
+- 2026-07-16 · Broadcasts (5b/5c) reuse the announcements table the parent app already renders — the loop closes with the SHIPPING mobile app · design's read-by counts need per-recipient receipts, deferred with notifications infra; RSVP counts shown from announcement_rsvps · easy to extend
+- 2026-07-16 · Opening a thread auto-marks the family's messages read (mark_messages_read) · matches the mobile educator inbox behavior · easy
+- 2026-07-16 · 5b's scheduling, templates, and push+email delivery deferred to notifications infra (needs the email-provider OPEN decision) · composer ships audience/title/body/pin/RSVP · logged
+- OPEN · Realtime inbox updates (supabase_realtime already publishes messages) — wire TanStack Query subscription in a polish pass
+- OPEN · Phase 2 mobile track (educator home 2a–c restyle + quick log on these tables) not started — natural next session
+- OPEN · Seed attendance timestamps are UTC-naive, so seeded check-in times display shifted (e.g. "4:38 a.m." in Toronto) · cosmetic; real check-ins use now() · fix seed with local-offset timestamps someday
+- OPEN · Sidebar scrolls with long pages — design intends a fixed rail; make it sticky in a Phase 1 polish pass
+- OPEN · Email provider for invite/notification delivery (Resend? Supabase SMTP?) · decide before Phase 3 notifications
+- OPEN · 2FA method for 10b (email OTP vs TOTP) · decide when 10b is scheduled

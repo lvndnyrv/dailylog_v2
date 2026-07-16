@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;700;800;900&display=swap" rel="stylesheet">
+<style>
+  @keyframes fmspin { to { transform: rotate(360deg); } }
+  *{box-sizing:border-box}
+  a{color:inherit;text-decoration:none}
+</style>
+</helmet>
+<div style="min-height:100vh;background:#EEF3FA;font-family:'Lato',sans-serif;color:#17335B">{{ content }}</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1400,&quot;height&quot;:900},&quot;showInAppLinks&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Display&quot;},&quot;showCrossRole&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Display&quot;},&quot;showFindings&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Display&quot;},&quot;compact&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Display&quot;}}">
+class Component extends DCLogic {
+  state = { data: null, error: null, loading: true, stamp: 0 };
+
+  roles() {
+    return [
+      { key:'parent',   title:'Parent · Mobile',   file:'DailyLog Mobile - Parent.dc.html',   hue:250 },
+      { key:'educator', title:'Educator · Mobile', file:'DailyLog Mobile - Educator.dc.html', hue:172 },
+      { key:'admin',    title:'Admin · Web',        file:'DailyLog WEB - Admin.dc.html',       hue:300 },
+    ];
+  }
+
+  // curated cross-app (persona) handoffs — resolved against live parsed screens
+  intents() {
+    return [
+      { g:'Daily care',   label:'Quick daily log → parent Today feed',        from:['educator','10a'], to:['parent','6a'] },
+      { g:'Daily care',   label:'Meals logged → parent Today feed',           from:['educator','11b'], to:['parent','6a'] },
+      { g:'Medication',   label:'Parent authorizes medication → educator hub',from:['parent','15b'],   to:['educator','15a'] },
+      { g:'Medication',   label:'Educator logs dose → parent med history',    from:['educator','15c'], to:['parent','23a'] },
+      { g:'Medication',   label:'Dose record → admin medical register',       from:['educator','15c'], to:['admin','20b'] },
+      { g:'Comms',        label:'Educator announcement → parent feed',        from:['educator','8a'],  to:['parent','17a'] },
+      { g:'Comms',        label:'Educator chat ↔ parent chat',                from:['educator','7b'],  to:['parent','18b'] },
+      { g:'Comms',        label:'Admin broadcast → parent feed',              from:['admin','5b'],     to:['parent','17a'] },
+      { g:'Attendance',   label:'Parent reports absence → admin attendance',  from:['parent','19a'],   to:['admin','8d'] },
+      { g:'Attendance',   label:'Admin approves pickups → parent pass',       from:['admin','8f'],     to:['parent','19c'] },
+      { g:'Safety',       label:'Admin incident sign-off → parent ack',       from:['admin','9b'],     to:['parent','20b'] },
+      { g:'Billing',      label:'Admin publishes statement → parent billing', from:['admin','6e'],     to:['parent','21a'] },
+      { g:'Billing',      label:'Admin tax forms → parent tax & statements',  from:['admin','6d'],     to:['parent','21d'] },
+      { g:'Billing',      label:'Admin autopay invite → parent autopay',      from:['admin','6h'],     to:['parent','21c'] },
+      { g:'Enrollment',   label:'Admin enrollment offer → parent accepts',    from:['admin','2i'],     to:['parent','__enroll__'] },
+      { g:'Setup',        label:'Parent enters invite code → admin invites',  from:['parent','16d'],   to:['admin','4d'] },
+      { g:'Setup',        label:'Educator registers center → admin center',   from:['educator','12a'], to:['admin','11a'] },
+      { g:'Setup',        label:'Educator adds child → parent child link',    from:['educator','2e'],  to:['parent','16e'] },
+    ];
+  }
+
+  // audit findings — status auto-derived from whether the fixing screen now exists
+  findings() {
+    return [
+      { sev:'Critical', area:'Enrollment', title:'No parent side to accept an offer', detail:'Admin could send an offer (2i) but a prospect had nowhere to accept, sign, or pay — the parent app started already-enrolled.', probe:['parent','24a'], fixed:'Parent enrollment 24a–24h' },
+      { sev:'Critical', area:'Safety', title:'Incidents signed off but never created', detail:'Admin had incident sign-off (9b) with no upstream capture — the educator on the floor could not originate a report.', probe:['educator','16b'], fixed:'Educator incident capture 16a–16d' },
+      { sev:'High', area:'Staffing', title:'Timesheets had no educator input', detail:'Admin ran timesheets & payroll but hours originated nowhere — no clock-in or time-off on the educator app.', probe:['educator','17a'], fixed:'Time & attendance 17a–17d' },
+      { sev:'High', area:'Safety', title:'Pickup pass never verified at the door', detail:'Admin approved pickups and the parent got a pass, but no educator screen matched it against the authorized list at handoff.', probe:['educator','19b'], fixed:'Pickup verification 19a–19d' },
+      { sev:'High', area:'Comms', title:'RSVP responses went into a black hole', detail:'Parents could RSVP to events but no staff surface showed responses or headcount.', probe:['educator','20a'], fixed:'Event RSVPs 20a' },
+      { sev:'High', area:'Compliance', title:'Declined consents invisible to staff', detail:'A parent could decline photo/trip consent with no flag on the child profile or day sheet — a compliance risk.', probe:['educator','20b'], fixed:'Child & classroom consents 20b–20c' },
+      { sev:'Medium', area:'Staffing', title:'Over-ratio alerts were admin-only', detail:'The educator who must act on an out-of-ratio room got no mobile alert.', probe:['educator','18a'], fixed:'Room ratios 18a–18c' },
+      { sev:'Medium', area:'Billing', title:'One-off payment dead-ended', detail:'The invoice Pay button had no confirmation for a parent paying without autopay.', probe:['parent','25a'], fixed:'Payment receipt 25a' },
+      { sev:'Medium', area:'Attendance', title:'Absence not on the educator view', detail:'Parent-reported absence reaches admin attendance but does not clearly surface on the educator’s classroom / check-in screen.', probe:['educator','__absence_on_roll__'], fix:'Add an absent badge to the educator roll / check-in' },
+      { sev:'Medium', area:'Setup', title:'Invited educators cannot accept', detail:'Admin can invite staff (4f) but the educator app has no “accept invite” path — only create-account and director register-center.', probe:['educator','__staff_invite_accept__'], fix:'Add a staff invite-acceptance screen' },
+      { sev:'Note', area:'Data', title:'Child profile has two masters', detail:'Both the educator wizard and the admin panel edit the child profile with no stated source of truth — a future data-conflict risk.', note:true, fix:'Decide a source of truth / show a “managed by admin” state' },
+    ];
+  }
+
+  componentDidMount() { this.load(); }
+
+  clean(label){ return (label||'').replace(/\s+\d+[a-z]?$/,'').replace(/&amp;/g,'&').trim(); }
+
+  async load() {
+    this.setState({ loading:true, error:null });
+    try {
+      const data = {};
+      for (const r of this.roles()) {
+        const res = await fetch(encodeURI('./' + r.file), { cache:'no-store' });
+        const html = await res.text();
+        data[r.key] = this.parse(html);
+      }
+      this.setState({ data, loading:false, stamp: Date.now() });
+    } catch (e) {
+      this.setState({ error: String(e), loading:false });
+    }
+  }
+
+  parse(html) {
+    const parts = html.split(/<div id="([0-9a-z]+)" style="flex:none;display:flex;flex-direction:column;gap:9px;scroll-margin-top:16px">/);
+    const nodes = [];
+    const byId = {};
+    for (let i=1; i<parts.length; i+=2) {
+      const id = parts[i];
+      let block = parts[i+1] || '';
+      const cut = block.search(/<section id="t\d+"/); // don't bleed into next section
+      if (cut !== -1) block = block.slice(0, cut);
+      const lm = block.match(/data-screen-label="([^"]+)"/);
+      if (!lm) continue;
+      const label = lm[1].replace(/&amp;/g,'&');
+      const links = [];
+      let m; const lre = /href="#([0-9a-z]+)"/g;
+      while ((m = lre.exec(block)) !== null) { if (m[1] !== id && !links.includes(m[1])) links.push(m[1]); }
+      const node = { id, label, links, inbound: 0, prefix: (id.match(/^(\d+)/)||[])[1] || id };
+      if (byId[id]) { byId[id].links = [...new Set([...byId[id].links, ...links])]; }
+      else { nodes.push(node); byId[id] = node; }
+    }
+    // keep only links that resolve to a real screen (drops section anchors like t13)
+    nodes.forEach(n => { n.links = n.links.filter(t => byId[t]); });
+    // inbound counts
+    nodes.forEach(n => n.links.forEach(t => { if (byId[t]) byId[t].inbound++; }));
+    // group by numeric prefix, ordered by first appearance
+    const order = []; const groups = {};
+    nodes.forEach(n => {
+      if (!groups[n.prefix]) { groups[n.prefix] = { prefix:n.prefix, title:this.clean(n.label), nodes:[] }; order.push(n.prefix); }
+      groups[n.prefix].nodes.push(n);
+    });
+    return { nodes, byId, groups: order.map(p => groups[p]) };
+  }
+
+  renderVals() {
+    const h = React.createElement;
+    const showLinks = this.props.showInAppLinks ?? true;
+    const showCross = this.props.showCrossRole ?? true;
+    const compact = this.props.compact ?? false;
+    const showFindings = this.props.showFindings ?? true;
+    const roles = this.roles();
+    const { data, loading, error } = this.state;
+
+    const wrap = (children) => h('div', { style:{ padding: compact ? '20px' : '28px 34px 48px', maxWidth:'100%' } }, children);
+
+    if (error) return { content: wrap(h('div', { style:{ color:'#B04A2F', font:"700 15px 'Lato'" } }, '⚠ ' + error)) };
+    if (loading || !data) {
+      return { content: wrap(h('div', { style:{ display:'flex', alignItems:'center', gap:'12px', padding:'60px 0', color:'#5B6B82' } },
+        h('span', { style:{ width:'20px', height:'20px', border:'3px solid #C6D5E9', borderTopColor:'#17335B', borderRadius:'50%', display:'inline-block', animation:'fmspin .8s linear infinite' } }),
+        h('span', { style:{ font:"700 15px 'Lato'" } }, 'Reading the three apps…'))) };
+    }
+
+    const dot = (hue) => h('span', { style:{ width:'9px', height:'9px', borderRadius:'50%', flex:'none', background:`oklch(0.56 0.13 ${hue})` } });
+    const src = (roleKey) => encodeURI('./' + roles.find(r=>r.key===roleKey).file);
+    const labelOf = (roleKey, id) => { const b = data[roleKey]?.byId[id]; return b ? b.label : null; };
+
+    // ---- header ----
+    const totals = roles.map(r => data[r.key].nodes.length);
+    const header = h('div', { style:{ marginBottom: compact?'18px':'26px' } }, [
+      h('div', { key:'r', style:{ display:'flex', alignItems:'flex-end', justifyContent:'space-between', gap:'20px', flexWrap:'wrap' } }, [
+        h('div', { key:'t' }, [
+          h('div', { key:'1', style:{ font:"900 30px 'Lato'", letterSpacing:'-.5px' } }, 'DailyLog — Flow & Relationship Map'),
+          h('div', { key:'2', style:{ font:"400 14px 'Lato'", color:'#5B6B82', marginTop:'5px', maxWidth:'760px' } },
+            'Live skeleton of every screen across the three apps, grouped into page hierarchies with in-app navigation, cross-app handoffs between personas, and flagged gaps. Re-reads the source files each load, so it tracks changes as you make them.')
+        ]),
+        h('button', { key:'b', onClick:()=>this.load(), style:{ font:"700 13px 'Lato'", color:'#fff', background:'#17335B', border:'none', borderRadius:'11px', padding:'11px 18px', cursor:'pointer', display:'flex', alignItems:'center', gap:'8px', flex:'none' } }, [
+          h('span', { key:'i', style:{ fontSize:'14px' } }, '↻'), 'Refresh from source'])
+      ]),
+      h('div', { key:'l', style:{ display:'flex', gap:'18px', flexWrap:'wrap', marginTop:'16px' } }, roles.map((r,i)=>
+        h('div', { key:r.key, style:{ display:'flex', alignItems:'center', gap:'8px', font:"700 12.5px 'Lato'", color:'#3A4A62' } }, [ dot(r.hue), r.title, h('span',{key:'c',style:{color:'#8FA6C4',fontWeight:400}}, totals[i]+' screens') ])
+      ).concat([ h('div', { key:'up', style:{ marginLeft:'auto', font:"400 11.5px 'Lato'", color:'#8FA6C4' } }, 'updated ' + new Date(this.state.stamp).toLocaleTimeString()) ]))
+    ]);
+
+    // ---- a screen node ----
+    const nodeCard = (roleKey, hue, n) => h('a', {
+      key:n.id, href: src(roleKey)+'#'+n.id, target:'_blank',
+      style:{ display:'block', background:'#fff', border:'1px solid #E1EAF5', borderLeft:`3px solid oklch(0.6 0.12 ${hue})`, borderRadius:'10px', padding: compact?'7px 10px':'9px 12px', boxShadow:'0 1px 2px rgba(23,51,91,.04)', transition:'box-shadow .15s' },
+      'style-hover':{ boxShadow:'0 4px 14px rgba(23,51,91,.14)', borderColor:`oklch(0.6 0.12 ${hue})` }
+    }, [
+      h('div', { key:'top', style:{ display:'flex', alignItems:'center', gap:'8px' } }, [
+        h('span', { key:'id', style:{ font:"700 9.5px ui-monospace,Menlo,monospace", color:'#fff', background:`oklch(0.6 0.12 ${hue})`, borderRadius:'5px', padding:'2px 6px', flex:'none' } }, n.id),
+        h('span', { key:'lb', style:{ font:"700 12.5px 'Lato'", lineHeight:1.25 } }, this.clean(n.label)),
+      ]),
+      (showLinks && n.links.length) ? h('div', { key:'lk', style:{ display:'flex', flexWrap:'wrap', gap:'4px', marginTop:'6px', paddingLeft:'2px' } },
+        n.links.map(t => h('a', { key:t, href: src(roleKey)+'#'+t, target:'_blank',
+          style:{ font:"600 9.5px ui-monospace,Menlo,monospace", color: data[roleKey].byId[t]?'#3A4A62':'#B04A2F', background: data[roleKey].byId[t]?'#EEF3FA':'#FBEDE8', border:'1px solid '+(data[roleKey].byId[t]?'#D6E1F0':'#F0C9BB'), borderRadius:'5px', padding:'1px 5px' } },
+          '→ '+t))
+      ) : null
+    ]);
+
+    // ---- role column ----
+    const column = (r) => {
+      const rd = data[r.key];
+      return h('div', { key:r.key, style:{ flex:'1 1 340px', minWidth:'320px', display:'flex', flexDirection:'column', gap:'12px' } }, [
+        h('div', { key:'h', style:{ position:'sticky', top:0, zIndex:2, background:'#EEF3FA', paddingBottom:'6px', display:'flex', alignItems:'center', gap:'9px' } }, [
+          dot(r.hue),
+          h('span', { key:'t', style:{ font:"900 16px 'Lato'" } }, r.title),
+          h('span', { key:'c', style:{ font:"700 11px 'Lato'", color:'#8FA6C4' } }, rd.nodes.length+' screens · '+rd.groups.length+' areas')
+        ]),
+        ...rd.groups.map(g => h('div', { key:g.prefix, style:{ background:'rgba(255,255,255,.5)', border:'1px solid #E1EAF5', borderRadius:'14px', padding:'12px' } }, [
+          h('div', { key:'gt', style:{ display:'flex', alignItems:'baseline', gap:'8px', marginBottom:'9px' } }, [
+            h('span', { key:'p', style:{ font:"800 9px ui-monospace,Menlo,monospace", color:`oklch(0.55 0.12 ${r.hue})`, background:`oklch(0.95 0.03 ${r.hue})`, borderRadius:'5px', padding:'2px 6px' } }, g.prefix),
+            h('span', { key:'n', style:{ font:"800 13px 'Lato'", letterSpacing:'-.2px' } }, g.title),
+            h('span', { key:'ct', style:{ font:"600 10.5px 'Lato'", color:'#A6B6CC', marginLeft:'auto' } }, g.nodes.length)
+          ]),
+          h('div', { key:'ns', style:{ display:'flex', flexDirection:'column', gap:'7px' } }, g.nodes.map(n => nodeCard(r.key, r.hue, n)))
+        ]))
+      ]);
+    };
+
+    const columns = h('div', { style:{ display:'flex', gap:'20px', alignItems:'flex-start', overflowX:'auto', paddingBottom:'6px' } }, roles.map(column));
+
+    // ---- cross-app handoffs & gaps ----
+    let crossBlock = null;
+    if (showCross) {
+      const resolved = this.intents().map(it => {
+        const fromOk = !!labelOf(it.from[0], it.from[1]);
+        const toOk = !!labelOf(it.to[0], it.to[1]);
+        return { ...it, fromOk, toOk, gap: !fromOk || !toOk };
+      });
+      const gaps = resolved.filter(r=>r.gap);
+      const hueOf = (k)=> roles.find(r=>r.key===k).hue;
+      const endpoint = (roleKey, id) => {
+        const lbl = labelOf(roleKey, id);
+        return h('span', { style:{ display:'inline-flex', alignItems:'center', gap:'6px', flex:'1 1 0', minWidth:0 } }, [
+          dot(hueOf(roleKey)),
+          lbl ? h('a', { key:'a', href: src(roleKey)+'#'+id, target:'_blank', style:{ font:"700 12px 'Lato'", whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' } }, lbl)
+              : h('span', { key:'x', style:{ font:"700 12px 'Lato'", color:'#B04A2F' } }, 'missing — '+id)
+        ]);
+      };
+      const row = (it, i) => h('div', { key:i, style:{ display:'flex', alignItems:'center', gap:'10px', padding:'10px 12px', background: it.gap?'#FCF1EC':'#fff', border:'1px solid '+(it.gap?'#F0C9BB':'#E1EAF5'), borderRadius:'11px' } }, [
+        endpoint(it.from[0], it.from[1]),
+        h('span', { key:'ar', style:{ font:'700 15px sans-serif', color: it.gap?'#C2603F':'#8FA6C4', flex:'none' } }, '→'),
+        endpoint(it.to[0], it.to[1]),
+        h('span', { key:'st', style:{ font:"800 9.5px 'Lato'", letterSpacing:'.4px', color:'#fff', background: it.gap?'oklch(0.62 0.16 32)':'oklch(0.6 0.11 155)', borderRadius:'20px', padding:'3px 9px', flex:'none' } }, it.gap?'GAP':'OK')
+      ]);
+      const byGroup = {};
+      resolved.forEach(r => { (byGroup[r.g] = byGroup[r.g]||[]).push(r); });
+      crossBlock = h('div', { style:{ marginTop:'34px' } }, [
+        h('div', { key:'h', style:{ display:'flex', alignItems:'baseline', gap:'12px', marginBottom:'14px' } }, [
+          h('span', { key:'t', style:{ font:"900 20px 'Lato'", letterSpacing:'-.3px' } }, 'Cross-app handoffs & gaps'),
+          h('span', { key:'s', style:{ font:"700 12px 'Lato'", color: gaps.length?'#C2603F':'#3A9A6A' } }, gaps.length ? (gaps.length+' gap'+(gaps.length>1?'s':'')+' to resolve') : 'all handoffs connected')
+        ]),
+        h('div', { key:'g', style:{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(430px,1fr))', gap:'18px', alignItems:'start' } },
+          Object.keys(byGroup).map(gname => h('div', { key:gname, style:{ background:'rgba(255,255,255,.55)', border:'1px solid #E1EAF5', borderRadius:'16px', padding:'14px 15px' } }, [
+            h('div', { key:'t', style:{ font:"800 12px 'Lato'", color:'#5B6B82', letterSpacing:'.3px', textTransform:'uppercase', marginBottom:'10px' } }, gname),
+            h('div', { key:'r', style:{ display:'flex', flexDirection:'column', gap:'8px' } }, byGroup[gname].map(row))
+          ])))
+      ]);
+    }
+
+    // ---- audit findings ----
+    let findingsBlock = null;
+    if (showFindings) {
+      const items = this.findings().map(f => {
+        const resolved = f.note ? false : !!labelOf(f.probe[0], f.probe[1]);
+        return { ...f, status: f.note ? 'note' : (resolved ? 'resolved' : 'open') };
+      });
+      const nResolved = items.filter(i=>i.status==='resolved').length;
+      const nOpen = items.filter(i=>i.status==='open').length;
+      const sevColor = { Critical:'#B0341F', High:'#B06A1F', Medium:'#5B6B82', Note:'#7A6BA8' };
+      const stat = { resolved:{ bg:'oklch(0.6 0.11 155)', label:'RESOLVED' }, open:{ bg:'oklch(0.62 0.16 32)', label:'OPEN' }, note:{ bg:'#8695AC', label:'NOTE' } };
+      const card = (f,i) => h('div',{ key:i, style:{ background: f.status==='open'?'#FCF1EC':(f.status==='resolved'?'#F1F8F3':'#fff'), border:'1px solid '+(f.status==='open'?'#F0C9BB':(f.status==='resolved'?'#CBE7D3':'#E1EAF5')), borderRadius:'14px', padding:'14px 15px', display:'flex', flexDirection:'column', gap:'8px' } }, [
+        h('div',{ key:'t', style:{ display:'flex', alignItems:'center', gap:'8px' } }, [
+          h('span',{ key:'s', style:{ font:"800 9px 'Lato'", letterSpacing:'.5px', color:'#fff', background:sevColor[f.sev]||'#5B6B82', borderRadius:'5px', padding:'3px 7px' } }, f.sev.toUpperCase()),
+          h('span',{ key:'a', style:{ font:"700 11px 'Lato'", color:'#8FA6C4' } }, f.area),
+          h('span',{ key:'b', style:{ marginLeft:'auto', font:"800 9.5px 'Lato'", letterSpacing:'.4px', color:'#fff', background:stat[f.status].bg, borderRadius:'20px', padding:'3px 9px' } }, stat[f.status].label),
+        ]),
+        h('div',{ key:'ti', style:{ font:"800 14px 'Lato'", lineHeight:1.3 } }, f.title),
+        h('div',{ key:'d', style:{ font:"400 12px 'Lato'", lineHeight:1.5, color:'#5B6B82' } }, f.detail),
+        f.status==='resolved'
+          ? h('a',{ key:'f', href:src(f.probe[0])+'#'+f.probe[1], target:'_blank', style:{ font:"700 11.5px 'Lato'", color:'oklch(0.46 0.1 155)' } }, '✓ '+f.fixed+' →')
+          : h('div',{ key:'f', style:{ font:"700 11.5px 'Lato'", color: f.status==='open'?'#B0472B':'#7A6BA8' } }, (f.status==='open'?'Next: ':'')+(f.fix||''))
+      ]);
+      findingsBlock = h('div',{ style:{ marginTop:'34px' } }, [
+        h('div',{ key:'h', style:{ display:'flex', alignItems:'baseline', gap:'12px', marginBottom:'6px', flexWrap:'wrap' } }, [
+          h('span',{ key:'t', style:{ font:"900 20px 'Lato'", letterSpacing:'-.3px' } }, 'Gap findings & resolutions'),
+          h('span',{ key:'s', style:{ font:"700 12px 'Lato'", color:'#3A9A6A' } }, nResolved+' resolved'),
+          h('span',{ key:'o', style:{ font:"700 12px 'Lato'", color:'#C2603F' } }, nOpen+' still open'),
+        ]),
+        h('div',{ key:'sub', style:{ font:"400 12.5px 'Lato'", color:'#5B6B82', marginBottom:'14px', maxWidth:'720px' } }, 'Each finding auto-checks whether its fixing screen now exists in the source — so this list updates itself as screens are built or removed.'),
+        h('div',{ key:'g', style:{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(340px,1fr))', gap:'16px', alignItems:'start' } }, items.map(card))
+      ]);
+    }
+
+    return { content: wrap([ header, columns, crossBlock, findingsBlock ]) };
+  }
+}
+</script>
+</body>
+</html>

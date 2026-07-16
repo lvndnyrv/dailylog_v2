@@ -1,41 +1,18 @@
 {
   "name": "dailylog",
-  "version": "1.0.0",
-  "main": "index.js",
-  "dependencies": {
-    "@expo/ngrok": "^4.1.3",
-    "@react-native-async-storage/async-storage": "2.2.0",
-    "@react-native-community/datetimepicker": "8.4.4",
-    "@react-native-community/netinfo": "11.4.1",
-    "@react-navigation/bottom-tabs": "^7.18.3",
-    "@react-navigation/native": "^7.3.4",
-    "@react-navigation/native-stack": "^7.17.6",
-    "@supabase/supabase-js": "^2.108.2",
-    "date-fns": "^4.4.0",
-    "expo": "^54.0.35",
-    "expo-constants": "~18.0.13",
-    "expo-device": "~8.0.10",
-    "expo-file-system": "~19.0.23",
-    "expo-image-manipulator": "~14.0.8",
-    "expo-image-picker": "~17.0.11",
-    "expo-local-authentication": "~17.0.8",
-    "expo-notifications": "~0.32.17",
-    "expo-print": "~15.0.8",
-    "expo-secure-store": "~15.0.8",
-    "expo-sharing": "~14.0.8",
-    "expo-status-bar": "~3.0.9",
-    "react": "19.1.0",
-    "react-native": "0.81.5",
-    "react-native-keyboard-aware-scroll-view": "^0.9.5",
-    "react-native-safe-area-context": "~5.6.0",
-    "react-native-screens": "~4.16.0",
-    "react-native-url-polyfill": "^3.0.0"
-  },
+  "version": "0.0.0",
+  "private": true,
+  "packageManager": "pnpm@11.13.1",
   "scripts": {
-    "start": "expo start",
-    "android": "expo run:android",
-    "ios": "expo run:ios",
-    "web": "expo start --web"
+    "typecheck": "pnpm -r --if-present typecheck",
+    "lint": "pnpm -r --if-present lint",
+    "dev:web": "pnpm --filter @dailylog/web dev",
+    "dev:mobile": "pnpm --filter @dailylog/mobile start",
+    "db:start": "supabase start",
+    "db:reset": "supabase db reset",
+    "gen:types": "supabase gen types typescript --local > packages/db/src/types.gen.ts"
   },
-  "private": true
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
 }

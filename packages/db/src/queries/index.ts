@@ -1,0 +1,72 @@
+import type { SupabaseClient } from '@supabase/supabase-js';
+import type { Database } from '../types.gen';
+
+export * from './attendance';
+export * from './auth';
+export * from './inbox';
+export * from './incidents';
+export * from './children';
+export * from './rooms';
+export * from './staff';
+
+type Client = SupabaseClient<Database>;
+
+export interface ChildWithClassroom {
+  id: string;
+  first_name: string;
+  last_name: string;
+  date_of_birth: string | null;
+  photo_url: string | null;
+  classroom: { id: string; name: string } | null;
+}
+
+// Active (non-archived) children for the caller's daycare, RLS-scoped.
+export async function listChildren(client: Client): Promise<ChildWithClassroom[]> {
+  const { data, error } = await client
+    .from('children')
+    .select('id, first_name, last_name, date_of_birth, photo_url, classroom:classrooms(id, name)')
+    .is('archived_at', null)
+    .order('first_name');
+
+  if (error) throw error;
+  return (data ?? []) as unknown as ChildWithClassroom[];
+}
+
+export async function listClassrooms(client: Client) {
+  const { data, error } = await client
+    .from('classrooms')
+    .select('id, name, age_group, capacity')
+    .is('archived_at', null)
+    .order('name');
+
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function getMyDaycare(client: Client) {
+  const profile = await getMyProfile(client);
+  if (!profile?.daycare_id) return null;
+
+  const { data, error } = await client
+    .from('daycares')
+    .select('*')
+    .eq('id', profile.daycare_id)
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+export async function getMyProfile(client: Client) {
+  const { data: userData, error: userError } = await client.auth.getUser();
+  if (userError || !userData.user) return null;
+
+  const { data, error } = await client
+    .from('profiles')
+    .select('*')
+    .eq('id', userData.user.id)
+    .single();
+
+  if (error) throw error;
+  return data;
+}

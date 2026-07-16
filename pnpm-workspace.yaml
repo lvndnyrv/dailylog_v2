@@ -1,0 +1,9 @@
+packages:
+  - 'apps/*'
+  - 'packages/*'
+
+# Native build scripts we deliberately don't run (not needed for dev/typecheck;
+# revisit sharp if next/image optimization is used in production builds).
+allowBuilds:
+  sharp: false
+  unrs-resolver: false

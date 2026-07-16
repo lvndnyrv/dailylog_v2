@@ -52,6 +52,10 @@ export const radius = {
   full: 999,
 };
 
+// buttonShape = "Rounded" (owner decision 2026-07-16, DECISIONS.md) — buttons
+// use radius.md app-wide, not radius.full pills, including future restyles.
+export const buttonRadius = radius.md;
+
 export const typography = {
   h1: { fontSize: 24, fontWeight: '600', color: colors.textPrimary },
   h2: { fontSize: 20, fontWeight: '600', color: colors.textPrimary },

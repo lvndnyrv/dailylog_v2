@@ -1,0 +1,70 @@
+@import "tailwindcss";
+
+/*
+ * Design tokens from design/README.md. --primary is the themeable brand
+ * accent — always reference the variable, never hardcode #2F7CD8 in markup.
+ */
+:root {
+  --primary: #2f7cd8;
+  --primary-hover: #1e5fb0;
+
+  --ink: #17335b;
+  --body: #41546f;
+  --body-alt: #3d4e68;
+  --muted: #5b6b82;
+  --faint: #8fa6c4;
+
+  --canvas: #f4f8fd;
+  --card: #ffffff;
+  --hairline: #e4ecf6;
+  --tint: #e3edfa;
+
+  --success: #1f8a5b;
+  --success-dark: #1f6f4a;
+  --warning: #f0b441;
+  --warning-text: #b0782b;
+  --warning-bg: #fbf3e4;
+  --danger: #c24747;
+  --danger-bg: #fae7e7;
+
+  --card-border: rgba(23, 51, 91, 0.1);
+  --card-shadow: 0 2px 12px rgba(23, 51, 91, 0.08);
+
+  /* buttonShape = "Rounded" (owner decision, DECISIONS.md 2026-07-16).
+     Design prototypes show 999px pills — this token deliberately overrides
+     them app-wide. Change here, nowhere else. */
+  --radius-btn: 12px;
+}
+
+@theme inline {
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-ink: var(--ink);
+  --color-body: var(--body);
+  --color-body-alt: var(--body-alt);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-canvas: var(--canvas);
+  --color-card: var(--card);
+  --color-hairline: var(--hairline);
+  --color-tint: var(--tint);
+  --color-success: var(--success);
+  --color-success-dark: var(--success-dark);
+  --color-warning: var(--warning);
+  --color-warning-text: var(--warning-text);
+  --color-warning-bg: var(--warning-bg);
+  --color-danger: var(--danger);
+  --color-danger-bg: var(--danger-bg);
+
+  --font-sans: var(--font-lato);
+  --font-data: var(--font-plex-sans);
+  --font-mono: var(--font-plex-mono);
+
+  --radius-btn: var(--radius-btn);
+}
+
+body {
+  background: var(--canvas);
+  color: var(--body);
+  font-family: var(--font-lato), sans-serif;
+}

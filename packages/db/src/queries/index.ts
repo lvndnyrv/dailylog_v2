@@ -3,6 +3,7 @@ import type { Database } from '../types.gen';
 
 export * from './attendance';
 export * from './auth';
+export * from './billing';
 export * from './inbox';
 export * from './incidents';
 export * from './children';

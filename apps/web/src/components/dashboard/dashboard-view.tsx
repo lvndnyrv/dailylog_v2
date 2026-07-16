@@ -2,6 +2,7 @@
 
 import type {
   AttendanceDayRow,
+  BillingSummary,
   IncidentRow,
   RoomLiveStatus,
 } from "@dailylog/db/queries";
@@ -17,10 +18,12 @@ export function DashboardView({
   rooms,
   incidents,
   attendance,
+  billing,
 }: {
   rooms: RoomLiveStatus[];
   incidents: IncidentRow[];
   attendance: AttendanceDayRow[];
+  billing: BillingSummary | null;
 }) {
   const [signing, setSigning] = useState<IncidentRow | null>(null);
 
@@ -81,11 +84,23 @@ export function DashboardView({
               : "all rooms compliant"}
           </span>
         </Link>
-        <div className={`${card} opacity-70`}>
+        <Link href="/billing" className={`${card} hover:bg-[#F8FBFE]`}>
           <span className={tileLabel}>OUTSTANDING BALANCES</span>
-          <span className="mt-1 block text-[26px] font-extrabold text-faint">—</span>
-          <span className="text-[11.5px] text-muted">arrives with billing (Phase 4)</span>
-        </div>
+          <span
+            className={`mt-1 block text-[26px] font-extrabold ${
+              Number(billing?.overdue_count ?? 0) > 0 ? "text-danger" : "text-ink"
+            }`}
+          >
+            {((Number(billing?.outstanding_cents ?? 0)) / 100).toLocaleString("en-CA", {
+              style: "currency",
+              currency: "CAD",
+            })}
+          </span>
+          <span className="text-[11.5px] text-muted">
+            {Number(billing?.overdue_count ?? 0)} invoice
+            {Number(billing?.overdue_count ?? 0) === 1 ? "" : "s"} overdue
+          </span>
+        </Link>
       </div>
 
       <div className="grid grid-cols-[1.5fr_1fr] items-start gap-4">

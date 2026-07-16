@@ -1,11 +1,43 @@
-import { PlaceholderSection } from "@/components/shell/placeholder";
+import {
+  getBillingSummary,
+  listBillingPlans,
+  listInvoices,
+  listRoster,
+} from "@dailylog/db/queries";
+import { SectionHeader } from "@/components/shell/header";
+import { BillingView } from "@/components/billing/billing-view";
+import { getServerSupabase } from "@/lib/supabase/server";
 
-export default function Page() {
+// Billing 6a — manual-first: plans, invoices, recorded payments. Autopay,
+// payouts and parent-side flows arrive with the Stripe integration.
+export default async function BillingPage() {
+  const supabase = await getServerSupabase();
+  const [summary, invoices, plans, roster] = await Promise.all([
+    getBillingSummary(supabase),
+    listInvoices(supabase),
+    listBillingPlans(supabase),
+    listRoster(supabase),
+  ]);
+
+  const monthLabel = new Date().toLocaleDateString("en-CA", { month: "long" });
+
   return (
-    <PlaceholderSection
-      title="Billing"
-      phase="Phase 4"
-      blurb="Plans, invoices, statements and payments arrive in the money phase."
-    />
+    <>
+      <SectionHeader
+        title="Billing"
+        subtitle={`${monthLabel} · ${invoices.length} invoice${invoices.length === 1 ? "" : "s"} · tuition recorded manually until autopay ships`}
+      />
+      <BillingView
+        summary={summary}
+        invoices={invoices}
+        plans={plans}
+        childrenRows={roster.map((child) => ({
+          id: child.id,
+          name: `${child.first_name} ${child.last_name}`,
+          guardianId: child.guardians.find((g) => g.parent)?.parent?.id ?? null,
+          guardianName: child.guardians.find((g) => g.parent)?.parent?.full_name ?? null,
+        }))}
+      />
+    </>
   );
 }

@@ -349,6 +349,36 @@ begin
   end loop;
 end $$;
 
+-- billing: two plans + three sample invoices (overdue / paid / open).
+-- create_invoice checks is_admin(), so impersonate the owner for these.
+insert into billing_plans (daycare_id, name, amount_cents, cadence) values
+  ('10000000-0000-4000-a000-000000000001', 'Infant full-time', 128000, 'monthly'),
+  ('10000000-0000-4000-a000-000000000001', 'Toddler & up full-time', 95000, 'monthly');
+
+select set_config('role','authenticated',false);
+select set_config('request.jwt.claims','{"sub":"00000000-0000-4000-a000-000000000001","role":"authenticated"}',false);
+
+select create_invoice(
+  (select id from children where first_name='Luca' and last_name='Ferreira'),
+  (select pc.parent_id from parent_children pc join children c on c.id=pc.child_id where c.first_name='Luca' limit 1),
+  current_date - 12,
+  '[{"description":"July tuition — Infant full-time","quantity":1,"unit_amount_cents":78000}]'::jsonb);
+
+select create_invoice(
+  (select id from children where first_name='David' and last_name='Danyar'),
+  (select pc.parent_id from parent_children pc join children c on c.id=pc.child_id where c.first_name='David' limit 1),
+  current_date - 5,
+  '[{"description":"July tuition — Infant full-time","quantity":1,"unit_amount_cents":128000}]'::jsonb);
+select record_invoice_payment((select id from invoices where number like '%-002'), 128000, 'bank');
+
+select create_invoice(
+  (select id from children where first_name='Ivy' and last_name='Tran'),
+  (select pc.parent_id from parent_children pc join children c on c.id=pc.child_id where c.first_name='Ivy' limit 1),
+  current_date + 9,
+  '[{"description":"July tuition — Infant full-time","quantity":1,"unit_amount_cents":128000},{"description":"Late pickup — Jul 2 (22 min)","quantity":1,"unit_amount_cents":2200}]'::jsonb);
+
+select set_config('role','postgres',false);
+
 -- a pinned welcome announcement so feeds aren't empty
 insert into announcements (daycare_id, author_id, title, body, pinned)
 values ('10000000-0000-4000-a000-000000000001',

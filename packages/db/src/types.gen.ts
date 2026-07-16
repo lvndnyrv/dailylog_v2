@@ -522,6 +522,103 @@ export interface Database {
         };
         Relationships: [];
       };
+      billing_plans: {
+        Row: {
+          id: string;
+          daycare_id: string;
+          name: string;
+          amount_cents: number;
+          currency: string;
+          cadence: string;
+          active: boolean;
+          created_at: string | null;
+          updated_at: string | null;
+        };
+        Insert: {
+          daycare_id: string;
+          name: string;
+          amount_cents: number;
+          cadence?: string;
+          active?: boolean;
+        };
+        Update: { name?: string; amount_cents?: number; cadence?: string; active?: boolean };
+        Relationships: [];
+      };
+      invoices: {
+        Row: {
+          id: string;
+          daycare_id: string;
+          child_id: string | null;
+          billed_to: string | null;
+          number: string | null;
+          status: string;
+          issued_on: string | null;
+          due_on: string | null;
+          subtotal_cents: number;
+          total_cents: number;
+          currency: string;
+          created_at: string | null;
+          updated_at: string | null;
+        };
+        Insert: {
+          daycare_id: string;
+          child_id?: string | null;
+          billed_to?: string | null;
+          number?: string | null;
+          status?: string;
+          due_on?: string | null;
+        };
+        Update: { status?: string; due_on?: string | null };
+        Relationships: [];
+      };
+      invoice_lines: {
+        Row: {
+          id: string;
+          daycare_id: string;
+          invoice_id: string;
+          billing_plan_id: string | null;
+          description: string;
+          quantity: number;
+          unit_amount_cents: number;
+          amount_cents: number;
+          created_at: string | null;
+        };
+        Insert: {
+          daycare_id: string;
+          invoice_id: string;
+          description: string;
+          quantity?: number;
+          unit_amount_cents?: number;
+          amount_cents?: number;
+        };
+        Update: { description?: string };
+        Relationships: [];
+      };
+      payments: {
+        Row: {
+          id: string;
+          daycare_id: string;
+          invoice_id: string | null;
+          paid_by: string | null;
+          amount_cents: number;
+          currency: string;
+          method: string | null;
+          status: string;
+          external_ref: string | null;
+          paid_at: string | null;
+          created_at: string | null;
+        };
+        Insert: {
+          daycare_id: string;
+          invoice_id?: string | null;
+          paid_by?: string | null;
+          amount_cents: number;
+          method?: string | null;
+          status?: string;
+        };
+        Update: { status?: string };
+        Relationships: [];
+      };
       consents: {
         Row: {
           id: string;
@@ -591,6 +688,29 @@ export interface Database {
           enrolled_count: number;
           present_count: number;
           educators: { id: string; full_name: string }[];
+        }[];
+      };
+      create_invoice: {
+        Args: {
+          p_child_id: string | null;
+          p_billed_to: string | null;
+          p_due_on: string;
+          p_lines: unknown;
+        };
+        Returns: string;
+      };
+      record_invoice_payment: {
+        Args: { p_invoice_id: string; p_amount_cents: number; p_method?: string };
+        Returns: string;
+      };
+      get_billing_summary: {
+        Args: Record<string, never>;
+        Returns: {
+          collected_month_cents: number;
+          expected_month_cents: number;
+          outstanding_cents: number;
+          overdue_count: number;
+          open_count: number;
         }[];
       };
       get_inbox_threads: {

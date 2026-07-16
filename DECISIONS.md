@@ -56,6 +56,10 @@ Format: date · decision · why · reversibility
 - 2026-07-16 · Broadcasts (5b/5c) reuse the announcements table the parent app already renders — the loop closes with the SHIPPING mobile app · design's read-by counts need per-recipient receipts, deferred with notifications infra; RSVP counts shown from announcement_rsvps · easy to extend
 - 2026-07-16 · Opening a thread auto-marks the family's messages read (mark_messages_read) · matches the mobile educator inbox behavior · easy
 - 2026-07-16 · 5b's scheduling, templates, and push+email delivery deferred to notifications infra (needs the email-provider OPEN decision) · composer ships audience/title/body/pin/RSVP · logged
+- 2026-07-16 · Billing (6a) ships manual-first: plans, atomic invoice numbering (INV-YYYY-NNN via create_invoice), recorded payments that settle invoices, void; overdue derived from due_on at read time · Stripe autopay/payouts/parent-side (6h, 21a–d) wait for the payments integration · per PLAN
+- 2026-07-16 · Amounts stored as integer cents; dollar strings parsed without float math · billing earns trust with exact arithmetic · easy
+- 2026-07-16 · payments.method gains 'etransfer' · it's how Canadian families actually pay · easy
+- 2026-07-16 · Statements 6b, tax forms 6c–e, ledger tools 6f and reminders 6g deferred — they need statement generation + email infra · billing core lands first · logged
 - OPEN · Realtime inbox updates (supabase_realtime already publishes messages) — wire TanStack Query subscription in a polish pass
 - OPEN · Phase 2 mobile track (educator home 2a–c restyle + quick log on these tables) not started — natural next session
 - OPEN · Seed attendance timestamps are UTC-naive, so seeded check-in times display shifted (e.g. "4:38 a.m." in Toronto) · cosmetic; real check-ins use now() · fix seed with local-offset timestamps someday

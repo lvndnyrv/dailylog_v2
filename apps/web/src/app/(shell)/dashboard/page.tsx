@@ -1,4 +1,5 @@
 import {
+  getBillingSummary,
   getMyProfile,
   listAttendanceDay,
   listIncidentsAwaitingSignoff,
@@ -15,11 +16,12 @@ export default async function DashboardPage() {
   const supabase = await getServerSupabase();
   const today = new Date().toISOString().slice(0, 10);
 
-  const [profile, rooms, incidents, attendance] = await Promise.all([
+  const [profile, rooms, incidents, attendance, billing] = await Promise.all([
     getMyProfile(supabase),
     listRoomsLive(supabase),
     listIncidentsAwaitingSignoff(supabase),
     listAttendanceDay(supabase, today),
+    getBillingSummary(supabase),
   ]);
 
   const firstName = profile?.full_name.split(" ")[0] ?? "there";
@@ -34,7 +36,12 @@ export default async function DashboardPage() {
           day: "numeric",
         })}
       />
-      <DashboardView rooms={rooms} incidents={incidents} attendance={attendance} />
+      <DashboardView
+        rooms={rooms}
+        incidents={incidents}
+        attendance={attendance}
+        billing={billing}
+      />
     </>
   );
 }

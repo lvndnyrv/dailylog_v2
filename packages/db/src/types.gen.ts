@@ -748,6 +748,7 @@ export interface Database {
           ratio_children_per_educator: number | null;
           enrolled_count: number;
           present_count: number;
+          last_log_at: string | null;
           educators: { id: string; full_name: string }[];
         }[];
       };

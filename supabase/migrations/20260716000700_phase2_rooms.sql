@@ -16,6 +16,7 @@ returns table (
   ratio_children_per_educator int,
   enrolled_count bigint,
   present_count bigint,
+  last_log_at timestamptz,
   educators jsonb
 )
 language sql security definer stable
@@ -31,6 +32,10 @@ as $$
             and ar.date = current_date
             and ar.checked_in_at is not null
             and ar.checked_out_at is null),
+         (select max(coalesce(dl.updated_at, dl.created_at))
+            from daily_logs dl
+            join children c on c.id = dl.child_id
+           where c.classroom_id = cl.id and dl.log_date = current_date),
          coalesce(
            (select jsonb_agg(jsonb_build_object('id', p.id, 'full_name', p.full_name)
                              order by p.full_name)

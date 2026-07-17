@@ -10,6 +10,11 @@ import { getServerSupabase } from "@/lib/supabase/server";
 // CSV exports behind the Reports library (13a/13b). Admin-only; RLS scopes
 // every row to the caller's center.
 
+function nextMonth(month: string): string {
+  const [year, m] = month.split("-").map(Number);
+  return m === 12 ? `${year + 1}-01-01` : `${year}-${String(m + 1).padStart(2, "0")}-01`;
+}
+
 function csv(rows: string[][]): string {
   return rows
     .map((row) =>
@@ -56,6 +61,48 @@ export async function GET(
       }),
     ];
     name = `attendance-${date}.csv`;
+  } else if (kind === "attendance-month") {
+    // 8e monthly attendance record — one row per child per attended day
+    const month =
+      url.searchParams.get("month") ?? new Date().toISOString().slice(0, 7);
+    const { data, error } = await supabase
+      .from("attendance_records")
+      .select(
+        `date, status, checked_in_at, checked_out_at, dropped_off_by, picked_up_by,
+         child:children(first_name, last_name, classroom:classrooms(name))`,
+      )
+      .gte("date", `${month}-01`)
+      .lt("date", nextMonth(month))
+      .order("date");
+    if (error) return new Response(error.message, { status: 500 });
+
+    type Row = {
+      date: string;
+      status: string;
+      checked_in_at: string | null;
+      checked_out_at: string | null;
+      dropped_off_by: string | null;
+      picked_up_by: string | null;
+      child: {
+        first_name: string;
+        last_name: string;
+        classroom: { name: string } | null;
+      } | null;
+    };
+    rows = [
+      ["Date", "Child", "Room", "Status", "In", "Out", "Dropped off by", "Picked up by"],
+      ...((data ?? []) as unknown as Row[]).map((record) => [
+        record.date,
+        record.child ? `${record.child.first_name} ${record.child.last_name}` : "",
+        record.child?.classroom?.name ?? "",
+        record.status,
+        record.checked_in_at ?? "",
+        record.checked_out_at ?? "",
+        record.dropped_off_by ?? "",
+        record.picked_up_by ?? "",
+      ]),
+    ];
+    name = `attendance-${month}.csv`;
   } else if (kind === "children") {
     const roster = await listRoster(supabase);
     rows = [

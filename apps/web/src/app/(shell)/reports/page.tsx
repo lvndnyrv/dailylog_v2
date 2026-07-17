@@ -10,6 +10,12 @@ const REPORTS = [
     note: "today's date · add ?date=YYYY-MM-DD for another day",
   },
   {
+    title: "Monthly attendance record",
+    blurb: "Every check-in for the month — the record inspectors and subsidies ask for.",
+    href: "/reports-export/attendance-month",
+    note: "this month · add ?month=YYYY-MM for another",
+  },
+  {
     title: "Children roster",
     blurb: "Every active child with room, birthday, allergies and primary contact.",
     href: "/reports-export/children",

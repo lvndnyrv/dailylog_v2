@@ -14,6 +14,12 @@ import { SignOffModal } from "@/components/incidents/sign-off-modal";
 const card = "rounded-2xl border border-[rgba(23,51,91,.1)] bg-card p-[18px]";
 const tileLabel = "font-mono text-[10.5px] font-semibold tracking-[.08em] text-faint";
 
+function minsAgo(timestamp: string): string {
+  const mins = Math.max(0, Math.floor((Date.now() - new Date(timestamp).getTime()) / 60000));
+  if (mins < 60) return `${mins} min ago`;
+  return `${Math.floor(mins / 60)}h ago`;
+}
+
 export function DashboardView({
   rooms,
   incidents,
@@ -202,6 +208,7 @@ export function DashboardView({
                     <span className="block text-[11.5px] text-muted">
                       {room.present_count} children · {room.educators.length} educator
                       {room.educators.length === 1 ? "" : "s"}
+                      {room.last_log_at ? ` · last log ${minsAgo(room.last_log_at)}` : ""}
                     </span>
                   </span>
                   <span className="flex -space-x-1.5">

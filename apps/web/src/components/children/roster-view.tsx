@@ -98,7 +98,18 @@ export function RosterView({
             </div>
 
             {tab === "all" ? (
-              <RosterTable rows={filtered} onOpen={(id) => router.push(`/children/${id}`)} />
+              <>
+                <RosterTable rows={filtered} onOpen={(id) => router.push(`/children/${id}`)} />
+                <p className="text-center text-[11.5px] text-faint">
+                  Showing {filtered.length} of {childrenRows.length}
+                  {classrooms
+                    .map((room) => {
+                      const count = childrenRows.filter((c) => c.classroom?.id === room.id).length;
+                      return count > 0 ? ` · ${room.name} ${count}` : "";
+                    })
+                    .join("")}
+                </p>
+              </>
             ) : (
               classrooms.map((room) => {
                 const rows = filtered.filter((c) => c.classroom?.id === room.id);

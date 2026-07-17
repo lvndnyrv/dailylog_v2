@@ -27,6 +27,34 @@ const ROLE_LABELS: Record<string, string> = {
   educator: "Educator",
 };
 
+// Cert status per the 4a design: "All valid ✓", the nearest expiry as a
+// warning ("First Aid · 12d"), or "Expired" — computed against today.
+type CertState =
+  | { kind: "none" }
+  | { kind: "valid" }
+  | { kind: "expiring"; label: string }
+  | { kind: "expired"; label: string };
+
+function certState(member: StaffRow): CertState {
+  const certs = member.certifications ?? [];
+  if (certs.length === 0) return { kind: "none" };
+
+  const now = Date.now();
+  let worst: CertState = { kind: "valid" };
+  let soonestDays = Infinity;
+
+  for (const cert of certs) {
+    if (!cert.expires_on) continue;
+    const days = Math.floor((new Date(`${cert.expires_on}T12:00`).getTime() - now) / 86400000);
+    if (days < 0) return { kind: "expired", label: `${cert.item} expired` };
+    if (days <= 60 && days < soonestDays) {
+      soonestDays = days;
+      worst = { kind: "expiring", label: `${cert.item} · ${days}d` };
+    }
+  }
+  return worst;
+}
+
 // Read-only roles overview 4o (the permissions matrix 4e is Phase 5).
 const ROLES_OVERVIEW = [
   {
@@ -66,12 +94,23 @@ export function StaffView({
 }) {
   const [tab, setTab] = useState<Tab>(initialTab);
   const [roomFilter, setRoomFilter] = useState<string | null>(null);
+  const [certFilter, setCertFilter] = useState(false);
   const [inviting, setInviting] = useState(openInvite);
   const router = useRouter();
 
-  const filtered = roomFilter
-    ? staff.filter((s) => s.profile?.classroom?.id === roomFilter)
-    : staff;
+  const certIssues = staff.filter((s) => {
+    const state = certState(s);
+    return state.kind === "expiring" || state.kind === "expired";
+  }).length;
+
+  const filtered = staff.filter((s) => {
+    if (roomFilter && s.profile?.classroom?.id !== roomFilter) return false;
+    if (certFilter) {
+      const state = certState(s);
+      if (state.kind !== "expiring" && state.kind !== "expired") return false;
+    }
+    return true;
+  });
 
   return (
     <div className="flex flex-1 flex-col">
@@ -117,6 +156,20 @@ export function StaffView({
                   {room.name}
                 </Chip>
               ))}
+              {certIssues > 0 && (
+                <button
+                  type="button"
+                  aria-pressed={certFilter}
+                  onClick={() => setCertFilter((v) => !v)}
+                  className={`rounded-full px-[13px] py-1.5 text-xs font-semibold ${
+                    certFilter
+                      ? "bg-warning-text text-white"
+                      : "border border-[#F0E2C4] bg-warning-bg text-warning-text hover:brightness-95"
+                  }`}
+                >
+                  Cert issues · {certIssues}
+                </button>
+              )}
             </div>
 
             <div className="overflow-hidden rounded-2xl border-[1.5px] border-[#D6E1F0] bg-card">
@@ -130,7 +183,7 @@ export function StaffView({
               </div>
 
               {filtered.map((member) => {
-                const certs = member.certifications ?? [];
+                const state = certState(member);
                 return (
                   <div
                     key={member.id}
@@ -161,12 +214,19 @@ export function StaffView({
                     <span className="text-[12.5px] text-muted">
                       {member.profile!.classroom?.name ?? "—"}
                     </span>
-                    <span className="text-[12.5px] text-muted">
-                      {certs.length === 0 ? (
-                        "—"
-                      ) : (
-                        <span className="text-success">
-                          {certs.length} on file ✓
+                    <span className="text-[12.5px]">
+                      {state.kind === "none" && <span className="text-faint">—</span>}
+                      {state.kind === "valid" && (
+                        <span className="font-semibold text-success">All valid ✓</span>
+                      )}
+                      {state.kind === "expiring" && (
+                        <span className="whitespace-nowrap rounded-full bg-warning-bg px-2.5 py-[3px] text-[11px] font-bold text-warning-text">
+                          {state.label}
+                        </span>
+                      )}
+                      {state.kind === "expired" && (
+                        <span className="whitespace-nowrap rounded-full bg-danger-bg px-2.5 py-[3px] text-[11px] font-bold text-danger">
+                          {state.label}
                         </span>
                       )}
                     </span>

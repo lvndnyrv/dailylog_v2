@@ -35,10 +35,12 @@ export async function listChildren(client: Client): Promise<ChildWithClassroom[]
 }
 
 export async function listClassrooms(client: Client) {
+  // Age order, the way the designs present rooms everywhere
   const { data, error } = await client
     .from('classrooms')
     .select('id, name, age_group, capacity')
     .is('archived_at', null)
+    .order('min_age_months', { ascending: true, nullsFirst: false })
     .order('name');
 
   if (error) throw error;

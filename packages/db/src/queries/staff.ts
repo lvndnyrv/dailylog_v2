@@ -66,6 +66,8 @@ export interface PendingStaffInvite {
   email: string;
   role: string;
   code: string;
+  job_title: string | null;
+  require_background_check: boolean;
   expires_at: string | null;
   created_at: string | null;
   classroom: { id: string; name: string } | null;
@@ -74,7 +76,9 @@ export interface PendingStaffInvite {
 export async function listPendingStaffInvites(client: Client): Promise<PendingStaffInvite[]> {
   const { data, error } = await client
     .from('staff_invites')
-    .select('id, email, role, code, expires_at, created_at, classroom:classrooms(id, name)')
+    .select(
+      'id, email, role, code, job_title, require_background_check, expires_at, created_at, classroom:classrooms(id, name)',
+    )
     .is('accepted_at', null)
     .order('created_at', { ascending: false });
 
@@ -85,16 +89,22 @@ export async function listPendingStaffInvites(client: Client): Promise<PendingSt
 // invite_staff RPC (admins only, enforced in the function) returns the code.
 export async function inviteStaff(
   client: Client,
-  email: string,
-  role: string,
-  classroomId?: string | null,
-  fullName?: string | null,
+  values: {
+    email: string;
+    role: string;
+    classroomId?: string | null;
+    fullName?: string | null;
+    jobTitle?: string | null;
+    requireBackgroundCheck?: boolean;
+  },
 ): Promise<string> {
   const { data, error } = await client.rpc('invite_staff', {
-    p_email: email,
-    p_role: role,
-    p_classroom_id: classroomId ?? null,
-    p_full_name: fullName ?? null,
+    p_email: values.email,
+    p_role: values.role,
+    p_classroom_id: values.classroomId ?? null,
+    p_full_name: values.fullName ?? null,
+    p_job_title: values.jobTitle ?? null,
+    p_require_background_check: values.requireBackgroundCheck ?? false,
   });
   if (error) throw error;
   return data;

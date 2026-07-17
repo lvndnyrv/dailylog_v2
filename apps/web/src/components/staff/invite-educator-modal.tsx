@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useActionState, useState } from "react";
 import { inviteStaffAction, type StaffActionState } from "@/lib/staff/actions";
 import { Button } from "@/components/ui/button";
@@ -7,9 +8,33 @@ import { Field } from "@/components/ui/field";
 import { Modal } from "@/components/ui/modal";
 import { Notice } from "@/components/ui/notice";
 
-// Invite educator 4f → the 10d accept flow. Email delivery is a later phase;
-// the invite link is shown here to send along (DECISIONS.md). The design's
-// "Require background check first" toggle waits for compliance (Phase 5).
+type RoleChip = "educator" | "lead" | "admin";
+
+const ROLE_OPTIONS: { value: RoleChip; label: string }[] = [
+  { value: "educator", label: "Educator" },
+  { value: "lead", label: "Lead educator" },
+  { value: "admin", label: "Delegated admin" },
+];
+
+const ROLE_BLURBS: Record<RoleChip, { name: string; blurb: string }> = {
+  educator: {
+    name: "Educator",
+    blurb:
+      "assigned-room logs, attendance and incident filing. No billing, enrollment or staff access.",
+  },
+  lead: {
+    name: "Lead educator",
+    blurb:
+      "everything an educator has, plus room oversight. No billing, enrollment or staff access.",
+  },
+  admin: {
+    name: "Delegated admin",
+    blurb: "full console access within this center. Only the owner can change admin roles.",
+  },
+};
+
+// Invite educator 4f — role, rooms & starting permissions. Email delivery is a
+// later phase; the invite link is shown to send along (DECISIONS.md).
 export function InviteEducatorModal({
   classrooms,
   onClose,
@@ -21,16 +46,35 @@ export function InviteEducatorModal({
     inviteStaffAction,
     {},
   );
-  const [role, setRole] = useState("educator");
+  const [role, setRole] = useState<RoleChip>("educator");
+  const [room, setRoom] = useState<string>("floater");
+  const [bgCheck, setBgCheck] = useState(true);
   const [copied, setCopied] = useState(false);
+
+  const chip = (active: boolean, dashed = false) =>
+    `cursor-pointer rounded-full px-[15px] py-2 text-[13px] font-bold ${
+      active
+        ? "bg-primary text-white"
+        : `${dashed ? "border-dashed" : ""} border-[1.5px] border-[#D6E1F0] bg-card text-ink hover:bg-canvas`
+    }`;
 
   return (
     <Modal onClose={onClose} width={468}>
-      <div>
-        <h2 className="text-[19px] font-extrabold text-ink">Invite educator</h2>
-        <p className="mt-0.5 text-[12.5px] leading-normal text-muted">
-          They&apos;ll use the link to set up their account and land in the roster.
-        </p>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h2 className="text-[19px] font-extrabold text-ink">Invite educator</h2>
+          <p className="mt-0.5 text-[12.5px] leading-normal text-muted">
+            They&apos;ll use the link to set up their account and upload certs.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close"
+          className="grid size-8 flex-none place-items-center rounded-full bg-canvas text-[13px] text-muted hover:text-ink"
+        >
+          ✕
+        </button>
       </div>
 
       {state.ok && state.inviteLink ? (
@@ -63,69 +107,109 @@ export function InviteEducatorModal({
           <Field label="Full name" name="full_name" placeholder="e.g. Sam Porter" required />
           <Field label="Email" name="email" type="email" placeholder="name@email.com" required />
 
-          <fieldset className="flex flex-col gap-[7px]">
+          <fieldset className="flex flex-col gap-2">
             <legend className="text-[13px] font-bold text-ink">Role</legend>
+            <input type="hidden" name="role" value={role} />
             <div className="flex gap-2">
-              {[
-                { value: "educator", label: "Educator" },
-                { value: "admin", label: "Delegated admin" },
-              ].map((option) => (
-                <label
+              {ROLE_OPTIONS.map((option) => (
+                <button
                   key={option.value}
-                  className={`flex-1 cursor-pointer rounded-[13px] border-[1.5px] px-3 py-2.5 text-center text-[13px] font-bold ${
+                  type="button"
+                  aria-pressed={role === option.value}
+                  onClick={() => setRole(option.value)}
+                  className={`flex-1 whitespace-nowrap rounded-[13px] border-[1.5px] px-2 py-3 text-center text-[13.5px] font-bold ${
                     role === option.value
-                      ? "border-[var(--primary)] bg-[#E7F0FB] text-primary"
-                      : "border-[#D6E1F0] text-body hover:bg-canvas"
+                      ? "border-[var(--primary)] bg-primary text-white"
+                      : "border-[#D6E1F0] bg-card text-ink hover:bg-canvas"
                   }`}
                 >
-                  <input
-                    type="radio"
-                    name="role"
-                    value={option.value}
-                    checked={role === option.value}
-                    onChange={() => setRole(option.value)}
-                    className="sr-only"
-                  />
                   {option.label}
-                </label>
+                </button>
               ))}
             </div>
           </fieldset>
 
-          {role === "educator" && (
-            <label className="flex flex-col gap-[7px]">
-              <span className="text-[13px] font-bold text-ink">Room</span>
-              <select
-                name="classroom_id"
-                defaultValue=""
-                className="rounded-[13px] border-[1.5px] border-[#D6E1F0] bg-card px-4 py-3 text-[14px] text-ink outline-none focus:border-primary"
+          <fieldset className="flex flex-col gap-2">
+            <legend className="text-[13px] font-bold text-ink">Rooms</legend>
+            <input
+              type="hidden"
+              name="classroom_id"
+              value={room === "floater" || role === "admin" ? "" : room}
+            />
+            <div className="flex flex-wrap gap-1.5">
+              {classrooms.map((classroom) => (
+                <button
+                  key={classroom.id}
+                  type="button"
+                  aria-pressed={room === classroom.id}
+                  onClick={() => setRoom(classroom.id)}
+                  className={chip(room === classroom.id)}
+                >
+                  {classroom.name}
+                </button>
+              ))}
+              <button
+                type="button"
+                aria-pressed={room === "floater"}
+                onClick={() => setRoom("floater")}
+                className={chip(room === "floater", true)}
               >
-                <option value="">Assign later</option>
-                {classrooms.map((room) => (
-                  <option key={room.id} value={room.id}>
-                    {room.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
+                Floater
+              </button>
+            </div>
+          </fieldset>
 
-          <p className="rounded-[13px] bg-canvas px-3.5 py-3 text-[11.5px] leading-normal text-muted">
-            Starts with the <b className="text-ink">{role === "educator" ? "Educator" : "Delegated admin"}</b>{" "}
-            role&apos;s defaults —{" "}
-            {role === "educator"
-              ? "assigned-room logs, attendance and incident filing. No billing, enrollment or staff access."
-              : "full console access within this center. Only the owner can change admin roles."}
-          </p>
+          <div className="flex flex-col gap-1.5 rounded-[13px] bg-canvas px-3.5 py-3">
+            <p className="text-[12.5px] leading-normal text-muted">
+              Starts with the <b className="text-ink">{ROLE_BLURBS[role].name}</b>{" "}
+              role&apos;s defaults — {ROLE_BLURBS[role].blurb}
+            </p>
+            <Link
+              href="/staff?tab=roles"
+              className="text-[12.5px] font-bold text-primary hover:text-primary-hover"
+            >
+              Preview permissions →
+            </Link>
+          </div>
+
+          <label className="flex cursor-pointer items-center gap-3 rounded-[13px] border-[1.5px] border-[#EDF3FB] px-3.5 py-3">
+            <span className="min-w-0 flex-1">
+              <span className="block text-[13.5px] font-bold text-ink">
+                Require background check first
+              </span>
+              <span className="block text-[11.5px] text-faint">
+                Not schedulable until it clears
+              </span>
+            </span>
+            <input
+              type="checkbox"
+              name="require_background_check"
+              checked={bgCheck}
+              onChange={(e) => setBgCheck(e.target.checked)}
+              className="peer sr-only"
+            />
+            <span
+              className={`relative h-[24px] w-[42px] flex-none rounded-full transition-colors ${
+                bgCheck ? "bg-success" : "bg-[#D6E1F0]"
+              }`}
+              aria-hidden
+            >
+              <span
+                className={`absolute top-[3px] size-[18px] rounded-full bg-white transition-all ${
+                  bgCheck ? "right-[3px]" : "left-[3px]"
+                }`}
+              />
+            </span>
+          </label>
 
           {state.error && <Notice tone="error">{state.error}</Notice>}
 
-          <div className="flex gap-2.5">
-            <Button type="button" variant="secondary" className="flex-1 py-3 text-sm" onClick={onClose}>
+          <div className="flex justify-end gap-2.5">
+            <Button type="button" variant="secondary" className="px-6 py-3 text-sm" onClick={onClose}>
               Cancel
             </Button>
-            <Button type="submit" className="flex-1 py-3 text-sm" disabled={pending}>
-              {pending ? "Creating…" : "Create invite"}
+            <Button type="submit" className="px-6 py-3 text-sm" disabled={pending}>
+              {pending ? "Creating…" : "Send invite"}
             </Button>
           </div>
         </form>

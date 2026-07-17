@@ -851,6 +851,8 @@ export interface Database {
           p_role: string;
           p_classroom_id?: string | null;
           p_full_name?: string | null;
+          p_job_title?: string | null;
+          p_require_background_check?: boolean;
         };
         Returns: string;
       };

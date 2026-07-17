@@ -26,18 +26,24 @@ export async function inviteStaffAction(
   const supabase = await getServerSupabase();
 
   const email = str(formData, "email");
-  const role = str(formData, "role");
+  // The design's three role chips map onto the schema's two roles:
+  // "lead" = educator + Lead educator job title (DECISIONS.md).
+  const roleChip = str(formData, "role");
+  const role = roleChip === "admin" ? "admin" : "educator";
+  const jobTitle =
+    roleChip === "lead" ? "Lead educator" : roleChip === "educator" ? "Educator" : null;
   if (!email) return { error: "Email is required." };
-  if (!["educator", "admin"].includes(role)) return { error: "Pick a role." };
+  if (!["educator", "lead", "admin"].includes(roleChip)) return { error: "Pick a role." };
 
   try {
-    const code = await inviteStaff(
-      supabase,
+    const code = await inviteStaff(supabase, {
       email,
       role,
-      str(formData, "classroom_id") || null,
-      str(formData, "full_name") || null,
-    );
+      classroomId: str(formData, "classroom_id") || null,
+      fullName: str(formData, "full_name") || null,
+      jobTitle,
+      requireBackgroundCheck: formData.get("require_background_check") === "on",
+    });
     const origin = (await headers()).get("origin") ?? "";
     revalidatePath("/staff");
     return { ok: true, inviteLink: `${origin}/invite?code=${code}` };

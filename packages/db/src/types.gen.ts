@@ -24,6 +24,7 @@ export interface Database {
           phone: string | null;
           created_by: string | null;
           active: boolean;
+          timezone: string;
           time_tracking_enabled: boolean;
           created_at: string | null;
           updated_at: string | null;
@@ -35,6 +36,7 @@ export interface Database {
           phone?: string | null;
           created_by?: string | null;
           active?: boolean;
+          timezone?: string;
           time_tracking_enabled?: boolean;
         };
         Update: {
@@ -42,6 +44,7 @@ export interface Database {
           address?: string | null;
           phone?: string | null;
           active?: boolean;
+          timezone?: string;
           time_tracking_enabled?: boolean;
         };
         Relationships: [];

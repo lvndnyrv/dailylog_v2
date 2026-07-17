@@ -10,7 +10,14 @@ export interface StaffShiftRow {
   unpaid_break_minutes: number;
   status: string;
   notes: string | null;
-  staff: { id: string; profile: { id: string; full_name: string } | null } | null;
+  staff: {
+    id: string;
+    profile: {
+      id: string;
+      full_name: string;
+      classroom: { id: string; name: string } | null;
+    } | null;
+  } | null;
   classroom: { id: string; name: string } | null;
 }
 export interface StaffTimeEntryRow {
@@ -21,14 +28,45 @@ export interface StaffTimeEntryRow {
   source: string;
   status: string;
   notes: string | null;
-  staff: { id: string; profile: { id: string; full_name: string } | null } | null;
+  staff: {
+    id: string;
+    profile: {
+      id: string;
+      full_name: string;
+      classroom: { id: string; name: string } | null;
+    } | null;
+  } | null;
   classroom: { id: string; name: string } | null;
 }
 
+export interface StaffTimeOffRequestRow {
+  id: string;
+  starts_on: string;
+  ends_on: string;
+  kind: string;
+  status: string;
+  reason: string | null;
+  decision_notes: string | null;
+  reviewed_at: string | null;
+  staff: {
+    id: string;
+    profile: {
+      id: string;
+      full_name: string;
+      classroom: { id: string; name: string } | null;
+    } | null;
+  } | null;
+}
+
 const SHIFT_SELECT = `id, starts_at, ends_at, unpaid_break_minutes, status, notes,
-  staff:staff_members(id, profile:profiles(id, full_name)), classroom:classrooms(id, name)`;
+  staff:staff_members(id, profile:profiles(id, full_name,
+    classroom:classrooms!profiles_classroom_id_fkey(id, name))), classroom:classrooms(id, name)`;
 const TIME_SELECT = `id, clocked_in_at, clocked_out_at, break_minutes, source, status, notes,
-  staff:staff_members(id, profile:profiles(id, full_name)), classroom:classrooms(id, name)`;
+  staff:staff_members(id, profile:profiles(id, full_name,
+    classroom:classrooms!profiles_classroom_id_fkey(id, name))), classroom:classrooms(id, name)`;
+const TIME_OFF_SELECT = `id, starts_on, ends_on, kind, status, reason, decision_notes, reviewed_at,
+  staff:staff_members(id, profile:profiles(id, full_name,
+    classroom:classrooms!profiles_classroom_id_fkey(id, name)))`;
 
 export async function listStaffShifts(client: Client, from: string, to: string): Promise<StaffShiftRow[]> {
   const { data, error } = await client
@@ -54,6 +92,21 @@ export async function listStaffTimeEntries(
     .order('clocked_in_at');
   if (error) throw error;
   return (data ?? []) as unknown as StaffTimeEntryRow[];
+}
+
+export async function listStaffTimeOffRequests(
+  client: Client,
+  from: string,
+  to: string,
+): Promise<StaffTimeOffRequestRow[]> {
+  const { data, error } = await client
+    .from('staff_time_off_requests')
+    .select(TIME_OFF_SELECT)
+    .lte('starts_on', to)
+    .gte('ends_on', from)
+    .order('starts_on');
+  if (error) throw error;
+  return (data ?? []) as unknown as StaffTimeOffRequestRow[];
 }
 
 export async function clockIn(client: Client, classroomId?: string | null): Promise<string> {

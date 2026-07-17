@@ -1,11 +1,14 @@
 import {
   getMyProfile,
+  getMyDaycare,
   hasPermission,
   listAttendanceDay,
   listInvoices,
   listRoster,
+  listStaffTimeEntries,
 } from "@dailylog/db/queries";
 import { isAdminRole } from "@dailylog/shared";
+import { addDateDays, dateInTimeZone, isDate, startOfWeek } from "@/lib/center-date";
 import { getServerSupabase } from "@/lib/supabase/server";
 
 // CSV exports behind the Reports library (13a/13b). Admin-only; RLS scopes
@@ -33,8 +36,14 @@ export async function GET(
   const { kind } = await params;
   const supabase = await getServerSupabase();
   const profile = await getMyProfile(supabase);
-  if (!isAdminRole(profile?.role) || !(await hasPermission(supabase, "reports", "view"))) {
-    return new Response("Reports permission required", { status: 403 });
+  const permitted =
+    kind === "timesheets"
+      ? await hasPermission(supabase, "staff", "view")
+      : await hasPermission(supabase, "reports", "view");
+  if (!isAdminRole(profile?.role) || !permitted) {
+    return new Response(kind === "timesheets" ? "Staff permission required" : "Reports permission required", {
+      status: 403,
+    });
   }
 
   const url = new URL(request.url);
@@ -135,6 +144,51 @@ export async function GET(
       ]),
     ];
     name = "invoices.csv";
+  } else if (kind === "timesheets") {
+    const daycare = await getMyDaycare(supabase);
+    const timeZone = daycare?.timezone ?? "America/Toronto";
+    const today = dateInTimeZone(new Date(), timeZone);
+    const weekStart = startOfWeek(isDate(url.searchParams.get("week") ?? undefined) ? url.searchParams.get("week")! : today);
+    const weekEnd = addDateDays(weekStart, 6);
+    const entries = await listStaffTimeEntries(
+      supabase,
+      `${addDateDays(weekStart, -1)}T00:00:00Z`,
+      `${addDateDays(weekEnd, 2)}T00:00:00Z`,
+    );
+    const selected = entries.filter((entry) => {
+      const date = dateInTimeZone(entry.clocked_in_at, timeZone);
+      return date >= weekStart && date <= weekEnd;
+    });
+    if (selected.length === 0 || selected.some((entry) => entry.status !== "approved")) {
+      return new Response("Every time entry in the pay period must be approved before export", {
+        status: 409,
+      });
+    }
+    rows = [
+      ["Staff", "Date", "Clock in", "Clock out", "Break minutes", "Paid hours", "Room", "Status"],
+      ...selected.map((entry) => {
+        const paidMinutes = entry.clocked_out_at
+          ? Math.max(
+              0,
+              Math.round(
+                (new Date(entry.clocked_out_at).getTime() - new Date(entry.clocked_in_at).getTime()) /
+                  60000,
+              ) - entry.break_minutes,
+            )
+          : 0;
+        return [
+          entry.staff?.profile?.full_name ?? "",
+          dateInTimeZone(entry.clocked_in_at, timeZone),
+          entry.clocked_in_at,
+          entry.clocked_out_at ?? "",
+          String(entry.break_minutes),
+          (paidMinutes / 60).toFixed(2),
+          entry.classroom?.name ?? entry.staff?.profile?.classroom?.name ?? "",
+          entry.status,
+        ];
+      }),
+    ];
+    name = `timesheets-${weekStart}.csv`;
   } else {
     return new Response("Unknown report", { status: 404 });
   }

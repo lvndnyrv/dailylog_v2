@@ -140,6 +140,100 @@ update profiles p
                   '00000000-0000-4000-a000-000000000006') and r.name = 'Educator')
    );
 
+-- Staff timekeeping (4c/4j–m): a published current-week schedule, a mix of
+-- approved/submitted entries, one missed clock-out, and time-off requests.
+-- Dates are generated in the center timezone so the demo remains useful after
+-- every reset instead of expiring with a hard-coded pay period.
+do $$
+declare
+  v_today date := (now() at time zone 'America/Toronto')::date;
+  v_week_start date := date_trunc('week', (now() at time zone 'America/Toronto')::date)::date;
+  v_day date;
+  v_profile record;
+  v_member uuid;
+  v_shift uuid;
+  v_status text;
+  v_clock_out timestamptz;
+  v_break int;
+begin
+  for v_profile in
+    select p.id, p.classroom_id
+      from profiles p
+     where p.daycare_id = '10000000-0000-4000-a000-000000000001'
+       and p.role = 'educator'
+     order by p.id
+  loop
+    select id into v_member from staff_members where profile_id = v_profile.id;
+    for v_day in select generate_series(v_week_start, v_week_start + 4, interval '1 day')::date
+    loop
+      insert into staff_shifts (
+        daycare_id, staff_member_id, classroom_id, starts_at, ends_at,
+        unpaid_break_minutes, status, published_at
+      ) values (
+        '10000000-0000-4000-a000-000000000001', v_member, v_profile.classroom_id,
+        (v_day + time '08:00') at time zone 'America/Toronto',
+        (v_day + time '16:00') at time zone 'America/Toronto',
+        30, 'published', now()
+      ) returning id into v_shift;
+
+      if v_day <= v_today then
+        v_status := case
+          when v_profile.id in (
+            '00000000-0000-4000-a000-000000000004',
+            '00000000-0000-4000-a000-000000000006'
+          ) then 'submitted'
+          else 'approved'
+        end;
+        v_clock_out := (v_day + time '16:00') at time zone 'America/Toronto';
+        v_break := 30;
+
+        -- Pete has one legitimate overtime day; Tara forgot Wednesday's
+        -- clock-out, if Wednesday has occurred in the current week.
+        if v_profile.id = '00000000-0000-4000-a000-000000000005'
+           and v_day = v_week_start + 2 then
+          v_clock_out := (v_day + time '19:15') at time zone 'America/Toronto';
+        end if;
+        if v_profile.id = '00000000-0000-4000-a000-000000000007'
+           and v_day = v_week_start + 2 then
+          v_status := 'open';
+          v_clock_out := null;
+          v_break := 0;
+        end if;
+
+        insert into staff_time_entries (
+          daycare_id, staff_member_id, shift_id, classroom_id,
+          clocked_in_at, clocked_out_at, break_minutes, source, status,
+          approved_by, approved_at
+        ) values (
+          '10000000-0000-4000-a000-000000000001', v_member, v_shift, v_profile.classroom_id,
+          (v_day + time '08:00') at time zone 'America/Toronto',
+          v_clock_out, v_break, 'kiosk', v_status,
+          case when v_status = 'approved' then '00000000-0000-4000-a000-000000000001'::uuid end,
+          case when v_status = 'approved' then now() end
+        );
+      end if;
+    end loop;
+  end loop;
+
+  insert into staff_time_off_requests (
+    daycare_id, staff_member_id, starts_on, ends_on, kind, status, reason
+  ) values (
+    '10000000-0000-4000-a000-000000000001',
+    (select id from staff_members where profile_id = '00000000-0000-4000-a000-000000000006'),
+    v_week_start + 10, v_week_start + 11, 'vacation', 'pending',
+    'Family appointment out of town'
+  );
+  insert into staff_time_off_requests (
+    daycare_id, staff_member_id, starts_on, ends_on, kind, status, reason,
+    reviewed_by, reviewed_at
+  ) values (
+    '10000000-0000-4000-a000-000000000001',
+    (select id from staff_members where profile_id = '00000000-0000-4000-a000-000000000008'),
+    v_week_start + 17, v_week_start + 19, 'vacation', 'approved', 'Summer break',
+    '00000000-0000-4000-a000-000000000001', now()
+  );
+end $$;
+
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Children (24) + parents (24, surname-matched) + guardian links
 -- ─────────────────────────────────────────────────────────────────────────────

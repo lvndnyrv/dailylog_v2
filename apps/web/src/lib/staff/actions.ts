@@ -1,6 +1,7 @@
 "use server";
 
 import {
+  hasPermission,
   enqueueEmailNotification,
   getMyProfile,
   inviteStaff,
@@ -18,8 +19,24 @@ export interface StaffActionState {
   emailQueued?: boolean;
 }
 
+export interface TimekeepingActionState {
+  error?: string;
+  ok?: boolean;
+}
+
 function str(formData: FormData, key: string): string {
   return String(formData.get(key) ?? "").trim();
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+async function requireStaffPermission(action: "edit" | "approve") {
+  const supabase = await getServerSupabase();
+  const profile = await getMyProfile(supabase);
+  if (!profile || !(await hasPermission(supabase, "staff", action))) {
+    throw new Error(`Staff ${action} permission required.`);
+  }
+  return { supabase, profile };
 }
 
 export async function inviteStaffAction(
@@ -122,4 +139,101 @@ export async function deactivateStaffAction(formData: FormData): Promise<void> {
     ended_on: new Date().toISOString().slice(0, 10),
   });
   revalidatePath("/staff");
+}
+
+export async function approveTimeEntriesAction(
+  entryIds: string[],
+): Promise<TimekeepingActionState> {
+  try {
+    const uniqueIds = [...new Set(entryIds)].filter((id) => UUID.test(id)).slice(0, 100);
+    if (uniqueIds.length === 0) return { error: "No reviewable time entries were selected." };
+    const { supabase } = await requireStaffPermission("approve");
+    for (const entryId of uniqueIds) {
+      const { error } = await supabase.rpc("approve_time_entry", {
+        p_entry_id: entryId,
+        p_approved: true,
+        p_notes: null,
+      });
+      if (error) throw error;
+    }
+    revalidatePath("/staff");
+    return { ok: true };
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : "Could not approve timesheets." };
+  }
+}
+
+export async function fixTimeEntryAction(input: {
+  entryId: string;
+  clockedOutAt: string;
+  breakMinutes: number;
+  notes?: string;
+}): Promise<TimekeepingActionState> {
+  try {
+    if (!UUID.test(input.entryId)) return { error: "Invalid time entry." };
+    const clockedOutAt = new Date(input.clockedOutAt);
+    if (Number.isNaN(clockedOutAt.getTime())) return { error: "Enter a valid clock-out time." };
+    const breakMinutes = Math.trunc(input.breakMinutes);
+    if (breakMinutes < 0 || breakMinutes > 720) return { error: "Break must be between 0 and 720 minutes." };
+
+    const { supabase } = await requireStaffPermission("edit");
+    const { data: entry, error: readError } = await supabase
+      .from("staff_time_entries")
+      .select("id, clocked_in_at, status")
+      .eq("id", input.entryId)
+      .single();
+    if (readError) throw readError;
+    if (entry.status !== "open") return { error: "Only an open clock entry can be fixed." };
+    if (clockedOutAt <= new Date(entry.clocked_in_at)) {
+      return { error: "Clock-out must be after clock-in." };
+    }
+    const elapsedMinutes = (clockedOutAt.getTime() - new Date(entry.clocked_in_at).getTime()) / 60000;
+    if (breakMinutes >= elapsedMinutes) return { error: "Break must be shorter than the shift." };
+
+    const note = input.notes?.trim().slice(0, 1000) || null;
+    const { error } = await supabase
+      .from("staff_time_entries")
+      .update({
+        clocked_out_at: clockedOutAt.toISOString(),
+        break_minutes: breakMinutes,
+        status: "submitted",
+        notes: note,
+      })
+      .eq("id", input.entryId)
+      .eq("status", "open");
+    if (error) throw error;
+    revalidatePath("/staff");
+    return { ok: true };
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : "Could not fix the time entry." };
+  }
+}
+
+export async function reviewTimeOffAction(input: {
+  requestId: string;
+  decision: "approved" | "declined";
+  notes?: string;
+}): Promise<TimekeepingActionState> {
+  try {
+    if (!UUID.test(input.requestId)) return { error: "Invalid time-off request." };
+    const { supabase, profile } = await requireStaffPermission("approve");
+    const { data, error } = await supabase
+      .from("staff_time_off_requests")
+      .update({
+        status: input.decision,
+        decision_notes: input.notes?.trim().slice(0, 1000) || null,
+        reviewed_by: profile.id,
+        reviewed_at: new Date().toISOString(),
+      })
+      .eq("id", input.requestId)
+      .eq("status", "pending")
+      .select("id")
+      .single();
+    if (error) throw error;
+    if (!data) return { error: "This request is no longer pending." };
+    revalidatePath("/staff");
+    return { ok: true };
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : "Could not review time off." };
+  }
 }

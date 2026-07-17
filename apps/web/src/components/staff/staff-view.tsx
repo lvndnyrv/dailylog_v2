@@ -1,14 +1,22 @@
 "use client";
 
-import type { CenterRole, PendingStaffInvite, StaffRow } from "@dailylog/db/queries";
+import type {
+  CenterRole,
+  PendingStaffInvite,
+  StaffRow,
+  StaffShiftRow,
+  StaffTimeEntryRow,
+  StaffTimeOffRequestRow,
+} from "@dailylog/db/queries";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Avatar } from "@/components/ui/avatar";
 import { revokeInviteAction } from "@/lib/staff/actions";
 import { InviteEducatorModal } from "./invite-educator-modal";
 import { RolesLibrary } from "./roles-library";
+import { StaffTimekeeping } from "./staff-timekeeping";
 
-type Tab = "roster" | "roles";
+type Tab = "roster" | "timesheets" | "time-off" | "roles";
 
 const tabClass = (active: boolean) =>
   `border-b-[2.5px] py-[11px] text-[13px] ${
@@ -61,6 +69,13 @@ export function StaffView({
   invites,
   classrooms,
   roles,
+  shifts,
+  timeEntries,
+  timeOff,
+  timeZone,
+  weekStart,
+  month,
+  timekeepingError,
   openInvite,
   initialTab,
 }: {
@@ -68,6 +83,13 @@ export function StaffView({
   invites: PendingStaffInvite[];
   classrooms: { id: string; name: string }[];
   roles: CenterRole[];
+  shifts: StaffShiftRow[];
+  timeEntries: StaffTimeEntryRow[];
+  timeOff: StaffTimeOffRequestRow[];
+  timeZone: string;
+  weekStart: string;
+  month: string;
+  timekeepingError: string | null;
   openInvite: boolean;
   initialTab: Tab;
 }) {
@@ -76,6 +98,19 @@ export function StaffView({
   const [certFilter, setCertFilter] = useState(false);
   const [inviting, setInviting] = useState(openInvite);
   const router = useRouter();
+
+  const selectTab = (next: Tab) => {
+    setTab(next);
+    router.replace(next === "roster" ? "/staff" : `/staff?tab=${next}`);
+  };
+
+  const pendingTimesheets = new Set(
+    timeEntries
+      .filter((entry) => ["open", "submitted", "rejected"].includes(entry.status))
+      .map((entry) => entry.staff?.id)
+      .filter(Boolean),
+  ).size;
+  const pendingTimeOff = timeOff.filter((request) => request.status === "pending").length;
 
   const certIssues = staff.filter((s) => {
     const state = certState(s);
@@ -94,29 +129,49 @@ export function StaffView({
   return (
     <div className="flex flex-1 flex-col">
       <div className="flex items-center gap-[22px] border-b-[1.5px] border-hairline bg-card px-7">
-        <button type="button" className={tabClass(tab === "roster")} onClick={() => setTab("roster")}>
+        <button type="button" className={tabClass(tab === "roster")} onClick={() => selectTab("roster")}>
           Roster
         </button>
-        <span className={lockedTab} title="Arrives with time tracking">
+        <button
+          type="button"
+          className={`${tabClass(tab === "timesheets")} flex items-center gap-1.5`}
+          onClick={() => selectTab("timesheets")}
+        >
           Timesheets
-        </span>
-        <span className={lockedTab} title="Arrives with time tracking">
+          {pendingTimesheets > 0 && (
+            <span className="rounded-full bg-danger-bg px-1.5 py-px text-[10px] font-bold text-danger">
+              {pendingTimesheets}
+            </span>
+          )}
+        </button>
+        <button
+          type="button"
+          className={`${tabClass(tab === "time-off")} flex items-center gap-1.5`}
+          onClick={() => selectTab("time-off")}
+        >
           Time off
-        </span>
+          {pendingTimeOff > 0 && (
+            <span className="rounded-full bg-warning-bg px-1.5 py-px text-[10px] font-bold text-warning-text">
+              {pendingTimeOff}
+            </span>
+          )}
+        </button>
         <span className={lockedTab} title="Arrives with the permissions work">
           Delegations
         </span>
-        <button type="button" className={tabClass(tab === "roles")} onClick={() => setTab("roles")}>
+        <button type="button" className={tabClass(tab === "roles")} onClick={() => selectTab("roles")}>
           Roles
         </button>
         <span className="flex-1" />
-        <button
-          type="button"
-          onClick={() => setInviting(true)}
-          className="my-2 rounded-btn bg-primary px-[18px] py-2 text-[13px] font-bold text-white hover:bg-primary-hover"
-        >
-          + Invite educator
-        </button>
+        {tab === "roster" && (
+          <button
+            type="button"
+            onClick={() => setInviting(true)}
+            className="my-2 rounded-btn bg-primary px-[18px] py-2 text-[13px] font-bold text-white hover:bg-primary-hover"
+          >
+            + Invite educator
+          </button>
+        )}
       </div>
 
       <div className="flex flex-col gap-3.5 px-7 pb-6 pt-[18px]">
@@ -280,6 +335,19 @@ export function StaffView({
         )}
 
         {tab === "roles" && <RolesLibrary roles={roles} />}
+        {(tab === "timesheets" || tab === "time-off") && (
+          <StaffTimekeeping
+            mode={tab}
+            staff={staff}
+            shifts={shifts}
+            entries={timeEntries}
+            requests={timeOff}
+            timeZone={timeZone}
+            weekStart={weekStart}
+            month={month}
+            error={timekeepingError}
+          />
+        )}
       </div>
 
       {inviting && (

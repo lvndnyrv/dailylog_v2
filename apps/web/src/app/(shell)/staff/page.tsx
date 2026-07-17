@@ -1,28 +1,78 @@
 import {
+  getMyDaycare,
   listCenterRoles,
   listClassrooms,
   listPendingStaffInvites,
   listStaff,
+  listStaffShifts,
+  listStaffTimeEntries,
+  listStaffTimeOffRequests,
 } from "@dailylog/db/queries";
 import { SectionHeader } from "@/components/shell/header";
 import { StaffView } from "@/components/staff/staff-view";
+import { addDateDays, dateInTimeZone, isDate, monthRange, startOfWeek } from "@/lib/center-date";
 import { getServerSupabase } from "@/lib/supabase/server";
 
-// Staff roster 4a — tabs: Roster / (Timesheets, Time off, Delegations locked) /
-// Roles (4o, editable permissions matrix). Pending invites render as 4d rows.
+const TABS = ["roster", "timesheets", "time-off", "roles"] as const;
+
+// Staff roster 4a, timekeeping 4c/4j–m, and roles 4o. Delegations remain a
+// separate permissions milestone. Pending invites render as 4d rows.
 export default async function StaffPage({
   searchParams,
 }: {
-  searchParams: Promise<{ invite?: string; tab?: string }>;
+  searchParams: Promise<{ invite?: string; tab?: string; week?: string; month?: string }>;
 }) {
   const params = await searchParams;
   const supabase = await getServerSupabase();
-  const [staff, invites, classrooms, roles] = await Promise.all([
+  const [staff, invites, classrooms, roles, daycare] = await Promise.all([
     listStaff(supabase),
     listPendingStaffInvites(supabase),
     listClassrooms(supabase),
     listCenterRoles(supabase),
+    getMyDaycare(supabase),
   ]);
+
+  const timeZone = daycare?.timezone ?? "America/Toronto";
+  const today = dateInTimeZone(new Date(), timeZone);
+  const weekStart = startOfWeek(isDate(params.week) ? params.week : today);
+  const weekEnd = addDateDays(weekStart, 6);
+  const selectedMonth =
+    params.month && /^\d{4}-(0[1-9]|1[0-2])$/.test(params.month)
+      ? params.month
+      : today.slice(0, 7);
+  const month = monthRange(`${selectedMonth}-01`);
+  const scheduleFrom = [addDateDays(weekStart, -1), addDateDays(month.from, -1)].sort()[0];
+  const scheduleTo = [addDateDays(weekEnd, 2), addDateDays(month.to, 61)].sort()[1];
+
+  let shifts: Awaited<ReturnType<typeof listStaffShifts>> = [];
+  let timeEntries: Awaited<ReturnType<typeof listStaffTimeEntries>> = [];
+  let timeOff: Awaited<ReturnType<typeof listStaffTimeOffRequests>> = [];
+  let timekeepingError: string | null = null;
+  try {
+    // Fetch a one-day UTC buffer; the client filters by the center's IANA
+    // timezone so midnight shifts stay in the correct local pay period.
+    [shifts, timeEntries, timeOff] = await Promise.all([
+      listStaffShifts(
+        supabase,
+        `${scheduleFrom}T00:00:00Z`,
+        `${scheduleTo}T00:00:00Z`,
+      ),
+      listStaffTimeEntries(
+        supabase,
+        `${addDateDays(weekStart, -1)}T00:00:00Z`,
+        `${addDateDays(weekEnd, 2)}T00:00:00Z`,
+      ),
+      listStaffTimeOffRequests(supabase, month.from, addDateDays(month.to, 60)),
+    ]);
+  } catch (error) {
+    timekeepingError =
+      error instanceof Error ? error.message : "Timekeeping data is unavailable.";
+  }
+
+  const requestedTab = params.tab ?? "roster";
+  const initialTab = TABS.includes(requestedTab as (typeof TABS)[number])
+    ? (requestedTab as (typeof TABS)[number])
+    : "roster";
 
   return (
     <>
@@ -37,8 +87,15 @@ export default async function StaffPage({
         invites={invites}
         classrooms={classrooms}
         roles={roles}
+        shifts={shifts}
+        timeEntries={timeEntries}
+        timeOff={timeOff}
+        timeZone={timeZone}
+        weekStart={weekStart}
+        month={selectedMonth}
+        timekeepingError={timekeepingError}
         openInvite={params.invite === "1"}
-        initialTab={params.tab === "roles" ? "roles" : "roster"}
+        initialTab={initialTab}
       />
     </>
   );

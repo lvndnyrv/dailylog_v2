@@ -208,3 +208,37 @@ export async function createParentInvite(
   if (error) throw error;
   return data;
 }
+
+// Unlink a guardian from a child (19d "Unlink"). RLS admins-manage-links.
+export async function unlinkParent(
+  client: Client,
+  childId: string,
+  parentId: string,
+): Promise<void> {
+  const { error } = await client
+    .from('parent_children')
+    .delete()
+    .eq('child_id', childId)
+    .eq('parent_id', parentId);
+  if (error) throw error;
+}
+
+// Toggle a per-child consent (19d Consents tab). Upsert on (child_id, kind,
+// version); admins-manage-consents in RLS.
+export async function setChildConsent(
+  client: Client,
+  values: { daycare_id: string; child_id: string; kind: string; granted: boolean },
+): Promise<void> {
+  const { error } = await client.from('consents').upsert(
+    {
+      daycare_id: values.daycare_id,
+      child_id: values.child_id,
+      kind: values.kind,
+      version: '1',
+      granted: values.granted,
+      granted_at: values.granted ? new Date().toISOString() : null,
+    },
+    { onConflict: 'child_id,kind,version' },
+  );
+  if (error) throw error;
+}

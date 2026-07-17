@@ -7,6 +7,8 @@ import {
   createParentInvite,
   getMyProfile,
   removePickup,
+  setChildConsent,
+  unlinkParent,
   updateChild,
 } from "@dailylog/db/queries";
 import { revalidatePath } from "next/cache";
@@ -71,10 +73,26 @@ export async function updateChildAction(
   const supabase = await getServerSupabase();
   const childId = str(formData, "child_id");
 
+  const firstName = str(formData, "first_name");
+  const lastName = str(formData, "last_name");
+  if (!firstName || !lastName) return { error: "First and last name are required." };
+
+  // Emergency contacts arrive as parallel arrays (19d Family & pickups tab).
+  const names = formData.getAll("ec_name").map(String);
+  const relations = formData.getAll("ec_relation").map(String);
+  const phones = formData.getAll("ec_phone").map(String);
+  const emergencyContacts = names
+    .map((name, i) => ({
+      name: name.trim(),
+      relation: (relations[i] ?? "").trim(),
+      phone: (phones[i] ?? "").trim(),
+    }))
+    .filter((c) => c.name || c.phone);
+
   try {
     await updateChild(supabase, childId, {
-      first_name: str(formData, "first_name"),
-      last_name: str(formData, "last_name"),
+      first_name: firstName,
+      last_name: lastName,
       preferred_name: str(formData, "preferred_name") || null,
       pronouns: str(formData, "pronouns") || null,
       date_of_birth: str(formData, "date_of_birth") || null,
@@ -84,6 +102,7 @@ export async function updateChildAction(
       allergies: list(formData, "allergies"),
       medical_notes: str(formData, "medical_notes") || null,
       dietary_needs: str(formData, "dietary_needs") || null,
+      emergency_contacts: emergencyContacts,
     });
   } catch (err) {
     return { error: err instanceof Error ? err.message : "Could not save changes." };
@@ -92,6 +111,28 @@ export async function updateChildAction(
   revalidatePath(`/children/${childId}`);
   revalidatePath("/children");
   return { ok: true };
+}
+
+export async function unlinkParentAction(formData: FormData): Promise<void> {
+  const supabase = await getServerSupabase();
+  const childId = str(formData, "child_id");
+  await unlinkParent(supabase, childId, str(formData, "parent_id"));
+  revalidatePath(`/children/${childId}`);
+}
+
+export async function setConsentAction(formData: FormData): Promise<void> {
+  const supabase = await getServerSupabase();
+  const profile = await getMyProfile(supabase);
+  if (!profile?.daycare_id) return;
+  const childId = str(formData, "child_id");
+
+  await setChildConsent(supabase, {
+    daycare_id: profile.daycare_id,
+    child_id: childId,
+    kind: str(formData, "kind"),
+    granted: str(formData, "granted") === "true",
+  });
+  revalidatePath(`/children/${childId}`);
 }
 
 export async function archiveChildAction(formData: FormData): Promise<void> {

@@ -716,6 +716,7 @@ export interface Database {
           kind: string;
           version?: string;
           granted?: boolean;
+          granted_at?: string | null;
         };
         Update: { granted?: boolean; granted_at?: string | null; revoked_at?: string | null };
         Relationships: [];

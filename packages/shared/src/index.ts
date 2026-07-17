@@ -26,6 +26,22 @@ export type EnrollmentStage = (typeof ENROLLMENT_STAGES)[number];
 export const INCIDENT_STATUSES = ['draft', 'submitted', 'signed_off', 'acknowledged'] as const;
 export type IncidentStatus = (typeof INCIDENT_STATUSES)[number];
 
+// The consents a center tracks per child (design 19d Consents tab). Parents
+// grant these from their app; admins can also toggle them from the console.
+export const CONSENT_KINDS = [
+  'Photo & media consent',
+  'Field-trip permission',
+  'Sunscreen application',
+] as const;
+export type ConsentKind = (typeof CONSENT_KINDS)[number];
+
+// An emergency contact row (children.emergency_contacts jsonb).
+export interface EmergencyContact {
+  name: string;
+  relation: string;
+  phone: string;
+}
+
 export function ageInMonths(dateOfBirth: string | Date, at: Date = new Date()): number {
   const dob = typeof dateOfBirth === 'string' ? new Date(dateOfBirth) : dateOfBirth;
   return (

@@ -293,10 +293,21 @@ update children set date_of_birth = (current_date - interval '35 months')::date
 
 -- allergies matching the design's roster examples (20a shows the flags)
 update children set allergies = array['Peanuts'],
-       medical_notes = 'Carries an EpiPen — kept in the classroom med box, not the cubby.'
+       medical_notes = 'Carries an EpiPen — kept in the classroom med box, not the cubby.',
+       emergency_contacts = '[{"name":"Sara Danyar","relation":"Mother","phone":"416-555-0199"}]'::jsonb
  where first_name = 'David' and last_name = 'Danyar';
 update children set allergies = array['Dairy']
  where first_name = 'Ada' and last_name = 'Whitfield';
+
+-- David's medications (19d Medications tab: one active, one awaiting consent)
+insert into medication_authorizations (daycare_id, child_id, parent_id, name, dosage, schedule, active)
+select c.daycare_id, c.id,
+       (select pc.parent_id from parent_children pc where pc.child_id = c.id limit 1),
+       'EpiPen Jr.', '0.15mg', 'Emergency / as needed', true
+  from children c where c.first_name = 'David' and c.last_name = 'Danyar';
+insert into medication_authorizations (daycare_id, child_id, parent_id, name, dosage, schedule, active)
+select c.daycare_id, c.id, null, 'Salbutamol inhaler', '', 'Before outdoor play', false
+  from children c where c.first_name = 'David' and c.last_name = 'Danyar';
 
 -- two incidents awaiting admin sign-off (9b has a queue to verify against)
 insert into incident_reports (daycare_id, child_id, educator_id, classroom_id,

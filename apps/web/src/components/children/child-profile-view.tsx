@@ -480,7 +480,16 @@ export function ChildProfileView({
       </main>
 
       {modal === "edit" && (
-        <EditChildModal child={child} classrooms={classrooms} onClose={() => setModal("none")} />
+        <EditChildModal
+          child={child}
+          classrooms={classrooms}
+          pickups={pickups}
+          medications={medications}
+          consents={consents}
+          guardians={child.guardians}
+          pendingInvites={pendingInvites}
+          onClose={() => setModal("none")}
+        />
       )}
       {modal === "pickup" && (
         <PickupModal childId={child.id} childName={child.first_name} onClose={() => setModal("none")} />

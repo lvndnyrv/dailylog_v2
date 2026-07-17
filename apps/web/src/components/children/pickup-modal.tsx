@@ -1,14 +1,14 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useActionState } from "react";
 import { addPickupAction, type ChildActionState } from "@/lib/children/actions";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { Modal } from "@/components/ui/modal";
 import { Notice } from "@/components/ui/notice";
 
-// Add authorized pickup 19c. The PIN is auto-generated and shared with the
-// family — educators verify it against the family pass in the app.
+// Add authorized pickup 19c. The PIN is generated server-side (unique per
+// center — kiosk integrity) and revealed once the person is added.
 export function PickupModal({
   childId,
   childName,
@@ -22,7 +22,6 @@ export function PickupModal({
     addPickupAction,
     {},
   );
-  const [pin] = useState(() => String(Math.floor(1000 + Math.random() * 9000)));
 
   return (
     <Modal onClose={onClose} width={560}>
@@ -37,11 +36,23 @@ export function PickupModal({
         the 4-digit PIN — educators verify it against the family pass in the app.
       </p>
 
-      {state.ok ? (
+      {state.ok && state.pin ? (
         <>
           <Notice tone="success">
-            <b>Added.</b> Share the PIN with the family.
+            <b>Added.</b> Share the PIN with the family — it also appears on the
+            pickups list.
           </Notice>
+          <div className="flex items-center gap-3 rounded-[13px] bg-canvas px-4 py-3">
+            <span className="flex-1">
+              <span className="block text-[13px] font-bold text-ink">Pickup PIN</span>
+              <span className="block text-[11.5px] text-muted">
+                Unique to this family at your center
+              </span>
+            </span>
+            <span className="font-mono text-[22px] font-semibold tracking-[.2em] text-ink">
+              {state.pin}
+            </span>
+          </div>
           <Button type="button" className="py-3 text-sm" onClick={onClose}>
             Done
           </Button>
@@ -49,7 +60,6 @@ export function PickupModal({
       ) : (
         <form action={action} className="flex flex-col gap-4">
           <input type="hidden" name="child_id" value={childId} />
-          <input type="hidden" name="pin" value={pin} />
 
           <Field label="Full name" name="full_name" placeholder="e.g. Rosa Torres" required />
           <div className="grid grid-cols-2 gap-2.5">
@@ -57,17 +67,10 @@ export function PickupModal({
             <Field label="Phone" name="phone" placeholder="416-555-…" />
           </div>
 
-          <div className="flex items-center gap-3 rounded-[13px] bg-canvas px-4 py-3">
-            <span className="flex-1">
-              <span className="block text-[13px] font-bold text-ink">Pickup PIN</span>
-              <span className="block text-[11.5px] text-muted">
-                Auto-generated · shared with the family
-              </span>
-            </span>
-            <span className="font-mono text-[22px] font-semibold tracking-[.2em] text-ink">
-              {pin}
-            </span>
-          </div>
+          <p className="rounded-[13px] bg-canvas px-4 py-3 text-[12px] text-muted">
+            The 4-digit PIN is generated when you add them — you&apos;ll see it on
+            the next screen.
+          </p>
 
           {state.error && <Notice tone="error">{state.error}</Notice>}
 

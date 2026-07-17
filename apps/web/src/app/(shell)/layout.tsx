@@ -1,32 +1,17 @@
-import {
-  getBillingSummary,
-  getMyDaycare,
-  getMyProfile,
-  listStaff,
-} from "@dailylog/db/queries";
+import { getMyDaycare, getMyProfile } from "@dailylog/db/queries";
 import { isAdminRole } from "@dailylog/shared";
 import { redirect } from "next/navigation";
 import { Sidebar } from "@/components/shell/sidebar";
 import { getServerSupabase } from "@/lib/supabase/server";
 
 // Sidebar count badges (design 20a/9a): Billing = overdue invoices,
-// Compliance = certs expired or expiring within 60 days.
+// Compliance = certs expired/expiring within 60 days. One RPC round trip.
 async function getNavBadges(supabase: Awaited<ReturnType<typeof getServerSupabase>>) {
-  const [billing, staff] = await Promise.all([
-    getBillingSummary(supabase).catch(() => null),
-    listStaff(supabase).catch(() => []),
-  ]);
-
-  const soon = Date.now() + 60 * 86400000;
-  const certIssues = staff.filter((member) =>
-    (member.certifications ?? []).some(
-      (cert) => cert.expires_on && new Date(`${cert.expires_on}T12:00`).getTime() <= soon,
-    ),
-  ).length;
-
+  const { data } = await supabase.rpc("get_nav_badges");
+  const badges = data?.[0];
   return {
-    "/billing": Number(billing?.overdue_count ?? 0),
-    "/compliance": certIssues,
+    "/billing": Number(badges?.overdue_invoices ?? 0),
+    "/compliance": Number(badges?.cert_issues ?? 0),
   };
 }
 

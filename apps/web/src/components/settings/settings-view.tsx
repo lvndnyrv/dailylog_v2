@@ -17,12 +17,30 @@ import { Notice } from "@/components/ui/notice";
 const card = "rounded-2xl border border-[rgba(23,51,91,.1)] bg-card p-[18px]";
 const cardTitle = "text-[14px] font-extrabold text-ink";
 
+export interface AuditEntry {
+  id: string;
+  action: string;
+  entity_type: string;
+  created_at: string | null;
+  actor: { full_name: string } | null;
+}
+
+const AUDIT_LABELS: Record<string, string> = {
+  attendance_records: "attendance record",
+  invoices: "invoice",
+  incident_reports: "incident report",
+  profiles: "role / membership",
+  children: "child record",
+};
+
 export function SettingsView({
   daycare,
   closures,
+  audit = [],
 }: {
   daycare: Tables<"daycares"> | null;
   closures: Closure[];
+  audit?: AuditEntry[];
 }) {
   const [modal, setModal] = useState<"none" | "center" | "closure">("none");
 
@@ -73,10 +91,39 @@ export function SettingsView({
         {/* Audit log 11d */}
         <section className={card}>
           <h2 className={`${cardTitle} mb-2`}>Audit log</h2>
-          <p className="text-[12.5px] leading-relaxed text-faint">
-            Sign-ins, sign-offs and edits will land here as audit writers come
-            online — the table is ready, the writers arrive incrementally.
-          </p>
+          {audit.length === 0 ? (
+            <p className="text-[12.5px] leading-relaxed text-faint">
+              Sensitive changes land here automatically — attendance fixes,
+              invoice changes, sign-offs, role and room moves.
+            </p>
+          ) : (
+            <div className="flex flex-col">
+              {audit.map((entry) => (
+                <div
+                  key={entry.id}
+                  className="flex items-baseline gap-2 border-b border-[#EDF3FB] py-2 text-[12px] last:border-b-0"
+                >
+                  <span className="min-w-0 flex-1 truncate">
+                    <b className="text-ink">{entry.actor?.full_name ?? "System"}</b>{" "}
+                    <span className="text-muted">
+                      {entry.action === "insert" ? "created a" : "changed a"}{" "}
+                      {AUDIT_LABELS[entry.entity_type] ?? entry.entity_type}
+                    </span>
+                  </span>
+                  <span className="whitespace-nowrap text-[10.5px] text-faint">
+                    {entry.created_at
+                      ? new Date(entry.created_at).toLocaleString("en-CA", {
+                          month: "short",
+                          day: "numeric",
+                          hour: "numeric",
+                          minute: "2-digit",
+                        })
+                      : ""}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
         </section>
       </div>
 

@@ -167,6 +167,53 @@ begin
   if n > 0 then raise exception 'FAIL parent2: sees parent1''s child'; end if;
   raise notice 'PASS: parent2 cannot see parent1''s child';
 
+  -- ══════════════ RPC AUTHORIZATION SURFACE ══════════════
+  -- definer functions enforce their own role checks — prove the denials.
+
+  perform test_reset_role();
+  perform test_impersonate(v_educator);
+
+  begin
+    perform create_invoice(v_child1, null, current_date + 14,
+      '[{"description":"x","quantity":1,"unit_amount_cents":100}]'::jsonb);
+    raise exception 'FAIL educator: created an invoice';
+  exception when others then
+    if sqlerrm not like '%Only admins%' then raise; end if;
+    raise notice 'PASS: educator blocked from creating invoices';
+  end;
+
+  begin
+    perform admin_set_user_role(v_parent, 'admin');
+    raise exception 'FAIL educator: changed a role';
+  exception when others then
+    if sqlerrm not like '%Only admins%' then raise; end if;
+    raise notice 'PASS: educator blocked from role changes';
+  end;
+
+  if exists (select 1 from get_billing_summary()) then
+    raise exception 'FAIL educator: read the billing summary';
+  end if;
+  raise notice 'PASS: educator gets no billing summary';
+
+  perform test_reset_role();
+  perform test_impersonate(v_parent);
+
+  begin
+    perform kiosk_check(v_child1, '0000');
+    raise exception 'FAIL parent: drove the kiosk';
+  exception when others then
+    if sqlerrm not like '%staff%' then raise; end if;
+    raise notice 'PASS: parent blocked from the kiosk';
+  end;
+
+  begin
+    perform create_pickup(v_child9, 'Sneaky Stranger', null, null);
+    raise exception 'FAIL parent: added a pickup to an unlinked child';
+  exception when others then
+    if sqlerrm not like '%No access%' then raise; end if;
+    raise notice 'PASS: parent blocked from unlinked-child pickups';
+  end;
+
   -- ══════════════ ANON sees nothing ══════════════
   perform test_reset_role();
   perform set_config('role', 'anon', true);

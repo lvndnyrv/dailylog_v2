@@ -17,6 +17,7 @@ export interface ChildActionState {
   error?: string;
   ok?: boolean;
   inviteCode?: string;
+  pin?: string;
 }
 
 function str(formData: FormData, key: string): string {
@@ -105,28 +106,25 @@ export async function addPickupAction(
   formData: FormData,
 ): Promise<ChildActionState> {
   const supabase = await getServerSupabase();
-  const profile = await getMyProfile(supabase);
-  if (!profile?.daycare_id) return { error: "No center on your profile." };
 
   const childId = str(formData, "child_id");
   const fullName = str(formData, "full_name");
   if (!fullName) return { error: "Name is required." };
 
+  let pin: string;
   try {
-    await addPickup(supabase, {
-      daycare_id: profile.daycare_id,
+    pin = await addPickup(supabase, {
       child_id: childId,
       full_name: fullName,
       relationship: str(formData, "relationship") || null,
       phone: str(formData, "phone") || null,
-      pin: str(formData, "pin"),
     });
   } catch (err) {
     return { error: err instanceof Error ? err.message : "Could not add the pickup." };
   }
 
   revalidatePath(`/children/${childId}`);
-  return { ok: true };
+  return { ok: true, pin };
 }
 
 export async function removePickupAction(formData: FormData): Promise<void> {

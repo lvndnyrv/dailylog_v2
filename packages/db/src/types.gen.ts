@@ -565,6 +565,22 @@ export interface Database {
         };
         Relationships: [];
       };
+      audit_log: {
+        Row: {
+          id: string;
+          daycare_id: string;
+          actor_id: string | null;
+          action: string;
+          entity_type: string;
+          entity_id: string | null;
+          before: unknown;
+          after: unknown;
+          created_at: string | null;
+        };
+        Insert: never;
+        Update: never;
+        Relationships: [];
+      };
       center_closures: {
         Row: {
           id: string;
@@ -811,6 +827,19 @@ export interface Database {
         }[];
       };
       mark_messages_read: { Args: { p_child_id: string }; Returns: undefined };
+      get_nav_badges: {
+        Args: Record<string, never>;
+        Returns: { overdue_invoices: number; cert_issues: number }[];
+      };
+      create_pickup: {
+        Args: {
+          p_child_id: string;
+          p_full_name: string;
+          p_relationship?: string | null;
+          p_phone?: string | null;
+        };
+        Returns: string;
+      };
       get_attendance_week: {
         Args: Record<string, never>;
         Returns: { day: string; present_count: number; absent_count: number }[];

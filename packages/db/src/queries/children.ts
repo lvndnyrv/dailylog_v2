@@ -166,12 +166,24 @@ export async function archiveChild(client: Client, childId: string): Promise<voi
   await updateChild(client, childId, { archived_at: new Date().toISOString() });
 }
 
+// Server-generated PIN, unique per center (kiosk integrity). Returns the PIN.
 export async function addPickup(
   client: Client,
-  values: TablesInsert<'child_pickups'>,
-): Promise<void> {
-  const { error } = await client.from('child_pickups').insert(values);
+  values: {
+    child_id: string;
+    full_name: string;
+    relationship?: string | null;
+    phone?: string | null;
+  },
+): Promise<string> {
+  const { data, error } = await client.rpc('create_pickup', {
+    p_child_id: values.child_id,
+    p_full_name: values.full_name,
+    p_relationship: values.relationship ?? null,
+    p_phone: values.phone ?? null,
+  });
   if (error) throw error;
+  return data;
 }
 
 export async function removePickup(client: Client, pickupId: string): Promise<void> {

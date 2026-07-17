@@ -226,7 +226,9 @@ begin
       end if;
 
       v_educator := c.educators[1 + floor(random() * array_length(c.educators, 1))::int];
-      v_in := v_day + time '07:45' + (random() * interval '75 minutes');
+      -- anchor times in the center's timezone, not the server's (UTC)
+      v_in := ((v_day + time '07:45')::timestamp at time zone 'America/Toronto')
+              + (random() * interval '75 minutes');
 
       insert into attendance_records (daycare_id, child_id, date, checked_in_at,
                                       checked_in_by, checked_out_at, checked_out_by,
@@ -234,7 +236,8 @@ begin
       values (v_daycare, c.id, v_day, v_in, v_educator,
               -- today's kids are still checked in
               case when v_day = current_date then null
-                   else v_day + time '16:15' + (random() * interval '75 minutes') end,
+                   else ((v_day + time '16:15')::timestamp at time zone 'America/Toronto')
+                        + (random() * interval '75 minutes') end,
               case when v_day = current_date then null else v_educator end,
               'educator', 'present');
 
@@ -244,7 +247,8 @@ begin
               array[seed_moods[1 + floor(random() * 5)::int]],
               'Had a great day!',
               v_day < current_date,
-              case when v_day < current_date then v_day + time '17:00' end)
+              case when v_day < current_date
+                   then (v_day + time '17:00')::timestamp at time zone 'America/Toronto' end)
       returning id into v_log;
 
       insert into meal_entries (daily_log_id, time, food_type, amount) values

@@ -92,14 +92,12 @@ export function ChildProfileView({
           <span className="block text-[12.5px] text-muted">{meta}</span>
         </span>
         <span className="flex-1" />
-        <button
-          type="button"
-          disabled
-          title="Messaging arrives in Phase 3"
-          className="rounded-btn border-[1.5px] border-[#D6E1F0] bg-card px-4 py-2.5 text-[13px] font-bold text-faint"
+        <Link
+          href={`/messages?child=${child.id}`}
+          className="rounded-btn border-[1.5px] border-[#D6E1F0] bg-card px-4 py-2.5 text-[13px] font-bold text-ink hover:bg-canvas"
         >
           Message parents
-        </button>
+        </Link>
         <button
           type="button"
           onClick={() => setModal("edit")}
@@ -370,7 +368,8 @@ export function ChildProfileView({
               )}
             </div>
             <p className="mt-2.5 text-[11.5px] text-faint">
-              Weekly schedules arrive with attendance (Phase 2).
+              Attendance tracks day by day — recurring weekly schedules aren&apos;t
+              built yet.
             </p>
           </section>
 
@@ -401,7 +400,8 @@ export function ChildProfileView({
               </div>
             )}
             <p className="mt-2.5 text-[11.5px] text-faint">
-              The document vault arrives with compliance (Phase 5).
+              File uploads land here with the document vault — next on the
+              compliance roadmap.
             </p>
           </section>
         </div>

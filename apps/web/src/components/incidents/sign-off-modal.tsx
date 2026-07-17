@@ -77,10 +77,14 @@ export function SignOffModal({
           <Button type="submit" disabled={pending} className="py-3.5 text-[15px]">
             {pending ? "Signing…" : "Sign & file the report"}
           </Button>
-          <span className="text-center text-[12.5px] font-bold text-faint">
-            Ask {incident.educator?.full_name?.split(" ")[0] ?? "the educator"} a question
-            first — messaging arrives in Phase 3
-          </span>
+          {incident.child?.id && (
+            <a
+              href={`/messages?child=${incident.child.id}`}
+              className="text-center text-[12.5px] font-bold text-primary hover:text-primary-hover"
+            >
+              Message the family first
+            </a>
+          )}
         </form>
       )}
 

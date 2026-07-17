@@ -192,8 +192,8 @@ export function RoomsView({
               </div>
             )}
             <p className="mt-2.5 text-[11.5px] text-faint">
-              Scheduled future moves arrive with enrollment (Phase 5) — moves here
-              apply immediately.
+              Moves apply immediately — scheduling a move for a future date
+              isn&apos;t built yet.
             </p>
           </section>
         </div>

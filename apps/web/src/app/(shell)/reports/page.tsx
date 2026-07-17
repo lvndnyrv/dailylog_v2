@@ -50,9 +50,8 @@ export default function ReportsPage() {
         <div className={`${card} col-span-3 opacity-70`}>
           <h2 className="text-[14px] font-extrabold text-ink">Scheduled reports & timesheets</h2>
           <p className="mt-1 text-[12.5px] leading-relaxed text-muted">
-            Emailing reports on a cadence (13c) needs the email provider decision;
-            the payroll timesheet export (13e) needs staff clock-ins. Both are
-            logged in DECISIONS.md.
+            Emailed report schedules arrive with notifications; the payroll
+            timesheet export arrives with staff time tracking.
           </p>
         </div>
       </div>

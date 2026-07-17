@@ -79,13 +79,13 @@ export function StaffView({
         <button type="button" className={tabClass(tab === "roster")} onClick={() => setTab("roster")}>
           Roster
         </button>
-        <span className={lockedTab} title="Arrives in a later phase">
+        <span className={lockedTab} title="Arrives with time tracking">
           Timesheets
         </span>
-        <span className={lockedTab} title="Arrives in a later phase">
+        <span className={lockedTab} title="Arrives with time tracking">
           Time off
         </span>
-        <span className={lockedTab} title="Arrives in a later phase">
+        <span className={lockedTab} title="Arrives with the permissions work">
           Delegations
         </span>
         <button type="button" className={tabClass(tab === "roles")} onClick={() => setTab("roles")}>
@@ -258,8 +258,8 @@ export function StaffView({
               </div>
             ))}
             <p className="border-t-[1.5px] border-[#EDF3FB] bg-[#F8FBFE] px-[18px] py-3 text-[11.5px] text-faint">
-              Read-only in Phase 1 — the permissions matrix (4e) and per-person
-              overrides arrive in Phase 5. Enforced today by row-level security.
+              Read-only for now — a permissions matrix with per-person overrides
+              is on the roadmap. Enforced today by row-level security.
             </p>
           </div>
         )}

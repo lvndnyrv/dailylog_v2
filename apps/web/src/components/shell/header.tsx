@@ -94,14 +94,18 @@ export function SectionHeader({
             <Link href="/staff?invite=1" role="menuitem" className={createItem}>
               Invite educator
             </Link>
-            <span className={`${createItem} cursor-default text-muted`}>
-              Invoice <span className="ml-auto text-[10px] font-bold text-faint">Phase 4</span>
-            </span>
-            <span className={`${createItem} cursor-default text-muted`}>
-              Incident report <span className="ml-auto text-[10px] font-bold text-faint">Phase 2</span>
-            </span>
-            <span className={`${createItem} cursor-default text-muted`}>
-              Broadcast <span className="ml-auto text-[10px] font-bold text-faint">Phase 3</span>
+            <Link href="/billing?new=1" role="menuitem" className={createItem}>
+              Invoice
+            </Link>
+            <Link href="/messages?broadcast=1" role="menuitem" className={createItem}>
+              Broadcast
+            </Link>
+            <span
+              className={`${createItem} cursor-default text-muted`}
+              title="Educators file incidents from their app; you sign them on the dashboard"
+            >
+              Incident report{" "}
+              <span className="ml-auto text-[10px] font-bold text-faint">educator app</span>
             </span>
           </div>
         )}

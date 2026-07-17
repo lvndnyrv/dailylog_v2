@@ -65,7 +65,7 @@ export function DashboardView({
             {educatorIds.size}
           </span>
           <span className="text-[11.5px] text-muted">
-            clock-ins arrive with timesheets
+            from room assignments — clock-ins arrive with time tracking
           </span>
         </Link>
         <Link href="/rooms" className={`${card} hover:bg-[#F8FBFE]`}>

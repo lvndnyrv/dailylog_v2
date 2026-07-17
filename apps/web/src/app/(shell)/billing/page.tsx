@@ -10,7 +10,12 @@ import { getServerSupabase } from "@/lib/supabase/server";
 
 // Billing 6a — manual-first: plans, invoices, recorded payments. Autopay,
 // payouts and parent-side flows arrive with the Stripe integration.
-export default async function BillingPage() {
+export default async function BillingPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ new?: string }>;
+}) {
+  const params = await searchParams;
   const supabase = await getServerSupabase();
   const [summary, invoices, plans, roster] = await Promise.all([
     getBillingSummary(supabase),
@@ -31,6 +36,7 @@ export default async function BillingPage() {
         summary={summary}
         invoices={invoices}
         plans={plans}
+        openNew={params.new === "1"}
         childrenRows={roster.map((child) => ({
           id: child.id,
           name: `${child.first_name} ${child.last_name}`,

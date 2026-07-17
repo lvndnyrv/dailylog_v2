@@ -56,7 +56,7 @@ export function StaffProfileView({
         <button
           type="button"
           disabled
-          title="Messaging arrives in Phase 3"
+          title="Threads are family-based for now — staff messaging isn't built yet"
           className="rounded-btn border-[1.5px] border-[#D6E1F0] bg-card px-4 py-2.5 text-[13px] font-bold text-faint"
         >
           Message
@@ -123,7 +123,11 @@ export function StaffProfileView({
                   </div>
                 ))}
                 <p className="pt-2.5 text-[11.5px] text-faint">
-                  Expiry reminders arrive with compliance (Phase 5).
+                  Expiry status is tracked on the{" "}
+                  <Link href="/compliance" className="font-bold text-primary hover:text-primary-hover">
+                    Compliance register
+                  </Link>
+                  ; automatic reminders arrive with notifications.
                 </p>
               </div>
             )}
@@ -133,7 +137,8 @@ export function StaffProfileView({
           <section className={card}>
             <h2 className={`${cardTitle} mb-2`}>Regular schedule</h2>
             <p className="text-[12.5px] text-faint">
-              Weekly schedules and shift cover arrive with attendance (Phase 2).
+              Weekly schedules and shift cover arrive with the scheduling
+              feature.
             </p>
           </section>
 
@@ -185,7 +190,12 @@ export function StaffProfileView({
           <section className={card}>
             <h2 className={`${cardTitle} mb-2`}>Documents</h2>
             <p className="text-[12.5px] text-faint">
-              Contracts and files arrive with the compliance vault (Phase 5).
+              Contracts and files land here with the document vault — next on
+              the compliance roadmap. Certifications already live on the{" "}
+              <Link href="/compliance" className="font-bold text-primary hover:text-primary-hover">
+                Compliance register
+              </Link>
+              .
             </p>
           </section>
 

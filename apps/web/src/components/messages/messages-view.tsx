@@ -19,16 +19,18 @@ export function MessagesView({
   messages,
   broadcasts,
   classrooms,
+  openBroadcast = false,
 }: {
   threads: InboxThread[];
   selected: InboxThread | null;
   messages: ThreadMessage[];
   broadcasts: Broadcast[];
   classrooms: { id: string; name: string }[];
+  openBroadcast?: boolean;
 }) {
   const [filter, setFilter] = useState<Filter>("all");
   const [search, setSearch] = useState("");
-  const [broadcasting, setBroadcasting] = useState(false);
+  const [broadcasting, setBroadcasting] = useState(openBroadcast);
   const markedRef = useRef<string | null>(null);
 
   // Opening an unread thread marks the family's messages read (once).

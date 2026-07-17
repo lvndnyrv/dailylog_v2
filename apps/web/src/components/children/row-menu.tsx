@@ -65,9 +65,14 @@ export function RowMenu({ childId, childName }: { childId: string; childName: st
           >
             Edit details
           </button>
-          <span className={`${item} cursor-default text-muted`}>
-            Message <span className="ml-auto text-[10px] font-bold text-faint">Phase 3</span>
-          </span>
+          <button
+            type="button"
+            role="menuitem"
+            className={item}
+            onClick={() => router.push(`/messages?child=${childId}`)}
+          >
+            Message parents
+          </button>
           <span className={`${item} cursor-default text-muted`}>
             Duplicate <span className="ml-auto text-[10px] font-bold text-faint">Later</span>
           </span>

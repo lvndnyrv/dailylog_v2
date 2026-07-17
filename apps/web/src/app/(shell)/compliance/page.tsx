@@ -132,8 +132,8 @@ export default async function CompliancePage() {
             </div>
           )}
           <p className="mt-2.5 text-[11.5px] text-faint">
-            The document vault and inspection packs (12d/12e) arrive with storage
-            wiring.
+            The document vault and printable inspection packs are next on the
+            compliance roadmap.
           </p>
         </section>
       </div>

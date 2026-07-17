@@ -252,8 +252,12 @@ export function AttendanceView({
           <section className={card}>
             <h2 className={`${cardTitle} mb-2`}>Late pickups</h2>
             <p className="text-[12.5px] text-faint">
-              Late-pickup fees follow your policy and land on invoices — arrives
-              with billing (Phase 4).
+              Fee automation isn&apos;t built yet — for now, add a late-pickup line
+              to the family&apos;s next{" "}
+              <a href="/billing?new=1" className="font-bold text-primary hover:text-primary-hover">
+                invoice
+              </a>
+              .
             </p>
           </section>
 

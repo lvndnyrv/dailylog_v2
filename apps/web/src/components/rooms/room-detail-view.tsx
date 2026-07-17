@@ -101,8 +101,8 @@ export function RoomDetailView({
               </span>
             </div>
             <p className="mt-2 text-[11.5px] text-faint">
-              Updates with every check-in. Staff clock-ins join the count with
-              timesheets (Phase 5).
+              Updates with every check-in. Staff clock-ins join the count once
+              time tracking ships — assignments stand in until then.
             </p>
           </section>
 
@@ -199,7 +199,7 @@ export function RoomDetailView({
               </div>
             )}
             <p className="mt-2.5 text-[11.5px] text-faint">
-              Shift times arrive with scheduling (Phase 5).
+              Shift times arrive with the scheduling feature.
             </p>
           </section>
 

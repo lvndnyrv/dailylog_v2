@@ -123,8 +123,8 @@ export function RosterView({
           <div className="flex flex-col items-center gap-2 rounded-2xl border-[1.5px] border-[#D6E1F0] bg-card px-6 py-12 text-center">
             <span className="text-[13px] font-extrabold text-ink">No consent records yet</span>
             <span className="max-w-sm text-[12.5px] leading-relaxed text-muted">
-              Per-child consents (photos, sunscreen, outings) arrive with the parent
-              app flows — status will roll up here.
+              Parents grant per-child consents (photos, sunscreen, outings) from
+              their app — statuses roll up here as they come in.
             </span>
           </div>
         )}

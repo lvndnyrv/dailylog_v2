@@ -31,17 +31,19 @@ export function BillingView({
   invoices,
   plans,
   childrenRows,
+  openNew = false,
 }: {
   summary: BillingSummary | null;
   invoices: InvoiceRow[];
   plans: BillingPlan[];
   childrenRows: ChildOption[];
+  openNew?: boolean;
 }) {
   const [tab, setTab] = useState<Tab>("invoices");
   const [filter, setFilter] = useState<Filter>("all");
   const [modal, setModal] = useState<
     "none" | "new" | "plan" | { invoice: InvoiceRow }
-  >("none");
+  >(openNew ? "new" : "none");
 
   const [today] = useState(() => new Date().toISOString().slice(0, 10));
   const isOverdue = (invoice: InvoiceRow) =>

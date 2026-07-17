@@ -76,7 +76,7 @@ export default async function InvitePage({
       <InviteForm code={code} email={invite.email} />
 
       <p className="text-center text-[11.5px] leading-normal text-faint">
-        Invites expire after 7 days. Two-step sign-in arrives in a later phase.
+        Invites expire after 7 days and work once.
       </p>
     </>
   );

@@ -7,6 +7,7 @@ export * from './billing';
 export * from './inbox';
 export * from './incidents';
 export * from './children';
+export * from './enrollment';
 export * from './rooms';
 export * from './staff';
 
@@ -42,6 +43,20 @@ export async function listClassrooms(client: Client) {
 
   if (error) throw error;
   return data ?? [];
+}
+
+export async function updateMyDaycare(
+  client: Client,
+  values: { name?: string; address?: string | null; phone?: string | null },
+) {
+  const profile = await getMyProfile(client);
+  if (!profile?.daycare_id) throw new Error('No center on your profile');
+
+  const { error } = await client
+    .from('daycares')
+    .update(values)
+    .eq('id', profile.daycare_id);
+  if (error) throw error;
 }
 
 export async function getMyDaycare(client: Client) {

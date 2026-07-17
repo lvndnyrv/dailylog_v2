@@ -60,6 +60,12 @@ Format: date · decision · why · reversibility
 - 2026-07-16 · Amounts stored as integer cents; dollar strings parsed without float math · billing earns trust with exact arithmetic · easy
 - 2026-07-16 · payments.method gains 'etransfer' · it's how Canadian families actually pay · easy
 - 2026-07-16 · Statements 6b, tax forms 6c–e, ledger tools 6f and reminders 6g deferred — they need statement generation + email infra · billing core lands first · logged
+- 2026-07-16 · Enrollment pipeline (2d) uses explicit stage buttons, not drag & drop · same information, keyboard-reachable, no dnd dependency · revisit if admins miss dragging
+- 2026-07-16 · Public inquiry form (2g) at /inquire?c=<center-id> via anon definer RPCs (get_public_center_info, submit_enrollment_inquiry) · the shared link is the only credential; it exposes center name + room names, nothing else · easy
+- 2026-07-16 · enroll_from_pipeline creates the child atomically; surname defaults from the guardian, confirmed in the modal · smallest honest conversion · easy
+- 2026-07-16 · Settings 11a ships center profile + closures + ratio-rules pointer; audit log renders ready-empty (writers land incrementally); 2FA rule, retention and languages arrive with their features · logged
+- 2026-07-16 · Compliance 12a = certifications register (expired/expiring-60d/valid from staff jsonb) + signed incident log · the document vault 12d needs storage UI — next compliance iteration
+- 2026-07-16 · Reports 13a = CSV route handlers (attendance day, roster, invoices), admin-gated, RLS-scoped · scheduling 13c/13d needs the email provider; timesheets 13e need clock-ins · logged
 - OPEN · Realtime inbox updates (supabase_realtime already publishes messages) — wire TanStack Query subscription in a polish pass
 - OPEN · Phase 2 mobile track (educator home 2a–c restyle + quick log on these tables) not started — natural next session
 - OPEN · Seed attendance timestamps are UTC-naive, so seeded check-in times display shifted (e.g. "4:38 a.m." in Toronto) · cosmetic; real check-ins use now() · fix seed with local-offset timestamps someday

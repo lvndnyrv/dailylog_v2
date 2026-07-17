@@ -1,11 +1,20 @@
-import { PlaceholderSection } from "@/components/shell/placeholder";
+import { getMyDaycare, listClosures } from "@dailylog/db/queries";
+import { SectionHeader } from "@/components/shell/header";
+import { SettingsView } from "@/components/settings/settings-view";
+import { getServerSupabase } from "@/lib/supabase/server";
 
-export default function Page() {
+// Settings 11a — center profile (11b), closures (11c), audit log (11d).
+export default async function SettingsPage() {
+  const supabase = await getServerSupabase();
+  const [daycare, closures] = await Promise.all([
+    getMyDaycare(supabase),
+    listClosures(supabase),
+  ]);
+
   return (
-    <PlaceholderSection
-      title="Settings"
-      phase="Phase 5"
-      blurb="Center profile, closures, roles and the audit log arrive late in the roadmap."
-    />
+    <>
+      <SectionHeader title="Settings" subtitle="The center itself — profile, closures, rules" />
+      <SettingsView daycare={daycare} closures={closures} />
+    </>
   );
 }

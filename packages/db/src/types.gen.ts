@@ -522,6 +522,67 @@ export interface Database {
         };
         Relationships: [];
       };
+      enrollments: {
+        Row: {
+          id: string;
+          daycare_id: string;
+          child_id: string | null;
+          classroom_id: string | null;
+          child_first_name: string | null;
+          child_last_name: string | null;
+          child_date_of_birth: string | null;
+          guardian_name: string | null;
+          guardian_email: string | null;
+          guardian_phone: string | null;
+          stage: string;
+          waitlist_position: number | null;
+          desired_start_date: string | null;
+          source: string | null;
+          notes: string | null;
+          stage_changed_at: string | null;
+          created_at: string | null;
+          updated_at: string | null;
+        };
+        Insert: {
+          daycare_id: string;
+          classroom_id?: string | null;
+          child_first_name?: string | null;
+          child_date_of_birth?: string | null;
+          guardian_name?: string | null;
+          guardian_email?: string | null;
+          guardian_phone?: string | null;
+          stage?: string;
+          desired_start_date?: string | null;
+          source?: string | null;
+          notes?: string | null;
+        };
+        Update: {
+          stage?: string;
+          classroom_id?: string | null;
+          notes?: string | null;
+          stage_changed_at?: string | null;
+          waitlist_position?: number | null;
+        };
+        Relationships: [];
+      };
+      center_closures: {
+        Row: {
+          id: string;
+          daycare_id: string;
+          starts_on: string;
+          ends_on: string;
+          reason: string;
+          created_at: string | null;
+        };
+        Insert: {
+          daycare_id: string;
+          starts_on: string;
+          ends_on: string;
+          reason: string;
+        };
+        Update: { starts_on?: string; ends_on?: string; reason?: string };
+        Relationships: [];
+      };
       billing_plans: {
         Row: {
           id: string;
@@ -689,6 +750,27 @@ export interface Database {
           present_count: number;
           educators: { id: string; full_name: string }[];
         }[];
+      };
+      get_public_center_info: {
+        Args: { p_daycare_id: string };
+        Returns: { name: string; programs: { id: string; name: string }[] }[];
+      };
+      submit_enrollment_inquiry: {
+        Args: {
+          p_daycare_id: string;
+          p_guardian_name: string;
+          p_guardian_email: string;
+          p_guardian_phone?: string | null;
+          p_child_first_name?: string | null;
+          p_child_date_of_birth?: string | null;
+          p_classroom_id?: string | null;
+          p_desired_start?: string | null;
+        };
+        Returns: undefined;
+      };
+      enroll_from_pipeline: {
+        Args: { p_enrollment_id: string; p_classroom_id: string; p_last_name?: string | null };
+        Returns: string;
       };
       create_invoice: {
         Args: {

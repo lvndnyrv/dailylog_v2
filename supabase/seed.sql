@@ -379,6 +379,30 @@ select create_invoice(
 
 select set_config('role','postgres',false);
 
+-- certifications: one expiring soon (compliance register 12a shows the states)
+update staff_members set certifications = jsonb_build_array(
+  jsonb_build_object('item','First Aid','issuer','Red Cross','issued','2024-07-01',
+                     'expires_on', to_char(current_date + 21, 'YYYY-MM-DD')),
+  jsonb_build_object('item','CPR — infant & child','issuer','Red Cross','issued','2026-01-10',
+                     'expires_on','2028-01-10'))
+ where profile_id = '00000000-0000-4000-a000-000000000003';
+update staff_members set certifications = jsonb_build_array(
+  jsonb_build_object('item','Background check','issuer','Provincial registry',
+                     'issued','2023-03-01','expires_on', null))
+ where profile_id = '00000000-0000-4000-a000-000000000004';
+
+-- enrollment pipeline samples across stages + closures
+insert into enrollments (daycare_id, child_first_name, child_date_of_birth, guardian_name, guardian_email, guardian_phone, stage, desired_start_date, source, created_at) values
+  ('10000000-0000-4000-a000-000000000001', 'Leo',    (current_date - interval '14 months')::date, 'Dana Alvarez',  'dana.alvarez@family.test',  '555-0101', 'inquiry',     (current_date + 45)::date, 'website',  now() - interval '3 days'),
+  ('10000000-0000-4000-a000-000000000001', 'Kenji',  (current_date - interval '3 years')::date,   'Yuki Sato',     'yuki.sato@family.test',     '555-0102', 'inquiry',     (current_date + 45)::date, 'website',  now() - interval '1 day'),
+  ('10000000-0000-4000-a000-000000000001', 'Chloé',  (current_date - interval '2 years')::date,   'Marc Laurent',  'marc.laurent@family.test',  '555-0103', 'tour',        (current_date + 20)::date, 'referral', now() - interval '6 days'),
+  ('10000000-0000-4000-a000-000000000001', 'Élise',  (current_date - interval '18 months')::date, 'Anne Moreau',   'anne.moreau@family.test',   '555-0104', 'application', (current_date + 60)::date, 'referral', now() - interval '9 days'),
+  ('10000000-0000-4000-a000-000000000001', 'Rory',   (current_date - interval '4 years')::date,   'Pat Brennan',   'pat.brennan@family.test',   '555-0105', 'offer',       (current_date + 10)::date, 'walk-in',  now() - interval '12 days');
+
+insert into center_closures (daycare_id, starts_on, ends_on, reason) values
+  ('10000000-0000-4000-a000-000000000001', date_trunc('month', now() + interval '1 month')::date + 2, date_trunc('month', now() + interval '1 month')::date + 2, 'Civic holiday'),
+  ('10000000-0000-4000-a000-000000000001', date_trunc('year', now() + interval '1 year')::date - 7, date_trunc('year', now() + interval '1 year')::date + 1, 'Winter break');
+
 -- a pinned welcome announcement so feeds aren't empty
 insert into announcements (daycare_id, author_id, title, body, pinned)
 values ('10000000-0000-4000-a000-000000000001',

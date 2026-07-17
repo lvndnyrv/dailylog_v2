@@ -5,7 +5,15 @@ import { NextResponse, type NextRequest } from "next/server";
 // every matched request and keeps signed-out users out of the console.
 // Fine-grained role checks live in the pages/layouts, not here.
 
-const PUBLIC_PATHS = ["/sign-in", "/forgot", "/reset", "/invite", "/start", "/signed-out"];
+const PUBLIC_PATHS = [
+  "/sign-in",
+  "/forgot",
+  "/reset",
+  "/invite",
+  "/start",
+  "/signed-out",
+  "/inquire",
+];
 
 export async function proxy(request: NextRequest) {
   let response = NextResponse.next({ request });

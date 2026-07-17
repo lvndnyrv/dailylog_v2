@@ -570,7 +570,7 @@ function LinkedParents({
           <input type="hidden" name="child_id" value={childId} />
           {inviteState.ok && inviteState.inviteCode ? (
             <p className="text-[12px] text-ink">
-              <b>Invite created.</b> Code{" "}
+              <b>{inviteState.emailQueued ? "Invite emailed." : "Invite created."}</b> Code{" "}
               <span className="font-mono font-bold">{inviteState.inviteCode}</span> — the parent
               enters it in the app.
             </p>

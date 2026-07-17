@@ -24,6 +24,7 @@ export interface Database {
           phone: string | null;
           created_by: string | null;
           active: boolean;
+          time_tracking_enabled: boolean;
           created_at: string | null;
           updated_at: string | null;
         };
@@ -34,12 +35,14 @@ export interface Database {
           phone?: string | null;
           created_by?: string | null;
           active?: boolean;
+          time_tracking_enabled?: boolean;
         };
         Update: {
           name?: string;
           address?: string | null;
           phone?: string | null;
           active?: boolean;
+          time_tracking_enabled?: boolean;
         };
         Relationships: [];
       };
@@ -88,6 +91,7 @@ export interface Database {
           classroom_id: string | null;
           phone: string | null;
           avatar_url: string | null;
+          center_role_id: string | null;
           archived_at: string | null;
           created_at: string | null;
           updated_at: string | null;
@@ -101,12 +105,14 @@ export interface Database {
           classroom_id?: string | null;
           phone?: string | null;
           avatar_url?: string | null;
+          center_role_id?: string | null;
         };
         Update: {
           full_name?: string;
           phone?: string | null;
           avatar_url?: string | null;
           classroom_id?: string | null;
+          center_role_id?: string | null;
         };
         Relationships: [];
       };
@@ -244,6 +250,127 @@ export interface Database {
         Update: { expires_at?: string | null };
         Relationships: [];
       };
+      staff_shifts: {
+        Row: {
+          id: string;
+          daycare_id: string;
+          staff_member_id: string;
+          classroom_id: string | null;
+          starts_at: string;
+          ends_at: string;
+          unpaid_break_minutes: number;
+          status: string;
+          notes: string | null;
+          created_by: string | null;
+          published_at: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          daycare_id: string;
+          staff_member_id: string;
+          classroom_id?: string | null;
+          starts_at: string;
+          ends_at: string;
+          unpaid_break_minutes?: number;
+          status?: string;
+          notes?: string | null;
+        };
+        Update: {
+          classroom_id?: string | null;
+          starts_at?: string;
+          ends_at?: string;
+          unpaid_break_minutes?: number;
+          status?: string;
+          notes?: string | null;
+          published_at?: string | null;
+        };
+        Relationships: [];
+      };
+      staff_time_entries: {
+        Row: {
+          id: string;
+          daycare_id: string;
+          staff_member_id: string;
+          shift_id: string | null;
+          classroom_id: string | null;
+          clocked_in_at: string;
+          clocked_out_at: string | null;
+          break_minutes: number;
+          source: string;
+          status: string;
+          notes: string | null;
+          created_by: string | null;
+          approved_by: string | null;
+          approved_at: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          daycare_id: string;
+          staff_member_id: string;
+          shift_id?: string | null;
+          classroom_id?: string | null;
+          clocked_in_at: string;
+          clocked_out_at?: string | null;
+          break_minutes?: number;
+          source?: string;
+          status?: string;
+          notes?: string | null;
+        };
+        Update: {
+          shift_id?: string | null;
+          classroom_id?: string | null;
+          clocked_in_at?: string;
+          clocked_out_at?: string | null;
+          break_minutes?: number;
+          status?: string;
+          notes?: string | null;
+          approved_by?: string | null;
+          approved_at?: string | null;
+        };
+        Relationships: [];
+      };
+      staff_time_off_requests: {
+        Row: {
+          id: string;
+          daycare_id: string;
+          staff_member_id: string;
+          starts_on: string;
+          ends_on: string;
+          kind: string;
+          status: string;
+          reason: string | null;
+          decision_notes: string | null;
+          reviewed_by: string | null;
+          reviewed_at: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          daycare_id: string;
+          staff_member_id: string;
+          starts_on: string;
+          ends_on: string;
+          kind?: string;
+          status?: string;
+          reason?: string | null;
+        };
+        Update: {
+          starts_on?: string;
+          ends_on?: string;
+          kind?: string;
+          status?: string;
+          reason?: string | null;
+          decision_notes?: string | null;
+          reviewed_by?: string | null;
+          reviewed_at?: string | null;
+        };
+        Relationships: [];
+      };
       parent_children: {
         Row: {
           parent_id: string;
@@ -267,6 +394,80 @@ export interface Database {
           pickup_authorized?: boolean;
           is_primary?: boolean;
         };
+        Relationships: [];
+      };
+      families: {
+        Row: {
+          id: string;
+          daycare_id: string;
+          display_name: string;
+          primary_contact_id: string | null;
+          billing_email: string | null;
+          billing_phone: string | null;
+          status: string;
+          archived_at: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          daycare_id: string;
+          display_name: string;
+          primary_contact_id?: string | null;
+          billing_email?: string | null;
+          billing_phone?: string | null;
+          status?: string;
+          archived_at?: string | null;
+        };
+        Update: {
+          display_name?: string;
+          primary_contact_id?: string | null;
+          billing_email?: string | null;
+          billing_phone?: string | null;
+          status?: string;
+          archived_at?: string | null;
+        };
+        Relationships: [];
+      };
+      family_members: {
+        Row: {
+          family_id: string;
+          profile_id: string;
+          role: string;
+          relationship: string | null;
+          receives_messages: boolean;
+          receives_billing: boolean;
+          created_at: string;
+        };
+        Insert: {
+          family_id: string;
+          profile_id: string;
+          role?: string;
+          relationship?: string | null;
+          receives_messages?: boolean;
+          receives_billing?: boolean;
+        };
+        Update: {
+          role?: string;
+          relationship?: string | null;
+          receives_messages?: boolean;
+          receives_billing?: boolean;
+        };
+        Relationships: [];
+      };
+      family_children: {
+        Row: {
+          family_id: string;
+          child_id: string;
+          is_primary: boolean;
+          created_at: string;
+        };
+        Insert: {
+          family_id: string;
+          child_id: string;
+          is_primary?: boolean;
+        };
+        Update: { is_primary?: boolean };
         Relationships: [];
       };
       child_pickups: {
@@ -409,6 +610,7 @@ export interface Database {
         Row: {
           id: string;
           daycare_id: string;
+          family_id: string | null;
           child_id: string | null;
           subject: string | null;
           kind: string;
@@ -418,11 +620,16 @@ export interface Database {
         };
         Insert: {
           daycare_id: string;
+          family_id?: string | null;
           child_id?: string | null;
           subject?: string | null;
           kind?: string;
         };
-        Update: { archived_at?: string | null };
+        Update: {
+          family_id?: string | null;
+          child_id?: string | null;
+          archived_at?: string | null;
+        };
         Relationships: [];
       };
       messages: {
@@ -581,6 +788,36 @@ export interface Database {
         Update: never;
         Relationships: [];
       };
+      center_roles: {
+        Row: {
+          id: string;
+          daycare_id: string;
+          name: string;
+          description: string | null;
+          base_role: string;
+          is_locked: boolean;
+          is_system: boolean;
+          sort: number;
+          permissions: Json;
+          created_at: string | null;
+          updated_at: string | null;
+        };
+        Insert: {
+          daycare_id: string;
+          name: string;
+          description?: string | null;
+          base_role: string;
+          sort?: number;
+          permissions?: Json;
+        };
+        Update: {
+          name?: string;
+          description?: string | null;
+          sort?: number;
+          permissions?: Json;
+        };
+        Relationships: [];
+      };
       center_closures: {
         Row: {
           id: string;
@@ -625,6 +862,8 @@ export interface Database {
         Row: {
           id: string;
           daycare_id: string;
+          family_id: string | null;
+          account_id: string | null;
           child_id: string | null;
           billed_to: string | null;
           number: string | null;
@@ -639,13 +878,15 @@ export interface Database {
         };
         Insert: {
           daycare_id: string;
+          family_id?: string | null;
+          account_id?: string | null;
           child_id?: string | null;
           billed_to?: string | null;
           number?: string | null;
           status?: string;
           due_on?: string | null;
         };
-        Update: { status?: string; due_on?: string | null };
+        Update: { status?: string; due_on?: string | null; account_id?: string | null };
         Relationships: [];
       };
       invoice_lines: {
@@ -675,6 +916,8 @@ export interface Database {
         Row: {
           id: string;
           daycare_id: string;
+          family_id: string | null;
+          account_id: string | null;
           invoice_id: string | null;
           paid_by: string | null;
           amount_cents: number;
@@ -687,13 +930,120 @@ export interface Database {
         };
         Insert: {
           daycare_id: string;
+          family_id?: string | null;
+          account_id?: string | null;
           invoice_id?: string | null;
           paid_by?: string | null;
           amount_cents: number;
           method?: string | null;
           status?: string;
         };
-        Update: { status?: string };
+        Update: { status?: string; account_id?: string | null };
+        Relationships: [];
+      };
+      statements: {
+        Row: {
+          id: string;
+          daycare_id: string;
+          family_id: string | null;
+          account_id: string | null;
+          child_id: string | null;
+          period_start: string;
+          period_end: string;
+          total_cents: number;
+          storage_path: string | null;
+          created_at: string | null;
+        };
+        Insert: {
+          daycare_id: string;
+          family_id?: string | null;
+          account_id?: string | null;
+          child_id?: string | null;
+          period_start: string;
+          period_end: string;
+          total_cents?: number;
+          storage_path?: string | null;
+        };
+        Update: {
+          family_id?: string | null;
+          account_id?: string | null;
+          child_id?: string | null;
+          total_cents?: number;
+          storage_path?: string | null;
+        };
+        Relationships: [];
+      };
+      family_ledger_accounts: {
+        Row: {
+          id: string;
+          daycare_id: string;
+          family_id: string;
+          currency: string;
+          status: string;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          daycare_id: string;
+          family_id: string;
+          currency?: string;
+          status?: string;
+        };
+        Update: { currency?: string; status?: string };
+        Relationships: [];
+      };
+      family_ledger_entries: {
+        Row: {
+          id: string;
+          daycare_id: string;
+          account_id: string;
+          family_id: string;
+          entry_type: string;
+          amount_cents: number;
+          currency: string;
+          description: string;
+          source_invoice_id: string | null;
+          source_payment_id: string | null;
+          reverses_entry_id: string | null;
+          effective_at: string;
+          created_by: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          daycare_id: string;
+          account_id: string;
+          family_id: string;
+          entry_type: string;
+          amount_cents: number;
+          currency?: string;
+          description: string;
+          source_invoice_id?: string | null;
+          source_payment_id?: string | null;
+          reverses_entry_id?: string | null;
+          effective_at?: string;
+        };
+        Update: never;
+        Relationships: [];
+      };
+      payment_allocations: {
+        Row: {
+          payment_id: string;
+          invoice_id: string;
+          daycare_id: string;
+          family_id: string;
+          amount_cents: number;
+          created_at: string;
+        };
+        Insert: {
+          payment_id: string;
+          invoice_id: string;
+          daycare_id: string;
+          family_id: string;
+          amount_cents: number;
+        };
+        Update: { amount_cents?: number };
         Relationships: [];
       };
       consents: {
@@ -721,11 +1071,116 @@ export interface Database {
         Update: { granted?: boolean; granted_at?: string | null; revoked_at?: string | null };
         Relationships: [];
       };
+      notification_outbox: {
+        Row: {
+          id: string;
+          daycare_id: string;
+          recipient_id: string | null;
+          recipient_email: string | null;
+          channel: string;
+          kind: string;
+          title: string;
+          body: string | null;
+          payload: Json;
+          status: string;
+          dedupe_key: string;
+          attempts: number;
+          max_attempts: number;
+          available_at: string;
+          locked_at: string | null;
+          delivered_at: string | null;
+          last_error: string | null;
+          provider_response: Json | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: never;
+        Update: never;
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
     Functions: {
       get_my_role: { Args: Record<string, never>; Returns: string };
       get_my_daycare_id: { Args: Record<string, never>; Returns: string };
+      my_family_ids: { Args: Record<string, never>; Returns: string[] };
+      can_access_family: { Args: { p_family_id: string }; Returns: boolean };
+      can_message_family: { Args: { p_family_id: string }; Returns: boolean };
+      shares_family_with: { Args: { p_profile_id: string }; Returns: boolean };
+      has_permission: {
+        Args: { p_area: string; p_action?: string };
+        Returns: boolean;
+      };
+      can_access_child_area: {
+        Args: { p_child_id: string; p_area: string; p_action?: string };
+        Returns: boolean;
+      };
+      can_access_billing_family: {
+        Args: { p_family_id: string; p_action?: string };
+        Returns: boolean;
+      };
+      enqueue_child_notification: {
+        Args: {
+          p_child_id: string;
+          p_kind: string;
+          p_title: string;
+          p_body?: string | null;
+          p_payload?: Json;
+          p_dedupe_key?: string | null;
+          p_channels?: string[];
+        };
+        Returns: number;
+      };
+      enqueue_center_notification: {
+        Args: {
+          p_daycare_id: string;
+          p_classroom_id: string | null;
+          p_kind: string;
+          p_title: string;
+          p_body?: string | null;
+          p_payload?: Json;
+          p_dedupe_key?: string | null;
+          p_channels?: string[];
+        };
+        Returns: number;
+      };
+      enqueue_email_notification: {
+        Args: {
+          p_daycare_id: string;
+          p_recipient_email: string;
+          p_kind: string;
+          p_title: string;
+          p_body?: string | null;
+          p_payload?: Json;
+          p_dedupe_key?: string | null;
+        };
+        Returns: string | null;
+      };
+      clock_in: {
+        Args: { p_classroom_id?: string | null; p_at?: string };
+        Returns: string;
+      };
+      clock_out: {
+        Args: { p_at?: string; p_break_minutes?: number };
+        Returns: string;
+      };
+      approve_time_entry: {
+        Args: { p_entry_id: string; p_approved: boolean; p_notes?: string | null };
+        Returns: undefined;
+      };
+      get_family_ledger_balance: {
+        Args: { p_family_id: string };
+        Returns: number;
+      };
+      create_ledger_adjustment: {
+        Args: {
+          p_family_id: string;
+          p_amount_cents: number;
+          p_description: string;
+          p_entry_type?: string;
+        };
+        Returns: string;
+      };
       get_daycare_classrooms: {
         Args: Record<string, never>;
         Returns: {
@@ -817,6 +1272,9 @@ export interface Database {
         Args: Record<string, never>;
         Returns: {
           conversation_id: string;
+          family_id: string | null;
+          family_name: string;
+          family_child_count: number;
           child_id: string;
           child_first_name: string;
           child_last_name: string;
@@ -831,6 +1289,20 @@ export interface Database {
       get_nav_badges: {
         Args: Record<string, never>;
         Returns: { overdue_invoices: number; cert_issues: number }[];
+      };
+      get_center_roles: {
+        Args: Record<string, never>;
+        Returns: {
+          id: string;
+          name: string;
+          description: string | null;
+          base_role: string;
+          is_locked: boolean;
+          is_system: boolean;
+          sort: number;
+          permissions: Json;
+          member_count: number;
+        }[];
       };
       create_pickup: {
         Args: {

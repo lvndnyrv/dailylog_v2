@@ -37,7 +37,7 @@ export function InvoiceModal({
         <div>
           <h2 className="font-mono text-[17px] font-semibold text-ink">{invoice.number}</h2>
           <p className="mt-0.5 text-[12.5px] text-muted">
-            {invoice.billed_to_profile?.full_name ?? "—"}
+            {invoice.family?.display_name ?? invoice.billed_to_profile?.full_name ?? "—"}
             {invoice.child ? ` · ${invoice.child.first_name} ${invoice.child.last_name}` : ""}
           </p>
         </div>

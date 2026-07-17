@@ -119,6 +119,27 @@ select '10000000-0000-4000-a000-000000000001', id,
   from profiles
  where role in ('owner_admin', 'admin', 'educator');
 
+-- Role library (4o): create the five default roles for this center, then
+-- distribute staff across them so the matrix has representative member counts.
+-- (Migrations run before seed on a fresh reset, so no daycare exists yet for the
+--  migration's own seeding to catch — the seed owns this.)
+select seed_default_roles('10000000-0000-4000-a000-000000000001');
+
+update profiles p
+   set center_role_id = r.id
+  from center_roles r
+ where r.daycare_id = '10000000-0000-4000-a000-000000000001'
+   and (
+        (p.id = '00000000-0000-4000-a000-000000000001' and r.name = 'Owner admin')
+     or (p.id = '00000000-0000-4000-a000-000000000002' and r.name = 'Delegated admin')
+     or (p.id in ('00000000-0000-4000-a000-000000000003',
+                  '00000000-0000-4000-a000-000000000008') and r.name = 'Lead educator')
+     or (p.id in ('00000000-0000-4000-a000-000000000004',
+                  '00000000-0000-4000-a000-000000000007') and r.name = 'Floater')
+     or (p.id in ('00000000-0000-4000-a000-000000000005',
+                  '00000000-0000-4000-a000-000000000006') and r.name = 'Educator')
+   );
+
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Children (24) + parents (24, surname-matched) + guardian links
 -- ─────────────────────────────────────────────────────────────────────────────

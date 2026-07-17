@@ -54,6 +54,7 @@ declare
 
   n int;
   v_uuid uuid;
+  v_invoice uuid;
 begin
   -- ══════════════ ADMIN (owner_admin) ══════════════
   perform test_impersonate(v_owner);
@@ -67,6 +68,54 @@ begin
   select count(*) into n from daily_logs;
   if n = 0 then raise exception 'FAIL admin: sees no daily logs'; end if;
   raise notice 'PASS: admin sees daily logs (%)', n;
+
+  select count(*) into n from families;
+  if n < 23 then
+    raise exception 'FAIL admin: expected household backfill, saw % families', n;
+  end if;
+  raise notice 'PASS: admin sees household accounts (%)', n;
+
+  select count(*) into n
+    from children c
+   where not exists (select 1 from family_children fc where fc.child_id = c.id);
+  if n > 0 then
+    raise exception 'FAIL household backfill: % children have no family', n;
+  end if;
+  raise notice 'PASS: every linked seeded child has a family account';
+
+  if not has_permission('billing', 'edit') or not has_permission('staff', 'approve') then
+    raise exception 'FAIL owner: default role is missing required permissions';
+  end if;
+  raise notice 'PASS: owner role matrix grants sensitive permissions';
+
+  v_invoice := create_invoice(
+    v_child1, v_parent, current_date + 14,
+    '[{"description":"RLS ledger test","quantity":1,"unit_amount_cents":100}]'::jsonb
+  );
+  select count(*) into n from family_ledger_entries
+   where source_invoice_id = v_invoice and entry_type = 'invoice' and amount_cents = 100;
+  if n <> 1 then raise exception 'FAIL ledger: invoice did not create exactly one charge'; end if;
+  raise notice 'PASS: invoice creates one family ledger charge';
+
+  perform enqueue_child_notification(
+    v_child1, 'daily_log', 'RLS outbox test', null,
+    jsonb_build_object('childId', v_child1), 'rls-outbox-test', array['push']
+  );
+  select count(*) into n from notification_outbox where dedupe_key = 'rls-outbox-test';
+  if n = 0 then raise exception 'FAIL outbox: child notification was not queued'; end if;
+  raise notice 'PASS: notification enqueue creates durable delivery rows (%)', n;
+
+  perform enqueue_email_notification(
+    v_daycare, 'p0-test@example.com', 'parent_invite', 'RLS email outbox test',
+    'Use the invitation code from the secure application flow.', '{}', 'rls-email-outbox-test'
+  );
+  select count(*) into n from notification_outbox
+   where dedupe_key = 'rls-email-outbox-test'
+     and recipient_email = 'p0-test@example.com'
+     and recipient_id is null
+     and channel = 'email';
+  if n <> 1 then raise exception 'FAIL outbox: raw invite email was not queued exactly once'; end if;
+  raise notice 'PASS: pre-account invitation email is queued without a profile row';
 
   insert into classrooms (daycare_id, name, age_group)
   values (v_daycare, 'RLS Test Room', 'Toddler') returning id into v_uuid;
@@ -86,6 +135,24 @@ begin
   if n = 0 then raise exception 'FAIL educator: cannot read daycare child'; end if;
   raise notice 'PASS: educator reads other-room child in same daycare';
 
+  select count(*) into n from families;
+  if n < 23 then raise exception 'FAIL educator: cannot read center families'; end if;
+  raise notice 'PASS: educator reads center family directory (%)', n;
+
+  insert into families (daycare_id, display_name)
+  values (v_daycare, 'Lead educator permission test') returning id into v_uuid;
+  delete from families where id = v_uuid;
+  raise notice 'PASS: lead educator children-edit permission is enforced positively';
+
+  begin
+    insert into conversations (daycare_id, child_id, kind)
+    values (v_daycare, v_child9, 'direct');
+    raise exception 'FAIL educator: opened a thread for an unassigned child';
+  exception
+    when insufficient_privilege or check_violation then
+      raise notice 'PASS: household identity does not widen educator messaging access';
+  end;
+
   -- ...but WRITES outside assigned rooms must fail
   begin
     insert into daily_logs (daycare_id, child_id, educator_id, log_date)
@@ -102,10 +169,43 @@ begin
   delete from daily_logs where id = v_uuid;
   raise notice 'PASS: educator logs own-room child';
 
+  if not has_permission('daily_logs', 'edit') or has_permission('billing', 'view') then
+    raise exception 'FAIL educator: role permission matrix returned unexpected values';
+  end if;
+  raise notice 'PASS: educator role matrix grants care work and denies billing';
+
+  v_uuid := clock_in(null, now() - interval '5 minutes');
+  perform clock_out(now(), 0);
+  select count(*) into n from staff_time_entries
+   where id = v_uuid and status = 'submitted' and clocked_out_at is not null;
+  if n <> 1 then raise exception 'FAIL timekeeping: clock-in/out was not submitted'; end if;
+  raise notice 'PASS: staff can clock in and submit their own time entry';
+
   -- educators must not touch billing
   select count(*) into n from invoices;
   if n > 0 then raise exception 'FAIL educator: can see invoices'; end if;
   raise notice 'PASS: educator sees zero invoices';
+
+  begin
+    perform get_parent_push_tokens(v_child1);
+    raise exception 'FAIL educator: legacy RPC exposed guardian device tokens';
+  exception when insufficient_privilege then
+    raise notice 'PASS: legacy device-token lookup is no longer client-callable';
+  end;
+
+  -- Floater has children view but not edit in the seeded matrix.
+  perform test_reset_role();
+  perform test_impersonate(v_educator2);
+  if not has_permission('children', 'view') or has_permission('children', 'edit') then
+    raise exception 'FAIL floater: seeded children permission mismatch';
+  end if;
+  begin
+    insert into families (daycare_id, display_name)
+    values (v_daycare, 'Unauthorized family');
+    raise exception 'FAIL floater: created a family without children edit permission';
+  exception when insufficient_privilege or check_violation then
+    raise notice 'PASS: role matrix blocks floater child/family edits';
+  end;
 
   -- ══════════════ PARENT (linked to child1 only) ══════════════
   perform test_reset_role();
@@ -122,6 +222,12 @@ begin
   select count(*) into n from daily_logs where child_id <> v_child1;
   if n > 0 then raise exception 'FAIL parent: sees other children''s logs'; end if;
   raise notice 'PASS: parent sees only own child''s logs';
+
+  select count(*) into n from families;
+  if n <> 1 then raise exception 'FAIL parent: expected 1 family, saw %', n; end if;
+  select count(*) into n from family_children;
+  if n <> 1 then raise exception 'FAIL parent: expected 1 family child, saw %', n; end if;
+  raise notice 'PASS: parent sees exactly their household and child';
 
   begin
     insert into daily_logs (daycare_id, child_id, log_date)
@@ -167,6 +273,14 @@ begin
   if n > 0 then raise exception 'FAIL parent2: sees parent1''s child'; end if;
   raise notice 'PASS: parent2 cannot see parent1''s child';
 
+  select count(*) into n from families;
+  if n <> 1 then raise exception 'FAIL parent2: expected 1 family, saw %', n; end if;
+  select count(*) into n from family_children;
+  if n <> 2 then
+    raise exception 'FAIL parent2: Danyar household should contain 2 children, saw %', n;
+  end if;
+  raise notice 'PASS: siblings share one household account';
+
   -- ══════════════ RPC AUTHORIZATION SURFACE ══════════════
   -- definer functions enforce their own role checks — prove the denials.
 
@@ -202,7 +316,7 @@ begin
     perform kiosk_check(v_child1, '0000');
     raise exception 'FAIL parent: drove the kiosk';
   exception when others then
-    if sqlerrm not like '%staff%' then raise; end if;
+    if sqlerrm not like '%Attendance permission%' then raise; end if;
     raise notice 'PASS: parent blocked from the kiosk';
   end;
 
@@ -223,7 +337,31 @@ begin
   if n > 0 then raise exception 'FAIL anon: sees children'; end if;
   select count(*) into n from profiles;
   if n > 0 then raise exception 'FAIL anon: sees profiles'; end if;
-  raise notice 'PASS: anon sees nothing';
+  select count(*) into n from families;
+  if n > 0 then raise exception 'FAIL anon: sees families'; end if;
+  raise notice 'PASS: anon sees nothing, including family accounts';
+
+  perform set_config(
+    'request.headers',
+    '{"x-forwarded-for":"203.0.113.10","user-agent":"dailylog-rls-test"}',
+    true
+  );
+  for n in 1..5 loop
+    perform submit_enrollment_inquiry(
+      v_daycare, 'Rate Test', 'rate' || n || '@example.com', null,
+      'Child ' || n, date '2024-01-01', null, null
+    );
+  end loop;
+  begin
+    perform submit_enrollment_inquiry(
+      v_daycare, 'Rate Test', 'rate6@example.com', null,
+      'Child 6', date '2024-01-01', null, null
+    );
+    raise exception 'FAIL rate limit: sixth anonymous inquiry was accepted';
+  exception when others then
+    if sqlerrm not like '%Too many attempts%' then raise; end if;
+    raise notice 'PASS: anonymous enrollment inquiry rate limit is enforced';
+  end;
 
   perform test_reset_role();
   raise notice 'RLS SMOKE TESTS: ALL PASSED';

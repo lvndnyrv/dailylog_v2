@@ -1,6 +1,8 @@
 "use server";
 
 import {
+  enqueueEmailNotification,
+  getMyProfile,
   inviteStaff,
   revokeStaffInvite,
   updateStaffMember,
@@ -13,6 +15,7 @@ export interface StaffActionState {
   error?: string;
   ok?: boolean;
   inviteLink?: string;
+  emailQueued?: boolean;
 }
 
 function str(formData: FormData, key: string): string {
@@ -24,6 +27,8 @@ export async function inviteStaffAction(
   formData: FormData,
 ): Promise<StaffActionState> {
   const supabase = await getServerSupabase();
+  const profile = await getMyProfile(supabase);
+  if (!profile?.daycare_id) return { error: "No center on your profile." };
 
   const email = str(formData, "email");
   // The design's three role chips map onto the schema's two roles:
@@ -45,8 +50,23 @@ export async function inviteStaffAction(
       requireBackgroundCheck: formData.get("require_background_check") === "on",
     });
     const origin = (await headers()).get("origin") ?? "";
+    const inviteLink = `${origin}/invite?code=${code}`;
+    let emailQueued = true;
+    try {
+      await enqueueEmailNotification(supabase, {
+        daycareId: profile.daycare_id,
+        recipientEmail: email,
+        kind: "staff_invite",
+        title: "You're invited to DailyLog",
+        body: `Your center invited you to DailyLog. Accept the invitation: ${inviteLink}`,
+        payload: { type: "staff_invite", inviteLink },
+        dedupeKey: `staff-invite:${code}`,
+      });
+    } catch {
+      emailQueued = false;
+    }
     revalidatePath("/staff");
-    return { ok: true, inviteLink: `${origin}/invite?code=${code}` };
+    return { ok: true, inviteLink, emailQueued };
   } catch (err) {
     return { error: err instanceof Error ? err.message : "Could not create the invite." };
   }

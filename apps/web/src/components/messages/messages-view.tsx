@@ -51,7 +51,7 @@ export function MessagesView({
     if (filter === "unread" && Number(thread.unread_count) === 0) return false;
     if (search) {
       const hay =
-        `${thread.child_first_name} ${thread.child_last_name} ${thread.room_name ?? ""}`.toLowerCase();
+        `${thread.family_name} ${thread.child_first_name} ${thread.child_last_name} ${thread.room_name ?? ""}`.toLowerCase();
       if (!hay.includes(search.toLowerCase())) return false;
     }
     return true;
@@ -119,13 +119,16 @@ export function MessagesView({
                 <span className="min-w-0 flex-1">
                   <span className="flex items-baseline gap-2">
                     <span className={`truncate text-[13px] ${unread ? "font-extrabold" : "font-bold"} text-ink`}>
-                      {thread.child_first_name}&apos;s family
+                      {thread.family_name}
                     </span>
                     <span className="ml-auto whitespace-nowrap text-[10.5px] text-faint">
                       {timeAgo(thread.last_message_at)}
                     </span>
                   </span>
                   <span className="block truncate text-[11px] text-faint">
+                    {Number(thread.family_child_count) > 1
+                      ? `${thread.family_child_count} children · `
+                      : ""}
                     {thread.child_first_name} {thread.child_last_name}
                     {thread.room_name ? ` · ${thread.room_name}` : ""}
                   </span>
@@ -166,9 +169,12 @@ export function MessagesView({
             />
             <span className="min-w-0 flex-1">
               <span className="block text-[13.5px] font-extrabold text-ink">
-                {selected.child_first_name}&apos;s family
+                {selected.family_name}
               </span>
               <span className="block text-[11.5px] text-muted">
+                {Number(selected.family_child_count) > 1
+                  ? `${selected.family_child_count} children · `
+                  : ""}
                 {selected.child_first_name} {selected.child_last_name}
                 {selected.room_name ? ` · ${selected.room_name}` : ""}
               </span>
@@ -212,7 +218,7 @@ export function MessagesView({
           <ReplyComposer
             conversationId={selected.conversation_id}
             childId={selected.child_id}
-            familyLabel={`${selected.child_first_name}'s family`}
+            familyLabel={selected.family_name}
           />
         </div>
       ) : (

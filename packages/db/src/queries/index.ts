@@ -6,9 +6,14 @@ export * from './auth';
 export * from './billing';
 export * from './inbox';
 export * from './incidents';
+export * from './ledger';
+export * from './notifications';
 export * from './children';
 export * from './enrollment';
+export * from './families';
+export * from './roles';
 export * from './rooms';
+export * from './scheduling';
 export * from './staff';
 
 type Client = SupabaseClient<Database>;

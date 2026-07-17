@@ -42,6 +42,57 @@ export interface EmergencyContact {
   phone: string;
 }
 
+// Role permissions matrix (design 4o). Each area carries view/edit/approve;
+// center_roles.permissions is keyed by area key and enforced by database RLS
+// plus sensitive security-definer trigger guards.
+export interface AreaPermission {
+  view: boolean;
+  edit: boolean;
+  approve: boolean;
+}
+export type RolePermissions = Record<string, AreaPermission>;
+
+export const PERMISSION_AREAS = [
+  {
+    group: 'Care & daily logs',
+    items: [
+      { key: 'daily_logs', label: 'Daily logs' },
+      { key: 'attendance', label: 'Attendance & check-in' },
+      { key: 'medications', label: 'Medications' },
+      { key: 'incidents', label: 'Incident reports' },
+    ],
+  },
+  {
+    group: 'Children & families',
+    items: [
+      { key: 'children', label: 'Children & profiles' },
+      { key: 'enrollment', label: 'Enrollment & waitlist' },
+      { key: 'broadcasts', label: 'Broadcasts' },
+    ],
+  },
+  {
+    group: 'Operations',
+    items: [
+      { key: 'billing', label: 'Billing & payments' },
+      { key: 'reports', label: 'Reports' },
+      { key: 'staff', label: 'Staff & permissions' },
+    ],
+  },
+] as const;
+
+export const PERMISSION_AREA_KEYS = PERMISSION_AREAS.flatMap((g) =>
+  g.items.map((i) => i.key),
+);
+
+// Flat list of every area item, for rendering hidden inputs / rows without
+// grouping. `.map` (not the raw tuple) keeps the element type uniform.
+export const PERMISSION_ITEMS: { key: string; label: string }[] =
+  PERMISSION_AREAS.flatMap((g) => g.items.map((i) => ({ key: i.key, label: i.label })));
+
+export function emptyPermission(): AreaPermission {
+  return { view: false, edit: false, approve: false };
+}
+
 export function ageInMonths(dateOfBirth: string | Date, at: Date = new Date()): number {
   const dob = typeof dateOfBirth === 'string' ? new Date(dateOfBirth) : dateOfBirth;
   return (

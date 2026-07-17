@@ -1,11 +1,12 @@
 "use client";
 
-import type { PendingStaffInvite, StaffRow } from "@dailylog/db/queries";
+import type { CenterRole, PendingStaffInvite, StaffRow } from "@dailylog/db/queries";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Avatar } from "@/components/ui/avatar";
 import { revokeInviteAction } from "@/lib/staff/actions";
 import { InviteEducatorModal } from "./invite-educator-modal";
+import { RolesLibrary } from "./roles-library";
 
 type Tab = "roster" | "roles";
 
@@ -55,40 +56,18 @@ function certState(member: StaffRow): CertState {
   return worst;
 }
 
-// Read-only roles overview 4o (the permissions matrix 4e is Phase 5).
-const ROLES_OVERVIEW = [
-  {
-    role: "Owner admin",
-    who: "The center owner — Amara in the seed",
-    can: "Everything: billing, enrollment, staff, settings, and every room.",
-  },
-  {
-    role: "Delegated admin",
-    who: "A trusted lead with admin powers",
-    can: "Same console access within the center; only the owner can change admin roles.",
-  },
-  {
-    role: "Educator",
-    who: "Room staff on the mobile app",
-    can: "Assigned-room logs, attendance and incident filing. No billing, enrollment or staff access.",
-  },
-  {
-    role: "Parent",
-    who: "Families on the mobile app",
-    can: "Their own children only: feed, messages, consents, absences.",
-  },
-];
-
 export function StaffView({
   staff,
   invites,
   classrooms,
+  roles,
   openInvite,
   initialTab,
 }: {
   staff: StaffRow[];
   invites: PendingStaffInvite[];
   classrooms: { id: string; name: string }[];
+  roles: CenterRole[];
   openInvite: boolean;
   initialTab: Tab;
 }) {
@@ -300,29 +279,7 @@ export function StaffView({
           </>
         )}
 
-        {tab === "roles" && (
-          <div className="overflow-hidden rounded-2xl border-[1.5px] border-[#D6E1F0] bg-card">
-            <div className={`grid grid-cols-[1fr_1.2fr_2fr] gap-2.5 border-b-[1.5px] border-[#EDF3FB] bg-[#F8FBFE] px-[18px] py-3 ${HEAD}`}>
-              <span>ROLE</span>
-              <span>WHO</span>
-              <span>WHAT THEY CAN DO</span>
-            </div>
-            {ROLES_OVERVIEW.map((r) => (
-              <div
-                key={r.role}
-                className="grid grid-cols-[1fr_1.2fr_2fr] items-start gap-2.5 border-b border-[#EDF3FB] px-[18px] py-3.5 last:border-b-0"
-              >
-                <span className="text-[13px] font-bold text-ink">{r.role}</span>
-                <span className="text-[12.5px] text-muted">{r.who}</span>
-                <span className="text-[12.5px] leading-relaxed text-body">{r.can}</span>
-              </div>
-            ))}
-            <p className="border-t-[1.5px] border-[#EDF3FB] bg-[#F8FBFE] px-[18px] py-3 text-[11.5px] text-faint">
-              Read-only for now — a permissions matrix with per-person overrides
-              is on the roadmap. Enforced today by row-level security.
-            </p>
-          </div>
-        )}
+        {tab === "roles" && <RolesLibrary roles={roles} />}
       </div>
 
       {inviting && (

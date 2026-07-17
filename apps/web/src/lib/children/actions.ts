@@ -5,6 +5,7 @@ import {
   archiveChild,
   createChild,
   createParentInvite,
+  enqueueEmailNotification,
   getMyProfile,
   removePickup,
   setChildConsent,
@@ -19,6 +20,7 @@ export interface ChildActionState {
   error?: string;
   ok?: boolean;
   inviteCode?: string;
+  emailQueued?: boolean;
   pin?: string;
 }
 
@@ -185,14 +187,30 @@ export async function inviteParentAction(
   if (!email) return { error: "Email is required." };
 
   try {
+    const profile = await getMyProfile(supabase);
+    if (!profile?.daycare_id) return { error: "No center on your profile." };
     const code = await createParentInvite(
       supabase,
       childId,
       email,
       str(formData, "relationship") || undefined,
     );
+    let emailQueued = true;
+    try {
+      await enqueueEmailNotification(supabase, {
+        daycareId: profile.daycare_id,
+        recipientEmail: email,
+        kind: "parent_invite",
+        title: "You're invited to your child's DailyLog",
+        body: `Create or sign in to your DailyLog parent account, then enter this one-time code: ${code}`,
+        payload: { type: "parent_invite", inviteCode: code, childId },
+        dedupeKey: `parent-invite:${code}`,
+      });
+    } catch {
+      emailQueued = false;
+    }
     revalidatePath(`/children/${childId}`);
-    return { ok: true, inviteCode: code };
+    return { ok: true, inviteCode: code, emailQueued };
   } catch (err) {
     return { error: err instanceof Error ? err.message : "Could not create the invite." };
   }

@@ -33,8 +33,8 @@ const ROLE_BLURBS: Record<RoleChip, { name: string; blurb: string }> = {
   },
 };
 
-// Invite educator 4f — role, rooms & starting permissions. Email delivery is a
-// later phase; the invite link is shown to send along (DECISIONS.md).
+// Invite educator 4f — role, rooms & starting permissions. The server queues
+// email delivery and keeps the link visible as a manual fallback.
 export function InviteEducatorModal({
   classrooms,
   onClose,
@@ -80,8 +80,10 @@ export function InviteEducatorModal({
       {state.ok && state.inviteLink ? (
         <>
           <Notice tone="success">
-            <b>Invite created.</b> Send them this link — it works once and expires
-            in 14 days.
+            <b>Invite created.</b>{" "}
+            {state.emailQueued
+              ? "Email queued for delivery. The link works once and expires in 14 days."
+              : "Email could not be queued; send this one-time link manually."}
           </Notice>
           <div className="flex items-center gap-2 rounded-[13px] bg-canvas px-3.5 py-3">
             <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-ink">

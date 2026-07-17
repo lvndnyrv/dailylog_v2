@@ -183,11 +183,14 @@ export function BillingView({
                     {invoice.number}
                   </span>
                   <span className="flex items-center gap-2 truncate">
-                    {invoice.billed_to_profile && (
-                      <Avatar name={invoice.billed_to_profile.full_name} size={24} />
+                    {(invoice.family || invoice.billed_to_profile) && (
+                      <Avatar
+                        name={invoice.family?.display_name ?? invoice.billed_to_profile!.full_name}
+                        size={24}
+                      />
                     )}
                     <span className="truncate text-[12.5px] font-bold text-ink">
-                      {invoice.billed_to_profile?.full_name ?? "—"}
+                      {invoice.family?.display_name ?? invoice.billed_to_profile?.full_name ?? "—"}
                     </span>
                   </span>
                   <span className="truncate text-[12.5px] text-muted">

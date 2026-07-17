@@ -1,5 +1,6 @@
 import {
   getMyProfile,
+  hasPermission,
   listAttendanceDay,
   listInvoices,
   listRoster,
@@ -32,8 +33,8 @@ export async function GET(
   const { kind } = await params;
   const supabase = await getServerSupabase();
   const profile = await getMyProfile(supabase);
-  if (!isAdminRole(profile?.role)) {
-    return new Response("Admins only", { status: 403 });
+  if (!isAdminRole(profile?.role) || !(await hasPermission(supabase, "reports", "view"))) {
+    return new Response("Reports permission required", { status: 403 });
   }
 
   const url = new URL(request.url);
@@ -125,7 +126,7 @@ export async function GET(
       ["Number", "Family", "Child", "Status", "Issued", "Due", "Total"],
       ...invoices.map((invoice) => [
         invoice.number ?? "",
-        invoice.billed_to_profile?.full_name ?? "",
+        invoice.family?.display_name ?? invoice.billed_to_profile?.full_name ?? "",
         invoice.child ? `${invoice.child.first_name} ${invoice.child.last_name}` : "",
         invoice.status,
         invoice.issued_on ?? "",

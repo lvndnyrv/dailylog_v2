@@ -45,9 +45,8 @@ export function ForceUpdateGate({ children }) {
 
   if (!blocked) return children;
 
-  const storeUrl = Platform.OS === 'ios'
-    ? 'https://apps.apple.com' // replace with real App Store URL
-    : 'https://play.google.com/store'; // replace with real Play Store URL
+  const storeUrls = Constants?.expoConfig?.extra?.storeUrls || {};
+  const storeUrl = Platform.OS === 'ios' ? storeUrls.ios : storeUrls.android;
 
   return (
     <View style={styles.container}>
@@ -59,9 +58,13 @@ export function ForceUpdateGate({ children }) {
       </Text>
       <Button
         label="Update now"
-        onPress={() => Linking.openURL(storeUrl)}
+        onPress={() => storeUrl && Linking.openURL(storeUrl)}
+        disabled={!storeUrl || storeUrl.startsWith('YOUR_')}
         style={{ alignSelf: 'stretch' }}
       />
+      {(!storeUrl || storeUrl.startsWith('YOUR_')) && (
+        <Text style={styles.help}>Contact your center administrator for the update link.</Text>
+      )}
     </View>
   );
 }
@@ -77,5 +80,5 @@ const styles = StyleSheet.create({
     fontSize: 15, color: colors.textSecondary, textAlign: 'center',
     lineHeight: 22, marginBottom: spacing.xl,
   },
+  help: { marginTop: spacing.md, fontSize: 13, color: colors.textSecondary, textAlign: 'center' },
 });
-

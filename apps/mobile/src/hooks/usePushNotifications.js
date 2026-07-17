@@ -135,67 +135,47 @@ export function usePushNotifications(userId) {
   }, [userId]);
 }
 
-async function sendExpoPush(messages) {
-  if (!messages.length) return;
-  // Expo push API accepts max 100 messages per request — chunk the fan-out
-  for (let i = 0; i < messages.length; i += 100) {
-    const chunk = messages.slice(i, i + 100);
-    await fetch('https://exp.host/--/api/v2/push/send', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-      body: JSON.stringify(chunk),
-    });
-  }
-}
-
 /**
- * Broadcast an announcement push to all parents in the daycare
- * (or a single classroom when classroomId is provided).
+ * Enqueue an announcement for server-side fan-out. The client never receives
+ * another user's token and never talks to a delivery provider directly.
  */
 export async function notifyAnnouncement(daycareId, classroomId, title, body, announcementId) {
   try {
-    const { data: tokens, error } = await supabase.rpc('get_announcement_push_tokens', {
+    const { error } = await supabase.rpc('enqueue_center_notification', {
       p_daycare_id: daycareId,
       p_classroom_id: classroomId || null,
+      p_kind: 'announcement',
+      p_title: `📢 ${title}`,
+      p_body: body?.length > 160 ? `${body.slice(0, 157)}...` : body,
+      p_payload: { type: 'announcement', announcementId, channelId: 'default' },
+      p_dedupe_key: `announcement:${announcementId}`,
+      p_channels: ['push'],
     });
-    if (error || !tokens?.length) return;
-    const messages = tokens.map(({ token }) => ({
-      to: token,
-      sound: 'default',
-      title: `📢 ${title}`,
-      body: body?.length > 160 ? `${body.slice(0, 157)}...` : body,
-      data: { type: 'announcement', announcementId },
-      channelId: 'default',
-    }));
-    await sendExpoPush(messages);
+    if (error) console.log('Announcement enqueue error:', error.message);
   } catch (err) {
-    console.log('Announcement push error:', err.message);
+    console.log('Announcement enqueue error:', err.message);
   }
 }
 
 export async function notifyParents(childId, childName, logDate) {
   try {
-    const { data: tokens, error } = await supabase.rpc('get_parent_push_tokens', { p_child_id: childId });
-    if (error || !tokens?.length) return;
-    const messages = tokens.map(({ token }) => ({
-      to: token,
-      sound: 'default',
-      title: `${childName}'s daily log is ready 📋`,
-      body: `Tap to see how ${childName}'s day went at daycare.`,
-      data: { childId, logDate },
-      channelId: 'default',
-    }));
-    await sendExpoPush(messages);
+    const { error } = await supabase.rpc('enqueue_child_notification', {
+      p_child_id: childId,
+      p_kind: 'daily_log',
+      p_title: `${childName}'s daily log is ready 📋`,
+      p_body: `Tap to see how ${childName}'s day went at daycare.`,
+      p_payload: { childId, logDate, type: 'daily_log', channelId: 'default' },
+      p_dedupe_key: `daily-log:${childId}:${logDate}`,
+      p_channels: ['push'],
+    });
+    if (error) console.log('Daily log enqueue error:', error.message);
   } catch (err) {
-    console.log('Push notification error:', err.message);
+    console.log('Daily log enqueue error:', err.message);
   }
 }
 
 export async function notifyIncident(childId, childName, severity) {
   try {
-    const { data: tokens, error } = await supabase.rpc('get_parent_push_tokens', { p_child_id: childId });
-    if (error || !tokens?.length) return;
-
     const titles = {
       minor: `Minor incident reported for ${childName}`,
       moderate: `⚠️ ${childName} had an incident — please review`,
@@ -207,37 +187,41 @@ export async function notifyIncident(childId, childName, severity) {
       serious: `A serious incident was reported. Please review immediately and contact the daycare.`,
     };
 
-    const messages = tokens.map(({ token }) => ({
-      to: token,
-      sound: 'default',
-      title: titles[severity] || titles.minor,
-      body: bodies[severity] || bodies.minor,
-      data: { childId, type: 'incident', severity },
-      priority: severity === 'serious' ? 'high' : 'default',
-      channelId: severity === 'serious' ? 'urgent' : 'default',
-    }));
-    await sendExpoPush(messages);
+    const { error } = await supabase.rpc('enqueue_child_notification', {
+      p_child_id: childId,
+      p_kind: 'incident',
+      p_title: titles[severity] || titles.minor,
+      p_body: bodies[severity] || bodies.minor,
+      p_payload: {
+        childId,
+        type: 'incident',
+        severity,
+        priority: severity === 'serious' ? 'high' : 'default',
+        channelId: severity === 'serious' ? 'urgent' : 'default',
+      },
+      p_dedupe_key: null,
+      p_channels: ['push'],
+    });
+    if (error) console.log('Incident enqueue error:', error.message);
   } catch (err) {
-    console.log('Incident push notification error:', err.message);
+    console.log('Incident enqueue error:', err.message);
   }
 }
 
 /** Notify parents when a medication dose is administered to their child. */
 export async function notifyMedicationGiven(childId, childName, medName) {
   try {
-    const { data: tokens, error } = await supabase.rpc('get_parent_push_tokens', { p_child_id: childId });
-    if (error || !tokens?.length) return;
-    const messages = tokens.map(({ token }) => ({
-      to: token,
-      sound: 'default',
-      title: `💊 Medication given to ${childName}`,
-      body: `${medName} was administered. Tap to see the record.`,
-      data: { childId, type: 'medication' },
-      channelId: 'default',
-    }));
-    await sendExpoPush(messages);
+    const { error } = await supabase.rpc('enqueue_child_notification', {
+      p_child_id: childId,
+      p_kind: 'medication',
+      p_title: `💊 Medication given to ${childName}`,
+      p_body: `${medName} was administered. Tap to see the record.`,
+      p_payload: { childId, type: 'medication', channelId: 'default' },
+      p_dedupe_key: null,
+      p_channels: ['push'],
+    });
+    if (error) console.log('Medication enqueue error:', error.message);
   } catch (err) {
-    console.log('Medication push error:', err.message);
+    console.log('Medication enqueue error:', err.message);
   }
 }
-

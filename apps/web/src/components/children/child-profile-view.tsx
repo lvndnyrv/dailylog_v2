@@ -19,9 +19,50 @@ type Guardian = {
 };
 
 type Child = Tables<"children"> & {
-  classroom: { id: string; name: string; age_group: string | null } | null;
+  classroom: {
+    id: string;
+    name: string;
+    age_group: string | null;
+    min_age_months: number | null;
+    max_age_months: number | null;
+  } | null;
   guardians: Guardian[];
 };
+
+// Small donut for the setup banner (design 19a shows "40%" in a ring).
+function ProgressRing({ percent }: { percent: number }) {
+  const radius = 20;
+  const circumference = 2 * Math.PI * radius;
+  return (
+    <span className="relative grid size-[52px] flex-none place-items-center">
+      <svg width="52" height="52" viewBox="0 0 52 52" aria-hidden>
+        <circle cx="26" cy="26" r={radius} fill="none" stroke="#F0E2C4" strokeWidth="5" />
+        <circle
+          cx="26"
+          cy="26"
+          r={radius}
+          fill="none"
+          stroke="var(--warning)"
+          strokeWidth="5"
+          strokeLinecap="round"
+          strokeDasharray={circumference}
+          strokeDashoffset={circumference * (1 - percent / 100)}
+          transform="rotate(-90 26 26)"
+        />
+      </svg>
+      <span className="absolute text-[11px] font-extrabold text-warning-text">{percent}%</span>
+    </span>
+  );
+}
+
+function bandLabel(min: number | null, max: number | null): string | null {
+  if (min === null || max === null) return null;
+  const label = (months: number) =>
+    months < 24 ? `${months} mo` : `${Math.round(months / 12)}`;
+  return min >= 24 && max >= 24
+    ? `${label(min)}–${label(max)} years`
+    : `${label(min)}–${max < 24 ? `${max} mo` : `${Math.round(max / 12)} y`}`;
+}
 
 type Medication = {
   id: string;
@@ -83,8 +124,11 @@ export function ChildProfileView({
     <>
       {/* Profile header */}
       <div className="flex items-center gap-3.5 border-b-[1.5px] border-hairline bg-card px-7 py-5">
-        <Link href="/children" aria-label="Back to roster" className="text-faint hover:text-muted">
-          ←
+        <Link
+          href="/children"
+          className="flex items-center gap-1 text-[13px] font-bold text-primary hover:text-primary-hover"
+        >
+          <span aria-hidden>‹</span> Children
         </Link>
         <Avatar name={name} size={44} />
         <span className="min-w-0">
@@ -111,7 +155,8 @@ export function ChildProfileView({
         {/* ── Left column ─────────────────────────────────────────── */}
         <div className="flex min-w-0 flex-col gap-4">
           {setup.incomplete > 0 && (
-            <div className="flex items-center gap-3 rounded-2xl border border-[#F0E2C4] bg-warning-bg px-[18px] py-3.5">
+            <div className="flex items-center gap-3.5 rounded-2xl border border-[#F0E2C4] bg-warning-bg px-[18px] py-3.5">
+              <ProgressRing percent={setup.percent} />
               <span className="min-w-0 flex-1">
                 <span className="block text-[13px] font-extrabold text-ink">
                   Profile setup incomplete — {setup.items.filter((i) => i.done).length} of{" "}
@@ -122,13 +167,20 @@ export function ChildProfileView({
                   these are filled.
                 </span>
               </span>
-              <button
-                type="button"
-                onClick={() => setModal("setup")}
-                className="whitespace-nowrap rounded-btn bg-primary px-3.5 py-2 text-xs font-bold text-white hover:bg-primary-hover"
-              >
-                Continue setup — {setup.incomplete} left
-              </button>
+              <span className="flex max-w-[240px] flex-wrap justify-end gap-1.5">
+                {setup.items
+                  .filter((item) => !item.done)
+                  .map((item) => (
+                    <button
+                      key={item.key}
+                      type="button"
+                      onClick={() => setModal(item.key === "parents" ? "invite" : "edit")}
+                      className="whitespace-nowrap rounded-full border-[1.5px] border-[#F0E2C4] bg-card px-3 py-1.5 text-[11.5px] font-bold text-warning-text hover:bg-white"
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+              </span>
             </div>
           )}
 
@@ -138,11 +190,14 @@ export function ChildProfileView({
               <h2 id="medical-h" className={cardTitle}>
                 Medical &amp; allergies
               </h2>
-              <span className="text-[11.5px] text-faint">
-                {(child.allergies?.length ?? 0) === 0
-                  ? "none on file"
-                  : `${child.allergies!.length} ${child.allergies!.length === 1 ? "allergy" : "allergies"}`}
-              </span>
+              {(child.allergies?.length ?? 0) === 0 ? (
+                <span className="text-[11.5px] text-faint">none on file</span>
+              ) : (
+                <span className="rounded-full bg-danger-bg px-2.5 py-[3px] text-[11px] font-bold text-danger">
+                  {child.allergies!.length}{" "}
+                  {child.allergies!.length === 1 ? "allergy" : "allergies"}
+                </span>
+              )}
               <span className="flex-1" />
               <button
                 type="button"
@@ -155,7 +210,11 @@ export function ChildProfileView({
             <span className={`${th} mb-1.5 block`}>ALLERGIES</span>
             <div className="mb-3 flex flex-wrap gap-1.5">
               {(child.allergies ?? []).map((a) => (
-                <span key={a} className="rounded-full bg-danger-bg px-2.5 py-1 text-[11.5px] font-bold text-danger">
+                <span
+                  key={a}
+                  className="flex items-center gap-1.5 rounded-full border border-[#EFC9C9] bg-danger-bg px-2.5 py-1 text-[11.5px] font-bold text-danger"
+                >
+                  <span aria-hidden>⚠</span>
                   {a}
                 </span>
               ))}
@@ -180,9 +239,14 @@ export function ChildProfileView({
                 Medication authorizations
               </h2>
               <span className="flex-1" />
-              <span className="text-[11.5px] text-faint" title="Parents authorize from their app">
-                Authorized by parents in the app
-              </span>
+              <button
+                type="button"
+                disabled
+                title="Parents authorize medications from their app — you'll see them here"
+                className="cursor-default text-[12.5px] font-bold text-faint"
+              >
+                + Authorize
+              </button>
             </div>
             {medications.length === 0 ? (
               <p className="text-[12.5px] text-faint">None on file.</p>
@@ -296,6 +360,14 @@ export function ChildProfileView({
               <h2 id="family-h" className={cardTitle}>
                 Family &amp; contacts
               </h2>
+              <span className="flex-1" />
+              <button
+                type="button"
+                onClick={() => setModal("invite")}
+                className="text-[12.5px] font-bold text-primary hover:text-primary-hover"
+              >
+                Manage
+              </button>
             </div>
             <div className="flex flex-col gap-2.5">
               {child.guardians
@@ -363,8 +435,12 @@ export function ChildProfileView({
               <span className="block text-[13.5px] font-extrabold text-ink">
                 {child.classroom?.name ?? "No room assigned"}
               </span>
-              {child.classroom?.age_group && (
-                <span className="block text-[11.5px] text-muted">{child.classroom.age_group}</span>
+              {child.classroom && (
+                <span className="block text-[11.5px] text-muted">
+                  {bandLabel(child.classroom.min_age_months, child.classroom.max_age_months) ??
+                    child.classroom.age_group ??
+                    ""}
+                </span>
               )}
             </div>
             <p className="mt-2.5 text-[11.5px] text-faint">
@@ -387,13 +463,9 @@ export function ChildProfileView({
                   <div key={c.id} className="flex items-center gap-2.5">
                     <span className="flex-1 text-[12.5px] font-semibold text-ink">{c.kind}</span>
                     {c.granted ? (
-                      <span className="rounded-full bg-[#E4F3EC] px-2.5 py-[3px] text-[11px] font-bold text-success">
-                        Granted
-                      </span>
+                      <span className="text-[11.5px] font-bold text-success">Signed</span>
                     ) : (
-                      <span className="rounded-full bg-warning-bg px-2.5 py-[3px] text-[11px] font-bold text-warning-text">
-                        Needed
-                      </span>
+                      <span className="text-[11.5px] font-bold text-warning-text">Request</span>
                     )}
                   </div>
                 ))}

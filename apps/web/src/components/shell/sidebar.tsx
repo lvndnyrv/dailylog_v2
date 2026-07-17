@@ -15,9 +15,11 @@ const ROLE_LABELS: Record<string, string> = {
 export function Sidebar({
   daycareName,
   profile,
+  badges = {},
 }: {
   daycareName: string;
   profile: { full_name: string; email: string; role: string };
+  badges?: Record<string, number>;
 }) {
   const pathname = usePathname();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -42,6 +44,7 @@ export function Sidebar({
       <nav className="flex flex-col gap-[3px]" aria-label="Sections">
         {NAV_ITEMS.map(({ label, href, icon: Icon }) => {
           const active = pathname === href || pathname.startsWith(`${href}/`);
+          const badge = badges[href] ?? 0;
           return (
             <Link
               key={href}
@@ -55,6 +58,19 @@ export function Sidebar({
             >
               <Icon size={15} strokeWidth={1.75} aria-hidden />
               {label}
+              {badge > 0 && (
+                <span
+                  className={`ml-auto rounded-full px-[7px] py-[2px] text-[10.5px] font-bold ${
+                    active
+                      ? "bg-white/25 text-white"
+                      : href === "/billing"
+                        ? "bg-danger-bg text-danger"
+                        : "bg-warning-bg text-warning-text"
+                  }`}
+                >
+                  {badge}
+                </span>
+              )}
             </Link>
           );
         })}

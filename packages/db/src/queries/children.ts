@@ -96,7 +96,7 @@ export async function getChildProfile(client: Client, childId: string) {
     client
       .from('children')
       .select(
-        `*, classroom:classrooms(id, name, age_group),
+        `*, classroom:classrooms(id, name, age_group, min_age_months, max_age_months),
          guardians:parent_children(relationship, is_primary, pickup_authorized,
            parent:profiles(id, full_name, email, phone))`,
       )

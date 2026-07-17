@@ -429,3 +429,11 @@ values ('10000000-0000-4000-a000-000000000001',
         'Welcome to Sunny Grove!',
         'Our summer program starts next week — see the calendar for details.',
         true);
+
+-- Demo operational state for the dashboard (9a): Tara Nguyen is out today, so
+-- Infant runs on one lead and tips over ratio — this surfaces the over-ratio
+-- alert and the "assign a floater" flow on a fresh reset.
+update profiles set classroom_id = null
+ where id = '00000000-0000-4000-a000-000000000007';
+delete from educator_classrooms
+ where educator_id = '00000000-0000-4000-a000-000000000007';

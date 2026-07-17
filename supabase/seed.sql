@@ -74,6 +74,10 @@ begin
     jsonb_build_object('sub', p_id::text, 'email', p_email, 'email_verified', true),
     'email', p_id::text, now(), now(), now()
   );
+
+  -- handle_new_user always starts profiles as 'parent' (roles are
+  -- server-assigned) — the seed elevates explicitly
+  update profiles set role = p_role where id = p_id;
 end;
 $$;
 

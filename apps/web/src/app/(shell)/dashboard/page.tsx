@@ -19,7 +19,12 @@ function daysUntilExpiry(date: string): number {
 // Dashboard 9a — today at a glance, needs-attention queue, rooms & staffing.
 // Every control reaches a real surface: floater → /rooms, sign-off → 9b modal,
 // cert → /compliance, waitlist → /enrollment.
-export default async function DashboardPage() {
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ review?: string }>;
+}) {
+  const { review } = await searchParams;
   const supabase = await getServerSupabase();
   const today = new Date().toISOString().slice(0, 10);
 
@@ -82,6 +87,7 @@ export default async function DashboardPage() {
         })}
       />
       <DashboardView
+        key={review === "incident" ? "incident-review" : "dashboard"}
         rooms={rooms}
         incidents={incidents}
         attendance={attendance}
@@ -90,6 +96,7 @@ export default async function DashboardPage() {
         offers={offers}
         certIssues={certIssues}
         staffing={staffing}
+        openIncident={review === "incident"}
       />
     </>
   );

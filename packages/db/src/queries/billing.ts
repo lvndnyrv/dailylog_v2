@@ -31,7 +31,7 @@ const INVOICE_SELECT = `id, number, status, issued_on, due_on, total_cents,
   child:children(id, first_name, last_name),
   billed_to_profile:profiles!invoices_billed_to_fkey(id, full_name),
   lines:invoice_lines(id, description, quantity, amount_cents),
-  payments(id, amount_cents, method, paid_at)`;
+  payments:payments!payments_invoice_id_fkey(id, amount_cents, method, paid_at)`;
 
 export async function listInvoices(client: Client): Promise<InvoiceRow[]> {
   const { data, error } = await client

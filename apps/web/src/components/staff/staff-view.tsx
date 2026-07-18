@@ -3,6 +3,7 @@
 import type {
   CenterRole,
   PendingStaffInvite,
+  StaffDelegationRow,
   StaffRow,
   StaffShiftRow,
   StaffTimeEntryRow,
@@ -14,9 +15,10 @@ import { Avatar } from "@/components/ui/avatar";
 import { revokeInviteAction } from "@/lib/staff/actions";
 import { InviteEducatorModal } from "./invite-educator-modal";
 import { RolesLibrary } from "./roles-library";
+import { StaffDelegations } from "./staff-delegations";
 import { StaffTimekeeping } from "./staff-timekeeping";
 
-type Tab = "roster" | "timesheets" | "time-off" | "roles";
+type Tab = "roster" | "timesheets" | "time-off" | "delegations" | "roles";
 
 const tabClass = (active: boolean) =>
   `border-b-[2.5px] py-[11px] text-[13px] ${
@@ -24,9 +26,6 @@ const tabClass = (active: boolean) =>
       ? "border-[var(--primary)] font-bold text-primary"
       : "border-transparent font-semibold text-faint hover:text-muted"
   }`;
-
-const lockedTab =
-  "cursor-default border-b-[2.5px] border-transparent py-[11px] text-[13px] font-semibold text-[#C3D2E6]";
 
 const HEAD = "font-bold text-[10.5px] tracking-[.07em] text-faint";
 
@@ -69,6 +68,7 @@ export function StaffView({
   invites,
   classrooms,
   roles,
+  delegations,
   shifts,
   timeEntries,
   timeOff,
@@ -78,11 +78,13 @@ export function StaffView({
   timekeepingError,
   openInvite,
   initialTab,
+  canManageDelegations,
 }: {
   staff: StaffRow[];
   invites: PendingStaffInvite[];
   classrooms: { id: string; name: string }[];
   roles: CenterRole[];
+  delegations: StaffDelegationRow[];
   shifts: StaffShiftRow[];
   timeEntries: StaffTimeEntryRow[];
   timeOff: StaffTimeOffRequestRow[];
@@ -92,6 +94,7 @@ export function StaffView({
   timekeepingError: string | null;
   openInvite: boolean;
   initialTab: Tab;
+  canManageDelegations: boolean;
 }) {
   const [tab, setTab] = useState<Tab>(initialTab);
   const [roomFilter, setRoomFilter] = useState<string | null>(null);
@@ -156,9 +159,20 @@ export function StaffView({
             </span>
           )}
         </button>
-        <span className={lockedTab} title="Arrives with the permissions work">
-          Delegations
-        </span>
+        {canManageDelegations && (
+          <button
+            type="button"
+            className={`${tabClass(tab === "delegations")} flex items-center gap-1.5`}
+            onClick={() => selectTab("delegations")}
+          >
+            Delegations
+            {delegations.filter((item) => !item.revoked_at && new Date(item.ends_at) > new Date()).length > 0 && (
+              <span className="rounded-full bg-[#F0EAFB] px-1.5 py-px text-[10px] font-bold text-[#7A5FD0]">
+                {delegations.filter((item) => !item.revoked_at && new Date(item.ends_at) > new Date()).length}
+              </span>
+            )}
+          </button>
+        )}
         <button type="button" className={tabClass(tab === "roles")} onClick={() => selectTab("roles")}>
           Roles
         </button>
@@ -335,6 +349,9 @@ export function StaffView({
         )}
 
         {tab === "roles" && <RolesLibrary roles={roles} />}
+        {tab === "delegations" && (
+          <StaffDelegations delegations={delegations} staff={staff} timeZone={timeZone} />
+        )}
         {(tab === "timesheets" || tab === "time-off") && (
           <StaffTimekeeping
             mode={tab}

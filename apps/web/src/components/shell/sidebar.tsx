@@ -18,7 +18,15 @@ export function Sidebar({
   badges = {},
 }: {
   daycareName: string;
-  profile: { full_name: string; email: string; role: string };
+  profile: {
+    full_name: string;
+    display_name: string | null;
+    email: string;
+    role: string;
+    phone: string | null;
+    avatar_url: string | null;
+    mfa_enabled: boolean;
+  };
   badges?: Record<string, number>;
 }) {
   const pathname = usePathname();
@@ -87,7 +95,7 @@ export function Sidebar({
           menuOpen ? "border-[1.5px] border-[#D6E1F0] bg-canvas" : "hover:bg-canvas"
         }`}
       >
-        <Avatar name={profile.full_name} />
+        <Avatar name={profile.full_name} src={profile.avatar_url} />
         <span className="min-w-0 flex-1">
           <span className="block truncate text-[12.5px] font-bold text-ink">
             {profile.full_name}

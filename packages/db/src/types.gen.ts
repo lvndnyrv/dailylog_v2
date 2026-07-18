@@ -26,6 +26,9 @@ export interface Database {
           active: boolean;
           timezone: string;
           time_tracking_enabled: boolean;
+          ratio_alert_after_minutes: number;
+          ratio_notify_floaters: boolean;
+          ratio_block_checkins: boolean;
           created_at: string | null;
           updated_at: string | null;
         };
@@ -38,6 +41,9 @@ export interface Database {
           active?: boolean;
           timezone?: string;
           time_tracking_enabled?: boolean;
+          ratio_alert_after_minutes?: number;
+          ratio_notify_floaters?: boolean;
+          ratio_block_checkins?: boolean;
         };
         Update: {
           name?: string;
@@ -46,6 +52,9 @@ export interface Database {
           active?: boolean;
           timezone?: string;
           time_tracking_enabled?: boolean;
+          ratio_alert_after_minutes?: number;
+          ratio_notify_floaters?: boolean;
+          ratio_block_checkins?: boolean;
         };
         Relationships: [];
       };
@@ -59,6 +68,10 @@ export interface Database {
           max_age_months: number | null;
           capacity: number | null;
           ratio_children_per_educator: number | null;
+          opens_on: string | null;
+          nap_start: string | null;
+          nap_end: string | null;
+          lead_educator_id: string | null;
           archived_at: string | null;
           created_at: string | null;
           updated_at: string | null;
@@ -72,6 +85,10 @@ export interface Database {
           max_age_months?: number | null;
           capacity?: number | null;
           ratio_children_per_educator?: number | null;
+          opens_on?: string | null;
+          nap_start?: string | null;
+          nap_end?: string | null;
+          lead_educator_id?: string | null;
         };
         Update: {
           name?: string;
@@ -80,6 +97,10 @@ export interface Database {
           max_age_months?: number | null;
           capacity?: number | null;
           ratio_children_per_educator?: number | null;
+          opens_on?: string | null;
+          nap_start?: string | null;
+          nap_end?: string | null;
+          lead_educator_id?: string | null;
           archived_at?: string | null;
         };
         Relationships: [];
@@ -89,6 +110,7 @@ export interface Database {
           id: string;
           email: string;
           full_name: string;
+          display_name: string | null;
           role: string;
           daycare_id: string | null;
           classroom_id: string | null;
@@ -103,6 +125,7 @@ export interface Database {
           id: string;
           email: string;
           full_name: string;
+          display_name?: string | null;
           role: string;
           daycare_id?: string | null;
           classroom_id?: string | null;
@@ -112,6 +135,7 @@ export interface Database {
         };
         Update: {
           full_name?: string;
+          display_name?: string | null;
           phone?: string | null;
           avatar_url?: string | null;
           classroom_id?: string | null;
@@ -371,6 +395,108 @@ export interface Database {
           decision_notes?: string | null;
           reviewed_by?: string | null;
           reviewed_at?: string | null;
+        };
+        Relationships: [];
+      };
+      room_coverage_assignments: {
+        Row: {
+          id: string;
+          daycare_id: string;
+          classroom_id: string;
+          staff_member_id: string;
+          starts_at: string;
+          ends_at: string;
+          status: string;
+          notes: string | null;
+          created_by: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          daycare_id: string;
+          classroom_id: string;
+          staff_member_id: string;
+          starts_at: string;
+          ends_at: string;
+          status?: string;
+          notes?: string | null;
+        };
+        Update: {
+          classroom_id?: string;
+          staff_member_id?: string;
+          starts_at?: string;
+          ends_at?: string;
+          status?: string;
+          notes?: string | null;
+        };
+        Relationships: [];
+      };
+      room_transition_plans: {
+        Row: {
+          id: string;
+          daycare_id: string;
+          child_id: string;
+          from_classroom_id: string;
+          to_classroom_id: string;
+          move_on: string;
+          transition_week: boolean;
+          status: string;
+          notes: string | null;
+          created_by: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          daycare_id: string;
+          child_id: string;
+          from_classroom_id: string;
+          to_classroom_id: string;
+          move_on: string;
+          transition_week?: boolean;
+          status?: string;
+          notes?: string | null;
+        };
+        Update: {
+          to_classroom_id?: string;
+          move_on?: string;
+          transition_week?: boolean;
+          status?: string;
+          notes?: string | null;
+        };
+        Relationships: [];
+      };
+      room_combinations: {
+        Row: {
+          id: string;
+          daycare_id: string;
+          period: string;
+          source_classroom_id: string | null;
+          host_classroom_id: string | null;
+          starts_at: string;
+          ends_at: string;
+          enabled: boolean;
+          created_by: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          daycare_id: string;
+          period: string;
+          source_classroom_id?: string | null;
+          host_classroom_id?: string | null;
+          starts_at: string;
+          ends_at: string;
+          enabled?: boolean;
+        };
+        Update: {
+          source_classroom_id?: string | null;
+          host_classroom_id?: string | null;
+          starts_at?: string;
+          ends_at?: string;
+          enabled?: boolean;
         };
         Relationships: [];
       };
@@ -749,6 +875,30 @@ export interface Database {
           desired_start_date: string | null;
           source: string | null;
           notes: string | null;
+          schedule: Json;
+          application_data: Json;
+          documents_status: Json;
+          application_progress: number;
+          tour_at: string | null;
+          tour_host_id: string | null;
+          tour_outcome: string | null;
+          tour_notes: string | null;
+          offer_sent_at: string | null;
+          offer_expires_at: string | null;
+          offer_viewed_at: string | null;
+          offer_nudged_at: string | null;
+          offer_status: string;
+          offer_deposit_cents: number | null;
+          offer_tuition_cents: number | null;
+          waitlist_joined_at: string | null;
+          waitlist_priority: string;
+          waitlist_status: string;
+          waitlist_last_contact_at: string | null;
+          waitlist_unanswered_checkins: number;
+          closed_reason: string | null;
+          closed_at: string | null;
+          keep_on_file: boolean;
+          onboarding_steps: Json;
           stage_changed_at: string | null;
           created_at: string | null;
           updated_at: string | null;
@@ -757,6 +907,7 @@ export interface Database {
           daycare_id: string;
           classroom_id?: string | null;
           child_first_name?: string | null;
+          child_last_name?: string | null;
           child_date_of_birth?: string | null;
           guardian_name?: string | null;
           guardian_email?: string | null;
@@ -765,13 +916,172 @@ export interface Database {
           desired_start_date?: string | null;
           source?: string | null;
           notes?: string | null;
+          waitlist_position?: number | null;
+          schedule?: Json;
+          application_data?: Json;
+          documents_status?: Json;
+          application_progress?: number;
+          tour_at?: string | null;
+          tour_host_id?: string | null;
+          tour_outcome?: string | null;
+          tour_notes?: string | null;
+          offer_sent_at?: string | null;
+          offer_expires_at?: string | null;
+          offer_viewed_at?: string | null;
+          offer_nudged_at?: string | null;
+          offer_status?: string;
+          offer_deposit_cents?: number | null;
+          offer_tuition_cents?: number | null;
+          waitlist_joined_at?: string | null;
+          waitlist_priority?: string;
+          waitlist_status?: string;
+          waitlist_last_contact_at?: string | null;
+          waitlist_unanswered_checkins?: number;
+          closed_reason?: string | null;
+          closed_at?: string | null;
+          keep_on_file?: boolean;
+          onboarding_steps?: Json;
         };
         Update: {
+          child_id?: string | null;
+          child_first_name?: string | null;
+          child_last_name?: string | null;
+          child_date_of_birth?: string | null;
+          guardian_name?: string | null;
+          guardian_email?: string | null;
+          guardian_phone?: string | null;
           stage?: string;
           classroom_id?: string | null;
+          desired_start_date?: string | null;
+          source?: string | null;
           notes?: string | null;
           stage_changed_at?: string | null;
           waitlist_position?: number | null;
+          schedule?: Json;
+          application_data?: Json;
+          documents_status?: Json;
+          application_progress?: number;
+          tour_at?: string | null;
+          tour_host_id?: string | null;
+          tour_outcome?: string | null;
+          tour_notes?: string | null;
+          offer_sent_at?: string | null;
+          offer_expires_at?: string | null;
+          offer_viewed_at?: string | null;
+          offer_nudged_at?: string | null;
+          offer_status?: string;
+          offer_deposit_cents?: number | null;
+          offer_tuition_cents?: number | null;
+          waitlist_joined_at?: string | null;
+          waitlist_priority?: string;
+          waitlist_status?: string;
+          waitlist_last_contact_at?: string | null;
+          waitlist_unanswered_checkins?: number;
+          closed_reason?: string | null;
+          closed_at?: string | null;
+          keep_on_file?: boolean;
+          onboarding_steps?: Json;
+        };
+        Relationships: [];
+      };
+      enrollment_tour_slots: {
+        Row: {
+          id: string;
+          daycare_id: string;
+          starts_at: string;
+          ends_at: string;
+          classroom_id: string | null;
+          host_id: string | null;
+          enrollment_id: string | null;
+          status: string;
+          created_by: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          daycare_id: string;
+          starts_at: string;
+          ends_at: string;
+          classroom_id?: string | null;
+          host_id?: string | null;
+          enrollment_id?: string | null;
+          status?: string;
+          created_by?: string | null;
+        };
+        Update: {
+          starts_at?: string;
+          ends_at?: string;
+          classroom_id?: string | null;
+          host_id?: string | null;
+          enrollment_id?: string | null;
+          status?: string;
+        };
+        Relationships: [];
+      };
+      enrollment_settings: {
+        Row: {
+          daycare_id: string;
+          siblings_first: boolean;
+          staff_children_next: boolean;
+          offer_window_hours: number;
+          auto_offer: boolean;
+          auto_archive_checkins: number;
+          inquiry_reply_hours: number;
+          updated_at: string;
+        };
+        Insert: {
+          daycare_id: string;
+          siblings_first?: boolean;
+          staff_children_next?: boolean;
+          offer_window_hours?: number;
+          auto_offer?: boolean;
+          auto_archive_checkins?: number;
+          inquiry_reply_hours?: number;
+        };
+        Update: {
+          siblings_first?: boolean;
+          staff_children_next?: boolean;
+          offer_window_hours?: number;
+          auto_offer?: boolean;
+          auto_archive_checkins?: number;
+          inquiry_reply_hours?: number;
+        };
+        Relationships: [];
+      };
+      child_departures: {
+        Row: {
+          id: string;
+          daycare_id: string;
+          child_id: string;
+          last_day: string;
+          reason: string;
+          notes: string | null;
+          offer_spot_automatically: boolean;
+          status: string;
+          scheduled_by: string | null;
+          completed_at: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          daycare_id: string;
+          child_id: string;
+          last_day: string;
+          reason: string;
+          notes?: string | null;
+          offer_spot_automatically?: boolean;
+          status?: string;
+          scheduled_by?: string | null;
+        };
+        Update: {
+          last_day?: string;
+          reason?: string;
+          notes?: string | null;
+          offer_spot_automatically?: boolean;
+          status?: string;
+          completed_at?: string | null;
         };
         Relationships: [];
       };
@@ -1074,6 +1384,87 @@ export interface Database {
         Update: { granted?: boolean; granted_at?: string | null; revoked_at?: string | null };
         Relationships: [];
       };
+      notifications: {
+        Row: {
+          id: string;
+          daycare_id: string;
+          profile_id: string;
+          kind: string;
+          title: string;
+          body: string | null;
+          payload: Json | null;
+          read_at: string | null;
+          created_at: string | null;
+        };
+        Insert: {
+          id?: string;
+          daycare_id: string;
+          profile_id: string;
+          kind: string;
+          title: string;
+          body?: string | null;
+          payload?: Json | null;
+          read_at?: string | null;
+          created_at?: string | null;
+        };
+        Update: {
+          read_at?: string | null;
+        };
+        Relationships: [];
+      };
+      notification_preferences: {
+        Row: {
+          profile_id: string;
+          daycare_id: string;
+          kind: string;
+          in_app: boolean;
+          push: boolean;
+          email: boolean;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          profile_id: string;
+          daycare_id: string;
+          kind: string;
+          in_app?: boolean;
+          push?: boolean;
+          email?: boolean;
+        };
+        Update: {
+          in_app?: boolean;
+          push?: boolean;
+          email?: boolean;
+        };
+        Relationships: [];
+      };
+      notification_delivery_settings: {
+        Row: {
+          profile_id: string;
+          daycare_id: string;
+          quiet_hours_enabled: boolean;
+          quiet_hours_start: string;
+          quiet_hours_end: string;
+          email_mode: string;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          profile_id: string;
+          daycare_id: string;
+          quiet_hours_enabled?: boolean;
+          quiet_hours_start?: string;
+          quiet_hours_end?: string;
+          email_mode?: string;
+        };
+        Update: {
+          quiet_hours_enabled?: boolean;
+          quiet_hours_start?: string;
+          quiet_hours_end?: string;
+          email_mode?: string;
+        };
+        Relationships: [];
+      };
       notification_outbox: {
         Row: {
           id: string;
@@ -1158,6 +1549,10 @@ export interface Database {
           p_dedupe_key?: string | null;
         };
         Returns: string | null;
+      };
+      process_due_child_departures: {
+        Args: Record<string, never>;
+        Returns: number;
       };
       clock_in: {
         Args: { p_classroom_id?: string | null; p_at?: string };
@@ -1244,6 +1639,20 @@ export interface Database {
         };
         Returns: undefined;
       };
+      submit_enrollment_inquiry_v2: {
+        Args: {
+          p_daycare_id: string;
+          p_guardian_name: string;
+          p_guardian_email: string;
+          p_guardian_phone: string | null;
+          p_child_first_name: string;
+          p_child_date_of_birth: string | null;
+          p_classroom_id: string | null;
+          p_desired_start: string | null;
+          p_days_per_week: number;
+        };
+        Returns: string;
+      };
       enroll_from_pipeline: {
         Args: { p_enrollment_id: string; p_classroom_id: string; p_last_name?: string | null };
         Returns: string;
@@ -1306,6 +1715,37 @@ export interface Database {
           permissions: Json;
           member_count: number;
         }[];
+      };
+      get_staff_delegations: {
+        Args: Record<string, never>;
+        Returns: {
+          id: string;
+          delegate_profile_id: string;
+          delegate_name: string;
+          delegate_role: string;
+          classroom_name: string | null;
+          access_level: string;
+          areas: string[];
+          starts_at: string;
+          ends_at: string;
+          granted_by_name: string;
+          revoked_at: string | null;
+          revoked_by_name: string | null;
+          action_count: number;
+        }[];
+      };
+      grant_staff_delegation: {
+        Args: {
+          p_delegate_profile_id: string;
+          p_access_level: string;
+          p_areas: string[];
+          p_ends_at: string;
+        };
+        Returns: string;
+      };
+      revoke_staff_delegation: {
+        Args: { p_delegation_id: string };
+        Returns: undefined;
       };
       create_pickup: {
         Args: {

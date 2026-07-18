@@ -1,9 +1,11 @@
 import {
   getMyDaycare,
+  getMyProfile,
   listCenterRoles,
   listClassrooms,
   listPendingStaffInvites,
   listStaff,
+  listStaffDelegations,
   listStaffShifts,
   listStaffTimeEntries,
   listStaffTimeOffRequests,
@@ -13,10 +15,10 @@ import { StaffView } from "@/components/staff/staff-view";
 import { addDateDays, dateInTimeZone, isDate, monthRange, startOfWeek } from "@/lib/center-date";
 import { getServerSupabase } from "@/lib/supabase/server";
 
-const TABS = ["roster", "timesheets", "time-off", "roles"] as const;
+const TABS = ["roster", "timesheets", "time-off", "delegations", "roles"] as const;
 
-// Staff roster 4a, timekeeping 4c/4j–m, and roles 4o. Delegations remain a
-// separate permissions milestone. Pending invites render as 4d rows.
+// Group 4 staff area: roster 4a, timekeeping 4c/4j–m, delegations 4g/4h,
+// roles 4o, and pending-invite lifecycle rows from 4d.
 export default async function StaffPage({
   searchParams,
 }: {
@@ -24,12 +26,14 @@ export default async function StaffPage({
 }) {
   const params = await searchParams;
   const supabase = await getServerSupabase();
-  const [staff, invites, classrooms, roles, daycare] = await Promise.all([
+  const profile = await getMyProfile(supabase);
+  const [staff, invites, classrooms, roles, daycare, delegations] = await Promise.all([
     listStaff(supabase),
     listPendingStaffInvites(supabase),
     listClassrooms(supabase),
     listCenterRoles(supabase),
     getMyDaycare(supabase),
+    profile?.role === "owner_admin" ? listStaffDelegations(supabase) : Promise.resolve([]),
   ]);
 
   const timeZone = daycare?.timezone ?? "America/Toronto";
@@ -70,9 +74,14 @@ export default async function StaffPage({
   }
 
   const requestedTab = params.tab ?? "roster";
-  const initialTab = TABS.includes(requestedTab as (typeof TABS)[number])
+  const requestedInitialTab = TABS.includes(requestedTab as (typeof TABS)[number])
     ? (requestedTab as (typeof TABS)[number])
     : "roster";
+  const canManageDelegations = profile?.role === "owner_admin";
+  const initialTab =
+    requestedInitialTab === "delegations" && !canManageDelegations
+      ? "roster"
+      : requestedInitialTab;
 
   return (
     <>
@@ -87,6 +96,7 @@ export default async function StaffPage({
         invites={invites}
         classrooms={classrooms}
         roles={roles}
+        delegations={delegations}
         shifts={shifts}
         timeEntries={timeEntries}
         timeOff={timeOff}
@@ -96,6 +106,7 @@ export default async function StaffPage({
         timekeepingError={timekeepingError}
         openInvite={params.invite === "1"}
         initialTab={initialTab}
+        canManageDelegations={canManageDelegations}
       />
     </>
   );

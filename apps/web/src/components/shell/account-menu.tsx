@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { Avatar } from "@/components/ui/avatar";
 import { ProfileModal } from "./profile-modal";
 import { SignOutModal } from "./sign-out-modal";
+import { useNotificationCenter } from "@/components/notifications/notification-center";
 
 // Account menu 14a — popover anchored above the sidebar's avatar footer.
 export function AccountMenu({
@@ -12,12 +13,21 @@ export function AccountMenu({
   daycareName,
   onClose,
 }: {
-  profile: { full_name: string; email: string; role: string };
+  profile: {
+    full_name: string;
+    display_name: string | null;
+    email: string;
+    role: string;
+    phone: string | null;
+    avatar_url: string | null;
+    mfa_enabled: boolean;
+  };
   daycareName: string;
   onClose: () => void;
 }) {
   const [modal, setModal] = useState<"none" | "profile" | "signout">("none");
   const ref = useRef<HTMLDivElement>(null);
+  const { openSettings } = useNotificationCenter();
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -48,7 +58,7 @@ export function AccountMenu({
         style={{ boxShadow: "0 14px 40px rgba(23,51,91,.22)" }}
       >
         <div className="flex items-center gap-2.5 border-b border-[#EDF3FB] px-1.5 pb-2.5">
-          <Avatar name={profile.full_name} size={38} />
+          <Avatar name={profile.full_name} src={profile.avatar_url} size={38} />
           <span className="min-w-0 flex-1">
             <span className="block text-[13.5px] font-bold text-ink">
               {profile.full_name}
@@ -70,10 +80,17 @@ export function AccountMenu({
           <UserRound size={14} strokeWidth={1.75} aria-hidden />
           Your profile &amp; password
         </button>
-        <button type="button" role="menuitem" className={`${item} text-muted`} disabled>
+        <button
+          type="button"
+          role="menuitem"
+          className={item}
+          onClick={() => {
+            openSettings();
+            onClose();
+          }}
+        >
           <Settings2 size={14} strokeWidth={1.75} aria-hidden />
           Notification &amp; language preferences
-          <span className="ml-auto text-[10px] font-bold text-faint">Later</span>
         </button>
         <button type="button" role="menuitem" className={`${item} text-muted`} disabled>
           <KeyRound size={14} strokeWidth={1.75} aria-hidden />

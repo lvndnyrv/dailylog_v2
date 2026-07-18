@@ -207,8 +207,8 @@ export async function signOutAction(formData?: FormData): Promise<void> {
   redirect("/signed-out");
 }
 
-// 14d — the only self-editable profile field for now is the name; email and
-// role changes are separate, audited flows.
+// 14d — visible identity fields are self-editable; email and role changes are
+// separate, audited flows.
 export async function updateProfileAction(
   _prev: ActionState,
   formData: FormData,
@@ -217,7 +217,11 @@ export async function updateProfileAction(
   const supabase = await getServerSupabase();
 
   const fullName = String(formData.get("full_name") ?? "").trim();
+  const displayName = String(formData.get("display_name") ?? "").trim();
   if (fullName.length < 2) return { error: "Enter your name." };
+  if (displayName.length < 1 || displayName.length > 60) {
+    return { error: "Enter a display name of 60 characters or fewer." };
+  }
 
   const {
     data: { user },
@@ -226,7 +230,7 @@ export async function updateProfileAction(
 
   const { error } = await supabase
     .from("profiles")
-    .update({ full_name: fullName })
+    .update({ full_name: fullName, display_name: displayName })
     .eq("id", user.id);
   if (error) return { error: error.message };
 

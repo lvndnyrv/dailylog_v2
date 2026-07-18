@@ -1,6 +1,13 @@
-import { getMyDaycare, getMyProfile } from "@dailylog/db/queries";
+import {
+  getMyDaycare,
+  getMyNotificationDeliverySettings,
+  getMyProfile,
+  listMyNotificationPreferences,
+  listMyNotifications,
+} from "@dailylog/db/queries";
 import { isAdminRole } from "@dailylog/shared";
 import { redirect } from "next/navigation";
+import { NotificationCenterProvider } from "@/components/notifications/notification-center";
 import { Sidebar } from "@/components/shell/sidebar";
 import { getServerSupabase } from "@/lib/supabase/server";
 
@@ -29,23 +36,39 @@ export default async function ShellLayout({ children }: { children: React.ReactN
   if (!isAdminRole(profile?.role)) redirect("/use-the-app");
   if (!profile) redirect("/sign-in");
 
-  const [daycare, badges] = await Promise.all([
+  const [daycare, badges, notifications, notificationPreferences, deliverySettings] = await Promise.all([
     getMyDaycare(supabase),
     getNavBadges(supabase),
+    listMyNotifications(supabase),
+    // Keep the shell usable during rolling deploys where the web bundle lands
+    // a moment before the Group 15 migration reaches PostgREST.
+    listMyNotificationPreferences(supabase).catch(() => []),
+    getMyNotificationDeliverySettings(supabase).catch(() => null),
   ]);
 
   return (
-    <div className="flex min-h-screen bg-canvas">
-      <Sidebar
-        daycareName={daycare?.name ?? "Your center"}
-        profile={{
-          full_name: profile.full_name,
-          email: profile.email,
-          role: profile.role,
-        }}
-        badges={badges}
-      />
-      <div className="flex min-w-0 flex-1 flex-col">{children}</div>
-    </div>
+    <NotificationCenterProvider
+      profileId={profile.id}
+      initialNotifications={notifications}
+      initialPreferences={notificationPreferences}
+      initialDeliverySettings={deliverySettings}
+    >
+      <div className="flex min-h-screen bg-canvas">
+        <Sidebar
+          daycareName={daycare?.name ?? "Your center"}
+          profile={{
+            full_name: profile.full_name,
+            display_name: profile.display_name,
+            email: profile.email,
+            role: profile.role,
+            phone: profile.phone,
+            avatar_url: profile.avatar_url,
+            mfa_enabled: user.factors?.some((factor) => factor.status === "verified") ?? false,
+          }}
+          badges={badges}
+        />
+        <div className="flex min-w-0 flex-1 flex-col">{children}</div>
+      </div>
+    </NotificationCenterProvider>
   );
 }

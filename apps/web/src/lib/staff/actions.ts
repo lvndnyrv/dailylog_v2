@@ -4,7 +4,9 @@ import {
   hasPermission,
   enqueueEmailNotification,
   getMyProfile,
+  grantStaffDelegation,
   inviteStaff,
+  revokeStaffDelegation,
   revokeStaffInvite,
   updateStaffMember,
 } from "@dailylog/db/queries";
@@ -20,6 +22,11 @@ export interface StaffActionState {
 }
 
 export interface TimekeepingActionState {
+  error?: string;
+  ok?: boolean;
+}
+
+export interface DelegationActionState {
   error?: string;
   ok?: boolean;
 }
@@ -93,6 +100,71 @@ export async function revokeInviteAction(formData: FormData): Promise<void> {
   const supabase = await getServerSupabase();
   await revokeStaffInvite(supabase, str(formData, "invite_id"));
   revalidatePath("/staff");
+}
+
+const DELEGATION_AREAS = new Set([
+  "attendance",
+  "enrollment",
+  "compliance",
+  "broadcasts",
+  "billing",
+]);
+
+export async function grantDelegationAction(
+  _prev: DelegationActionState,
+  formData: FormData,
+): Promise<DelegationActionState> {
+  const delegateProfileId = str(formData, "delegate_profile_id");
+  const accessLevel = str(formData, "access_level");
+  const endsOn = str(formData, "ends_on");
+  const areas = [...new Set(formData.getAll("areas").map(String))].filter((area) =>
+    DELEGATION_AREAS.has(area),
+  );
+
+  if (!UUID.test(delegateProfileId)) return { error: "Choose a staff member." };
+  if (!['specific_areas', 'full_admin'].includes(accessLevel)) {
+    return { error: "Choose an access level." };
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(endsOn)) return { error: "Choose an expiry date." };
+  if (accessLevel === "specific_areas" && areas.length === 0) {
+    return { error: "Select at least one area." };
+  }
+
+  const endsAt = new Date(`${endsOn}T23:59:59.999Z`);
+  if (Number.isNaN(endsAt.getTime()) || endsAt <= new Date()) {
+    return { error: "The expiry must be in the future." };
+  }
+
+  try {
+    const supabase = await getServerSupabase();
+    await grantStaffDelegation(supabase, {
+      delegateProfileId,
+      accessLevel: accessLevel as "specific_areas" | "full_admin",
+      areas: accessLevel === "specific_areas" ? areas : [],
+      endsAt: endsAt.toISOString(),
+    });
+    revalidatePath("/staff");
+    return { ok: true };
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : "Could not grant access." };
+  }
+}
+
+export async function revokeDelegationAction(
+  _prev: DelegationActionState,
+  formData: FormData,
+): Promise<DelegationActionState> {
+  const delegationId = str(formData, "delegation_id");
+  if (!UUID.test(delegationId)) return { error: "Invalid delegation." };
+
+  try {
+    const supabase = await getServerSupabase();
+    await revokeStaffDelegation(supabase, delegationId);
+    revalidatePath("/staff");
+    return { ok: true };
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : "Could not revoke access." };
+  }
 }
 
 export async function updateStaffAction(

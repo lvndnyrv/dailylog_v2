@@ -1,8 +1,19 @@
 "use client";
 
-import { Bell, Search } from "lucide-react";
+import {
+  Bell,
+  Megaphone,
+  ReceiptText,
+  Search,
+  TriangleAlert,
+  UserPlus,
+  UserRound,
+  type LucideIcon,
+} from "lucide-react";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
+import { NotificationTray } from "@/components/notifications/notification-tray";
+import { useNotificationCenter } from "@/components/notifications/notification-center";
 
 // Per-section header: title/subtitle, search, "+ New" create menu (18b), bell
 // (15a — empty tray stub in Phase 1). Location switcher 18d hidden (single
@@ -11,17 +22,26 @@ export function SectionHeader({
   title,
   subtitle,
   actions,
+  showUtilities = true,
 }: {
   title: string;
   subtitle?: string;
   actions?: React.ReactNode;
+  showUtilities?: boolean;
 }) {
   const [open, setOpen] = useState<"none" | "new" | "bell">("none");
   const ref = useRef<HTMLDivElement>(null);
+  const bellRef = useRef<HTMLButtonElement>(null);
+  const { unreadCount } = useNotificationCenter();
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen("none");
+      if (e.key === "Escape") {
+        setOpen((current) => {
+          if (current === "bell") queueMicrotask(() => bellRef.current?.focus());
+          return "none";
+        });
+      }
     };
     const onClick = (e: MouseEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen("none");
@@ -34,9 +54,6 @@ export function SectionHeader({
     };
   }, []);
 
-  const createItem =
-    "flex items-center gap-2.5 rounded-lg p-2 text-[13px] font-semibold text-ink hover:bg-canvas";
-
   return (
     <div className="flex items-center gap-3.5 bg-card px-7 pb-4 pt-5">
       <span className="min-w-0">
@@ -47,85 +64,164 @@ export function SectionHeader({
       </span>
       <span className="flex-1" />
 
-      <label className="flex w-[190px] items-center gap-2 rounded-full border-[1.5px] border-[#D6E1F0] bg-canvas px-3.5 py-[9px]">
-        <Search size={13} strokeWidth={1.8} className="text-faint" aria-hidden />
-        <input
-          type="search"
-          placeholder="Search…"
-          className="w-full bg-transparent text-[12.5px] text-ink outline-none placeholder:text-faint"
-          aria-label={`Search ${title.toLowerCase()}`}
-        />
-      </label>
+      {showUtilities && (
+        <label className="flex w-[190px] items-center gap-2 rounded-full border-[1.5px] border-[#D6E1F0] bg-canvas px-3.5 py-[9px]">
+          <Search size={13} strokeWidth={1.8} className="text-faint" aria-hidden />
+          <input
+            type="search"
+            placeholder="Search…"
+            className="w-full bg-transparent text-[12.5px] text-ink outline-none placeholder:text-faint"
+            aria-label={`Search ${title.toLowerCase()}`}
+          />
+        </label>
+      )}
 
       <div className="relative flex items-center gap-2" ref={ref}>
-        <button
-          type="button"
-          aria-label="Notifications"
-          aria-expanded={open === "bell"}
-          onClick={() => setOpen(open === "bell" ? "none" : "bell")}
-          className="grid size-9 place-items-center rounded-full border-[1.5px] border-[#D6E1F0] bg-card text-body hover:bg-canvas"
-        >
-          <Bell size={15} strokeWidth={1.75} aria-hidden />
-        </button>
+        {showUtilities && (
+          <button
+            ref={bellRef}
+            type="button"
+            aria-label="Notifications"
+            aria-expanded={open === "bell"}
+            aria-haspopup="dialog"
+            aria-controls="notification-tray"
+            onClick={() => setOpen(open === "bell" ? "none" : "bell")}
+            className={`relative grid size-10 place-items-center rounded-[11px] border-[1.5px] transition-colors ${
+              open === "bell"
+                ? "border-[#BFD6F2] bg-[#EAF1FB] text-primary"
+                : "border-hairline bg-card text-body hover:bg-canvas"
+            }`}
+          >
+            <Bell size={17} strokeWidth={1.7} aria-hidden />
+            {unreadCount > 0 && (
+              <span className="absolute -right-[5px] -top-[5px] grid h-[18px] min-w-[18px] place-items-center rounded-full border-2 border-white bg-danger px-1 text-[10px] font-extrabold leading-none text-white">
+                {unreadCount > 9 ? "9+" : unreadCount}
+              </span>
+            )}
+          </button>
+        )}
 
-        {actions ?? (
+        {actions ?? (showUtilities ? (
           <button
             type="button"
             aria-expanded={open === "new"}
+            aria-haspopup="menu"
+            aria-controls="global-create-menu"
             onClick={() => setOpen(open === "new" ? "none" : "new")}
             className="rounded-btn bg-primary px-[18px] py-2.5 text-[13px] font-bold text-white hover:bg-primary-hover"
           >
             + New
           </button>
-        )}
+        ) : null)}
 
         {open === "new" && (
-          <div
-            className="absolute right-0 top-11 z-40 flex w-56 flex-col gap-1 rounded-[14px] border-[1.5px] border-hairline bg-card p-2.5"
-            style={{ boxShadow: "0 14px 40px rgba(23,51,91,.22)" }}
-            role="menu"
-          >
-            <span className="px-2 pb-1 pt-0.5 font-mono text-[10px] font-semibold tracking-[.08em] text-faint">
-              CREATE
-            </span>
-            <Link href="/children?new=1" role="menuitem" className={createItem}>
-              Child · profile
-            </Link>
-            <Link href="/staff?invite=1" role="menuitem" className={createItem}>
-              Invite educator
-            </Link>
-            <Link href="/billing?new=1" role="menuitem" className={createItem}>
-              Invoice
-            </Link>
-            <Link href="/messages?broadcast=1" role="menuitem" className={createItem}>
-              Broadcast
-            </Link>
-            <span
-              className={`${createItem} cursor-default text-muted`}
-              title="Educators file incidents from their app; you sign them on the dashboard"
+          <>
+            <button
+              type="button"
+              aria-label="Close create menu"
+              onMouseDown={() => setOpen("none")}
+              className="fixed inset-x-0 bottom-0 top-[76px] z-30 cursor-default bg-[rgba(23,51,91,.10)]"
+            />
+            <div
+              id="global-create-menu"
+              className="absolute right-0 top-[46px] z-40 flex w-[260px] max-w-[calc(100vw-2rem)] flex-col gap-px rounded-[14px] border-[1.5px] border-hairline bg-card p-[7px]"
+              style={{ boxShadow: "0 16px 44px rgba(23,51,91,.22)" }}
+              role="menu"
+              aria-label="Create"
             >
-              Incident report{" "}
-              <span className="ml-auto text-[10px] font-bold text-faint">educator app</span>
-            </span>
-          </div>
+              <span
+                aria-hidden
+                className="absolute -top-2 right-6 size-3.5 rotate-45 border-l-[1.5px] border-t-[1.5px] border-hairline bg-card"
+              />
+              <span className="px-2.5 pb-1 pt-2 font-mono text-[9.5px] font-bold tracking-[.08em] text-faint">
+                CREATE
+              </span>
+              <CreateMenuItem
+                href="/children?new=1"
+                icon={UserRound}
+                iconClassName="bg-[#E3EDFA] text-primary"
+                onSelect={() => setOpen("none")}
+              >
+                Child · profile
+              </CreateMenuItem>
+              <CreateMenuItem
+                href="/staff?invite=1"
+                icon={UserPlus}
+                iconClassName="bg-[#E4F3EC] text-success"
+                onSelect={() => setOpen("none")}
+              >
+                Invite educator
+              </CreateMenuItem>
+              <CreateMenuItem
+                href="/billing?new=1"
+                icon={ReceiptText}
+                iconClassName="bg-[#F0EAFB] text-[#7A5FD0]"
+                onSelect={() => setOpen("none")}
+              >
+                Invoice
+              </CreateMenuItem>
+              <CreateMenuItem
+                href="/dashboard?review=incident"
+                icon={TriangleAlert}
+                iconClassName="bg-[#FBF3E4] text-[#B0782B]"
+                onSelect={() => setOpen("none")}
+              >
+                Incident report
+              </CreateMenuItem>
+              <CreateMenuItem
+                href="/messages?broadcast=1"
+                icon={Megaphone}
+                iconClassName="bg-[#FAE7E7] text-danger"
+                onSelect={() => setOpen("none")}
+              >
+                Broadcast
+              </CreateMenuItem>
+            </div>
+          </>
         )}
 
         {open === "bell" && (
-          <div
-            className="absolute right-0 top-11 z-40 flex w-72 flex-col items-center gap-2 rounded-[14px] border-[1.5px] border-hairline bg-card px-5 py-8 text-center"
-            style={{ boxShadow: "0 14px 40px rgba(23,51,91,.22)" }}
-            role="status"
-          >
-            <span className="grid size-10 place-items-center rounded-full bg-tint">
-              <Bell size={16} strokeWidth={1.75} className="text-primary" aria-hidden />
-            </span>
-            <span className="text-[13px] font-bold text-ink">You&apos;re all caught up</span>
-            <span className="text-[11.5px] leading-normal text-muted">
-              Notifications land here once daily operations go live.
-            </span>
-          </div>
+          <>
+            <button
+              type="button"
+              aria-label="Close notifications"
+              onMouseDown={() => setOpen("none")}
+              className="fixed inset-x-0 bottom-0 top-[76px] z-30 cursor-default bg-[rgba(23,51,91,.10)]"
+            />
+            <div id="notification-tray">
+              <NotificationTray onClose={() => setOpen("none")} />
+            </div>
+          </>
         )}
       </div>
     </div>
+  );
+}
+
+function CreateMenuItem({
+  href,
+  icon: Icon,
+  iconClassName,
+  onSelect,
+  children,
+}: {
+  href: string;
+  icon: LucideIcon;
+  iconClassName: string;
+  onSelect: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <Link
+      href={href}
+      role="menuitem"
+      onClick={onSelect}
+      className="flex items-center gap-[11px] rounded-[9px] px-2.5 py-[9px] text-[13px] font-semibold text-ink outline-none hover:bg-canvas focus-visible:bg-canvas focus-visible:ring-2 focus-visible:ring-primary/30"
+    >
+      <span className={`grid size-7 flex-none place-items-center rounded-lg ${iconClassName}`}>
+        <Icon size={15} strokeWidth={1.7} aria-hidden />
+      </span>
+      {children}
+    </Link>
   );
 }

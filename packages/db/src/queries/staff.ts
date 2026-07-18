@@ -123,3 +123,56 @@ export async function updateStaffMember(
   const { error } = await client.from('staff_members').update(values).eq('id', staffId);
   if (error) throw error;
 }
+
+export type DelegationAccessLevel = 'specific_areas' | 'full_admin';
+
+export interface StaffDelegationRow {
+  id: string;
+  delegate_profile_id: string;
+  delegate_name: string;
+  delegate_role: string;
+  classroom_name: string | null;
+  access_level: DelegationAccessLevel;
+  areas: string[];
+  starts_at: string;
+  ends_at: string;
+  granted_by_name: string;
+  revoked_at: string | null;
+  revoked_by_name: string | null;
+  action_count: number;
+}
+
+export async function listStaffDelegations(client: Client): Promise<StaffDelegationRow[]> {
+  const { data, error } = await client.rpc('get_staff_delegations');
+  if (error) throw error;
+  return (data ?? []) as unknown as StaffDelegationRow[];
+}
+
+export async function grantStaffDelegation(
+  client: Client,
+  values: {
+    delegateProfileId: string;
+    accessLevel: DelegationAccessLevel;
+    areas: string[];
+    endsAt: string;
+  },
+): Promise<string> {
+  const { data, error } = await client.rpc('grant_staff_delegation', {
+    p_delegate_profile_id: values.delegateProfileId,
+    p_access_level: values.accessLevel,
+    p_areas: values.areas,
+    p_ends_at: values.endsAt,
+  });
+  if (error) throw error;
+  return data;
+}
+
+export async function revokeStaffDelegation(
+  client: Client,
+  delegationId: string,
+): Promise<void> {
+  const { error } = await client.rpc('revoke_staff_delegation', {
+    p_delegation_id: delegationId,
+  });
+  if (error) throw error;
+}

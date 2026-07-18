@@ -8,6 +8,7 @@ import type {
 } from "@dailylog/db/queries";
 import { initials, isOverRatio } from "@dailylog/shared";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Avatar } from "@/components/ui/avatar";
 import { SignOffModal } from "@/components/incidents/sign-off-modal";
@@ -62,6 +63,7 @@ export function DashboardView({
   offers,
   certIssues,
   staffing,
+  openIncident = false,
 }: {
   rooms: RoomLiveStatus[];
   incidents: IncidentRow[];
@@ -71,8 +73,17 @@ export function DashboardView({
   offers: Offer[];
   certIssues: CertIssue[];
   staffing: Staffing[];
+  openIncident?: boolean;
 }) {
-  const [signing, setSigning] = useState<IncidentRow | null>(null);
+  const router = useRouter();
+  const [signing, setSigning] = useState<IncidentRow | null>(
+    openIncident ? (incidents[0] ?? null) : null,
+  );
+
+  const closeSignOff = () => {
+    setSigning(null);
+    if (openIncident) router.replace("/dashboard", { scroll: false });
+  };
 
   const enrolled = attendance.length;
   const inToday = attendance.filter((row) => row.attendance[0]?.checked_in_at).length;
@@ -369,7 +380,7 @@ export function DashboardView({
         </div>
       </div>
 
-      {signing && <SignOffModal incident={signing} onClose={() => setSigning(null)} />}
+      {signing && <SignOffModal incident={signing} onClose={closeSignOff} />}
     </div>
   );
 }

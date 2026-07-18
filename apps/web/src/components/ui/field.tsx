@@ -8,10 +8,10 @@ export function Field({
   ...props
 }: InputHTMLAttributes<HTMLInputElement> & { label: string }) {
   return (
-    <label className="flex flex-col gap-[7px]">
+    <label className="flex min-w-0 flex-col gap-[7px]">
       <span className="text-[13px] font-bold text-ink">{label}</span>
       <input
-        className={`rounded-[13px] border-[1.5px] border-[#D6E1F0] bg-card px-4 py-3.5 text-[15px] text-ink outline-none placeholder:text-faint focus:border-primary ${className}`}
+        className={`min-w-0 w-full rounded-[13px] border-[1.5px] border-[#D6E1F0] bg-card px-4 py-3.5 text-[15px] text-ink outline-none placeholder:text-faint focus:border-primary ${className}`}
         {...props}
       />
     </label>

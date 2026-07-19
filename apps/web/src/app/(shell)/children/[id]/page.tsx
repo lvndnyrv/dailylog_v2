@@ -23,6 +23,13 @@ export default async function ChildProfilePage({
   }
 
   const classrooms = await listClassrooms(supabase);
+  const photoUrl = data.child.photo_url
+    ? (
+        await supabase.storage
+          .from("child-avatars")
+          .createSignedUrl(data.child.photo_url, 3600)
+      ).data?.signedUrl ?? null
+    : null;
 
   return (
     <ChildProfileView
@@ -30,8 +37,10 @@ export default async function ChildProfilePage({
       pickups={data.pickups}
       medications={data.medications as never}
       consents={data.consents as never}
+      documents={data.documents}
       pendingInvites={data.pendingInvites}
       classrooms={classrooms}
+      photoUrl={photoUrl}
       openEdit={edit === "1"}
     />
   );

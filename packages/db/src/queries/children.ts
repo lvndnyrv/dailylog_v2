@@ -23,13 +23,14 @@ export interface RosterChild {
   allergies: string[] | null;
   medical_notes: string | null;
   emergency_contacts: unknown;
+  setup_state: unknown;
   enrolled_on: string | null;
   classroom: { id: string; name: string } | null;
   guardians: RosterGuardian[];
 }
 
 const ROSTER_SELECT = `id, first_name, last_name, date_of_birth, photo_url,
-  allergies, medical_notes, emergency_contacts, enrolled_on,
+  allergies, medical_notes, emergency_contacts, setup_state, enrolled_on,
   classroom:classrooms(id, name),
   guardians:parent_children(relationship, is_primary,
     parent:profiles(id, full_name, email))`;
@@ -51,6 +52,7 @@ export interface MedicalRegisterRow {
   last_name: string;
   allergies: string[] | null;
   medical_notes: string | null;
+  emergency_contacts: unknown;
   classroom: { id: string; name: string } | null;
   medications: { id: string; name: string; active: boolean }[];
 }
@@ -59,7 +61,7 @@ export async function listMedicalRegister(client: Client): Promise<MedicalRegist
   const { data, error } = await client
     .from('children')
     .select(
-      `id, first_name, last_name, allergies, medical_notes,
+      `id, first_name, last_name, allergies, medical_notes, emergency_contacts,
        classroom:classrooms(id, name),
        medications:medication_authorizations(id, name, active)`,
     )
@@ -89,10 +91,21 @@ export interface PendingParentInvite {
   relationship: string | null;
   code: string;
   expires_at: string | null;
+  created_at: string | null;
+}
+
+export interface ChildDocument {
+  id: string;
+  title: string;
+  category: string | null;
+  storage_path: string;
+  mime_type: string | null;
+  size_bytes: number | null;
+  created_at: string | null;
 }
 
 export async function getChildProfile(client: Client, childId: string) {
-  const [childRes, pickupsRes, medsRes, consentsRes, invitesRes] = await Promise.all([
+  const [childRes, pickupsRes, medsRes, consentsRes, invitesRes, documentsRes] = await Promise.all([
     client
       .from('children')
       .select(
@@ -111,7 +124,7 @@ export async function getChildProfile(client: Client, childId: string) {
       .order('is_primary', { ascending: false }),
     client
       .from('medication_authorizations')
-      .select('id, name, dosage, schedule, active, parent:profiles(full_name)')
+      .select('id, parent_id, name, dosage, schedule, notes, active, parent:profiles(full_name)')
       .eq('child_id', childId)
       .order('active', { ascending: false }),
     client
@@ -120,9 +133,15 @@ export async function getChildProfile(client: Client, childId: string) {
       .eq('child_id', childId),
     client
       .from('child_invite_codes')
-      .select('id, email, relationship, code, expires_at')
+      .select('id, email, relationship, code, expires_at, created_at')
       .eq('child_id', childId)
       .is('used_at', null),
+    client
+      .from('documents')
+      .select('id, title, category, storage_path, mime_type, size_bytes, created_at')
+      .eq('child_id', childId)
+      .is('archived_at', null)
+      .order('created_at', { ascending: false }),
   ]);
 
   if (childRes.error) throw childRes.error;
@@ -132,6 +151,7 @@ export async function getChildProfile(client: Client, childId: string) {
     medications: medsRes.data ?? [],
     consents: consentsRes.data ?? [],
     pendingInvites: (invitesRes.data ?? []) as PendingParentInvite[],
+    documents: (documentsRes.data ?? []) as ChildDocument[],
   };
 }
 
@@ -192,6 +212,53 @@ export async function removePickup(client: Client, pickupId: string): Promise<vo
     .update({ archived_at: new Date().toISOString() })
     .eq('id', pickupId);
   if (error) throw error;
+}
+
+export async function saveMedicationAuthorization(
+  client: Client,
+  values: {
+    id?: string;
+    daycare_id: string;
+    child_id: string;
+    parent_id?: string | null;
+    name: string;
+    dosage: string;
+    schedule?: string | null;
+    notes?: string | null;
+    active: boolean;
+  },
+): Promise<void> {
+  const record = {
+    parent_id: values.parent_id ?? null,
+    name: values.name,
+    dosage: values.dosage,
+    schedule: values.schedule ?? null,
+    notes: values.notes ?? null,
+    active: values.active,
+  };
+  const result = values.id
+    ? await client
+        .from('medication_authorizations')
+        .update(record)
+        .eq('id', values.id)
+        .eq('child_id', values.child_id)
+    : await client.from('medication_authorizations').insert({
+        ...record,
+        daycare_id: values.daycare_id,
+        child_id: values.child_id,
+      });
+  if (result.error) throw result.error;
+}
+
+export async function getChildDocument(client: Client, documentId: string) {
+  const { data, error } = await client
+    .from('documents')
+    .select('id, child_id, title, storage_path, mime_type')
+    .eq('id', documentId)
+    .is('archived_at', null)
+    .single();
+  if (error) throw error;
+  return data;
 }
 
 export async function createParentInvite(

@@ -17,6 +17,7 @@ import { InviteEducatorModal } from "./invite-educator-modal";
 import { RolesLibrary } from "./roles-library";
 import { StaffDelegations } from "./staff-delegations";
 import { StaffTimekeeping } from "./staff-timekeeping";
+import { StaffRowMenu } from "./staff-row-menu";
 
 type Tab = "roster" | "timesheets" | "time-off" | "delegations" | "roles";
 
@@ -79,6 +80,7 @@ export function StaffView({
   openInvite,
   initialTab,
   canManageDelegations,
+  currentProfileId,
 }: {
   staff: StaffRow[];
   invites: PendingStaffInvite[];
@@ -95,11 +97,17 @@ export function StaffView({
   openInvite: boolean;
   initialTab: Tab;
   canManageDelegations: boolean;
+  currentProfileId: string;
 }) {
   const [tab, setTab] = useState<Tab>(initialTab);
   const [roomFilter, setRoomFilter] = useState<string | null>(null);
   const [certFilter, setCertFilter] = useState(false);
   const [inviting, setInviting] = useState(openInvite);
+  const [inviteTemplate, setInviteTemplate] = useState<{
+    name: string;
+    role: "educator" | "lead" | "admin";
+    classroomId: string | null;
+  } | null>(null);
   const router = useRouter();
 
   const selectTab = (next: Tab) => {
@@ -177,15 +185,6 @@ export function StaffView({
           Roles
         </button>
         <span className="flex-1" />
-        {tab === "roster" && (
-          <button
-            type="button"
-            onClick={() => setInviting(true)}
-            className="my-2 rounded-btn bg-primary px-[18px] py-2 text-[13px] font-bold text-white hover:bg-primary-hover"
-          >
-            + Invite educator
-          </button>
-        )}
       </div>
 
       <div className="flex flex-col gap-3.5 px-7 pb-6 pt-[18px]">
@@ -283,7 +282,26 @@ export function StaffView({
                         Active
                       </span>
                     </span>
-                    <span className="grid place-items-center text-[#C3D2E6]">›</span>
+                    <StaffRowMenu
+                      staffId={member.id}
+                      profileId={member.profile!.id}
+                      currentProfileId={currentProfileId}
+                      name={member.profile!.full_name}
+                      email={member.profile!.email}
+                      onDuplicate={() => {
+                        setInviteTemplate({
+                          name: member.profile!.full_name,
+                          role:
+                            member.profile!.role === "admin"
+                              ? "admin"
+                              : member.job_title?.toLowerCase().includes("lead")
+                                ? "lead"
+                                : "educator",
+                          classroomId: member.profile!.classroom?.id ?? null,
+                        });
+                        setInviting(true);
+                      }}
+                    />
                   </div>
                 );
               })}
@@ -368,7 +386,14 @@ export function StaffView({
       </div>
 
       {inviting && (
-        <InviteEducatorModal classrooms={classrooms} onClose={() => setInviting(false)} />
+        <InviteEducatorModal
+          classrooms={classrooms}
+          template={inviteTemplate}
+          onClose={() => {
+            setInviting(false);
+            setInviteTemplate(null);
+          }}
+        />
       )}
     </div>
   );

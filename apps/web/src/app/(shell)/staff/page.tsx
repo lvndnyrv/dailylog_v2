@@ -107,6 +107,7 @@ export default async function StaffPage({
         openInvite={params.invite === "1"}
         initialTab={initialTab}
         canManageDelegations={canManageDelegations}
+        currentProfileId={profile!.id}
       />
     </>
   );

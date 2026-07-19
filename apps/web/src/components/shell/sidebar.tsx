@@ -6,6 +6,8 @@ import { useState } from "react";
 import { NAV_ITEMS } from "./nav-config";
 import { AccountMenu } from "./account-menu";
 import { Avatar } from "@/components/ui/avatar";
+import type { DaycareLocationRow } from "@dailylog/db/queries";
+import { LocationSwitcher } from "./location-switcher";
 
 const ROLE_LABELS: Record<string, string> = {
   owner_admin: "Owner admin",
@@ -16,6 +18,7 @@ export function Sidebar({
   daycareName,
   profile,
   badges = {},
+  locations = [],
 }: {
   daycareName: string;
   profile: {
@@ -28,12 +31,13 @@ export function Sidebar({
     mfa_enabled: boolean;
   };
   badges?: Record<string, number>;
+  locations?: DaycareLocationRow[];
 }) {
   const pathname = usePathname();
   const [menuOpen, setMenuOpen] = useState(false);
 
   return (
-    <aside className="relative flex w-[214px] flex-none flex-col gap-[3px] border-r-[1.5px] border-hairline bg-card px-3 pb-4 pt-[18px]">
+    <aside className="relative flex w-[214px] flex-none flex-col gap-[3px] border-r-[1.5px] border-hairline bg-card px-3 pb-4 pt-[18px] print:hidden">
       <div className="mb-4 flex items-center gap-2.5 px-2.5">
         <span className="grid size-[34px] flex-none place-items-center rounded-full bg-warning-bg">
           <span
@@ -85,6 +89,8 @@ export function Sidebar({
       </nav>
 
       <span className="flex-1" />
+
+      <LocationSwitcher locations={locations} />
 
       <button
         type="button"

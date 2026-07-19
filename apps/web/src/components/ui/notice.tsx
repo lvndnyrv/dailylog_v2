@@ -3,13 +3,15 @@ export function Notice({
   tone,
   children,
 }: {
-  tone: "success" | "error";
+  tone: "success" | "error" | "info";
   children: React.ReactNode;
 }) {
   const styles =
     tone === "success"
       ? "border-[#BFE3D0] bg-[#E4F3EC] text-ink"
-      : "border-[#EFC9C9] bg-danger-bg text-ink";
+      : tone === "info"
+        ? "border-[#BFD6F2] bg-[#EAF1FB] text-ink"
+        : "border-[#EFC9C9] bg-danger-bg text-ink";
   return (
     <div
       role={tone === "error" ? "alert" : "status"}

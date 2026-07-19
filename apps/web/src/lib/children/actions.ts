@@ -1,5 +1,6 @@
 "use server";
 
+import type { Json } from "@dailylog/db";
 import {
   addPickup,
   archiveChild,
@@ -8,6 +9,7 @@ import {
   enqueueEmailNotification,
   getMyProfile,
   removePickup,
+  saveMedicationAuthorization,
   setChildConsent,
   unlinkParent,
   updateChild,
@@ -91,6 +93,41 @@ export async function updateChildAction(
     }))
     .filter((c) => c.name || c.phone);
 
+  const weeklySchedule = Object.fromEntries(
+    ["mon", "tue", "wed", "thu", "fri"].map((day) => {
+      const value = str(formData, `schedule_${day}`);
+      return [day, value === "full" || value === "half" ? value : "off"];
+    }),
+  );
+  const { data: currentChild, error: currentChildError } = await supabase
+    .from("children")
+    .select("setup_state")
+    .eq("id", childId)
+    .single();
+  if (currentChildError) return { error: currentChildError.message };
+  const setupState =
+    currentChild.setup_state &&
+    typeof currentChild.setup_state === "object" &&
+    !Array.isArray(currentChild.setup_state)
+      ? (currentChild.setup_state as Record<string, unknown>)
+      : {};
+
+  const existingPhoto = str(formData, "existing_photo_url") || null;
+  const removePhoto = str(formData, "remove_photo") === "true";
+  const photo = formData.get("photo");
+  let photoPath: string | null | undefined = removePhoto ? null : undefined;
+  if (photo instanceof File && photo.size > 0) {
+    if (!photo.type.startsWith("image/")) return { error: "Choose an image file." };
+    if (photo.size > 5 * 1024 * 1024) return { error: "Profile photos must be 5 MB or smaller." };
+    const extension = photo.name.split(".").pop()?.toLowerCase().replace(/[^a-z0-9]/g, "") || "jpg";
+    photoPath = `${childId}/profile-${crypto.randomUUID()}.${extension}`;
+    const { error } = await supabase.storage.from("child-avatars").upload(photoPath, photo, {
+      contentType: photo.type,
+      upsert: false,
+    });
+    if (error) return { error: error.message };
+  }
+
   try {
     await updateChild(supabase, childId, {
       first_name: firstName,
@@ -105,9 +142,16 @@ export async function updateChildAction(
       medical_notes: str(formData, "medical_notes") || null,
       dietary_needs: str(formData, "dietary_needs") || null,
       emergency_contacts: emergencyContacts,
+      setup_state: { ...setupState, weekly_schedule: weeklySchedule },
+      ...(photoPath !== undefined ? { photo_url: photoPath } : {}),
     });
   } catch (err) {
+    if (photoPath) await supabase.storage.from("child-avatars").remove([photoPath]);
     return { error: err instanceof Error ? err.message : "Could not save changes." };
+  }
+
+  if (existingPhoto && photoPath !== undefined && existingPhoto !== photoPath) {
+    await supabase.storage.from("child-avatars").remove([existingPhoto]);
   }
 
   revalidatePath(`/children/${childId}`);
@@ -144,6 +188,48 @@ export async function archiveChildAction(formData: FormData): Promise<void> {
   redirect("/children");
 }
 
+export async function duplicateChildAction(formData: FormData): Promise<void> {
+  const supabase = await getServerSupabase();
+  const profile = await getMyProfile(supabase);
+  if (!profile?.daycare_id) redirect("/children");
+
+  const sourceId = str(formData, "child_id");
+  const { data: source, error: sourceError } = await supabase
+    .from("children")
+    .select("first_name, last_name, date_of_birth, classroom_id, setup_state")
+    .eq("id", sourceId)
+    .single();
+  if (sourceError || !source) redirect("/children");
+
+  const sourceSetup =
+    source.setup_state && typeof source.setup_state === "object" && !Array.isArray(source.setup_state)
+      ? (source.setup_state as Record<string, unknown>)
+      : {};
+  const { data: duplicate, error } = await supabase
+    .from("children")
+    .insert({
+      daycare_id: profile.daycare_id,
+      classroom_id: source.classroom_id,
+      first_name: `${source.first_name} copy`,
+      last_name: source.last_name,
+      date_of_birth: source.date_of_birth,
+      setup_state: {
+        basics: true,
+        photo: false,
+        medical: false,
+        emergency: false,
+        parents: false,
+        ...(sourceSetup.weekly_schedule ? { weekly_schedule: sourceSetup.weekly_schedule } : {}),
+      } as unknown as Json,
+    })
+    .select("id")
+    .single();
+  if (error || !duplicate) redirect("/children");
+
+  revalidatePath("/children");
+  redirect(`/children/${duplicate.id}?edit=1`);
+}
+
 export async function addPickupAction(
   _prev: ChildActionState,
   formData: FormData,
@@ -174,6 +260,128 @@ export async function removePickupAction(formData: FormData): Promise<void> {
   const supabase = await getServerSupabase();
   const childId = str(formData, "child_id");
   await removePickup(supabase, str(formData, "pickup_id"));
+  revalidatePath(`/children/${childId}`);
+}
+
+export async function saveMedicationAction(
+  _prev: ChildActionState,
+  formData: FormData,
+): Promise<ChildActionState> {
+  const supabase = await getServerSupabase();
+  const profile = await getMyProfile(supabase);
+  if (!profile?.daycare_id) return { error: "No center on your profile." };
+  const childId = str(formData, "child_id");
+  const name = str(formData, "name");
+  const dosage = str(formData, "dosage");
+  if (!name || !dosage) return { error: "Medication name and dosage are required." };
+
+  try {
+    await saveMedicationAuthorization(supabase, {
+      id: str(formData, "medication_id") || undefined,
+      daycare_id: profile.daycare_id,
+      child_id: childId,
+      parent_id: str(formData, "parent_id") || null,
+      name,
+      dosage,
+      schedule: str(formData, "schedule") || null,
+      notes: str(formData, "notes") || null,
+      active: str(formData, "status") === "active",
+    });
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Could not save the medication." };
+  }
+
+  revalidatePath(`/children/${childId}`);
+  revalidatePath("/children");
+  return { ok: true };
+}
+
+export async function uploadChildDocumentAction(
+  _prev: ChildActionState,
+  formData: FormData,
+): Promise<ChildActionState> {
+  const supabase = await getServerSupabase();
+  const profile = await getMyProfile(supabase);
+  if (!profile?.daycare_id) return { error: "No center on your profile." };
+  const childId = str(formData, "child_id");
+  const category = str(formData, "category").replace(/[^a-z0-9_-]/gi, "_");
+  const title = str(formData, "title");
+  const file = formData.get("file");
+  if (!childId || !category || !title || !(file instanceof File) || file.size === 0) {
+    return { error: "Choose a document to upload." };
+  }
+  if (file.size > 10 * 1024 * 1024) return { error: "Documents must be 10 MB or smaller." };
+  if (file.type !== "application/pdf" && !file.type.startsWith("image/")) {
+    return { error: "Upload a PDF or image document." };
+  }
+
+  const extension = file.name.split(".").pop()?.toLowerCase().replace(/[^a-z0-9]/g, "") || "pdf";
+  const path = `${childId}/${category}-${crypto.randomUUID()}.${extension}`;
+  const { error: uploadError } = await supabase.storage.from("documents").upload(path, file, {
+    contentType: file.type,
+    upsert: false,
+  });
+  if (uploadError) return { error: uploadError.message };
+
+  const archivedAt = new Date().toISOString();
+  const { error: archiveError } = await supabase
+    .from("documents")
+    .update({ archived_at: archivedAt })
+    .eq("child_id", childId)
+    .eq("category", category)
+    .is("archived_at", null);
+  if (archiveError) {
+    await supabase.storage.from("documents").remove([path]);
+    return { error: archiveError.message };
+  }
+
+  const { error: documentError } = await supabase.from("documents").insert({
+    daycare_id: profile.daycare_id,
+    child_id: childId,
+    title,
+    category,
+    storage_path: path,
+    mime_type: file.type,
+    size_bytes: file.size,
+    uploaded_by: profile.id,
+  });
+  if (documentError) {
+    await supabase.storage.from("documents").remove([path]);
+    return { error: documentError.message };
+  }
+
+  revalidatePath(`/children/${childId}`);
+  return { ok: true };
+}
+
+export async function resendParentInviteAction(formData: FormData): Promise<void> {
+  const supabase = await getServerSupabase();
+  const profile = await getMyProfile(supabase);
+  if (!profile?.daycare_id) return;
+  const childId = str(formData, "child_id");
+  const inviteId = str(formData, "invite_id");
+  const { data: invite } = await supabase
+    .from("child_invite_codes")
+    .select("email, code")
+    .eq("id", inviteId)
+    .eq("child_id", childId)
+    .is("used_at", null)
+    .single();
+  if (!invite?.email) return;
+
+  await supabase
+    .from("child_invite_codes")
+    .update({ expires_at: new Date(Date.now() + 14 * 86400000).toISOString() })
+    .eq("id", inviteId);
+  await enqueueEmailNotification(supabase, {
+    daycareId: profile.daycare_id,
+    recipientEmail: invite.email,
+    kind: "parent_invite",
+    title: "Reminder: link to your child's DailyLog",
+    body: `Enter this one-time code in the DailyLog parent app: ${invite.code}`,
+    payload: { type: "parent_invite", inviteCode: invite.code, childId },
+    dedupeKey: `parent-invite-reminder:${inviteId}:${new Date().toISOString().slice(0, 10)}`,
+  });
   revalidatePath(`/children/${childId}`);
 }
 

@@ -21,7 +21,7 @@ export interface InvoiceRow {
   total_cents: number;
   family: { id: string; display_name: string } | null;
   child: { id: string; first_name: string; last_name: string } | null;
-  billed_to_profile: { id: string; full_name: string } | null;
+  billed_to_profile: { id: string; full_name: string; email: string } | null;
   lines: { id: string; description: string; quantity: number; amount_cents: number }[];
   payments: { id: string; amount_cents: number; method: string | null; paid_at: string | null }[];
 }
@@ -29,7 +29,7 @@ export interface InvoiceRow {
 const INVOICE_SELECT = `id, number, status, issued_on, due_on, total_cents,
   family:families(id, display_name),
   child:children(id, first_name, last_name),
-  billed_to_profile:profiles!invoices_billed_to_fkey(id, full_name),
+  billed_to_profile:profiles!invoices_billed_to_fkey(id, full_name, email),
   lines:invoice_lines(id, description, quantity, amount_cents),
   payments:payments!payments_invoice_id_fkey(id, amount_cents, method, paid_at)`;
 

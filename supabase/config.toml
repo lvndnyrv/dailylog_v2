@@ -14,7 +14,7 @@ major_version = 15
 
 [db.seed]
 enabled = true
-sql_paths = ["./seed.sql", "./seeds/rooms_ratios_demo.sql", "./seeds/enrollment_waitlist_demo.sql", "./seeds/staff_delegations_demo.sql", "./seeds/notifications_group15_demo.sql"]
+sql_paths = ["./seed.sql", "./seeds/rooms_ratios_demo.sql", "./seeds/enrollment_waitlist_demo.sql", "./seeds/staff_delegations_demo.sql", "./seeds/notifications_group15_demo.sql", "./seeds/children_group20_demo.sql", "./seeds/children_group19_demo.sql", "./seeds/menus_group18_demo.sql"]
 
 [studio]
 enabled = true

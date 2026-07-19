@@ -1,7 +1,7 @@
 "use client";
 
-import type { ChildPickup, PendingParentInvite, Tables } from "@dailylog/db";
-import { childSetupChecklist, formatAge } from "@dailylog/shared";
+import type { ChildDocument, ChildPickup, PendingParentInvite, Tables } from "@dailylog/db";
+import { childSetupChecklist, CONSENT_KINDS, formatAge } from "@dailylog/shared";
 import Link from "next/link";
 import { useState } from "react";
 import { Avatar } from "@/components/ui/avatar";
@@ -9,6 +9,7 @@ import { EditChildModal } from "./edit-child-modal";
 import { PickupModal } from "./pickup-modal";
 import { InviteParentModal } from "./invite-parent-modal";
 import { SetupPanel } from "./setup-panel";
+import { RowMenu } from "./row-menu";
 import { removePickupAction } from "@/lib/children/actions";
 
 type Guardian = {
@@ -66,14 +67,24 @@ function bandLabel(min: number | null, max: number | null): string | null {
 
 type Medication = {
   id: string;
+  parent_id: string | null;
   name: string;
   dosage: string;
   schedule: string | null;
+  notes: string | null;
   active: boolean;
   parent: { full_name: string } | null;
 };
 
 type Consent = { id: string; kind: string; version: string; granted: boolean };
+type EditSection = "Details" | "Medical" | "Medications" | "Family & pickups";
+
+function formatDateOnly(value: string, options: Intl.DateTimeFormatOptions): string {
+  return new Date(`${value}T00:00:00Z`).toLocaleDateString("en-CA", {
+    ...options,
+    timeZone: "UTC",
+  });
+}
 
 const card = "rounded-2xl border border-[rgba(23,51,91,.1)] bg-card p-[18px]";
 const cardTitle = "text-[14px] font-extrabold text-ink";
@@ -84,21 +95,30 @@ export function ChildProfileView({
   pickups,
   medications,
   consents,
+  documents,
   pendingInvites,
   classrooms,
+  photoUrl,
   openEdit,
 }: {
   child: Child;
   pickups: ChildPickup[];
   medications: Medication[];
   consents: Consent[];
+  documents: ChildDocument[];
   pendingInvites: PendingParentInvite[];
   classrooms: { id: string; name: string }[];
+  photoUrl: string | null;
   openEdit: boolean;
 }) {
   const [modal, setModal] = useState<"none" | "edit" | "pickup" | "invite" | "setup">(
     openEdit ? "edit" : "none",
   );
+  const [editSection, setEditSection] = useState<EditSection>("Details");
+  const openEditor = (section: EditSection = "Details") => {
+    setEditSection(section);
+    setModal("edit");
+  };
 
   const name = `${child.first_name} ${child.last_name}`;
   const setup = childSetupChecklist({
@@ -110,11 +130,11 @@ export function ChildProfileView({
   const meta = [
     child.classroom?.name,
     child.date_of_birth
-      ? `born ${new Date(child.date_of_birth).toLocaleDateString("en-CA", { month: "short", day: "numeric", year: "numeric" })}`
+      ? `born ${formatDateOnly(child.date_of_birth, { month: "short", day: "numeric", year: "numeric" })}`
       : null,
     child.date_of_birth ? formatAge(child.date_of_birth) : null,
     child.enrolled_on
-      ? `enrolled ${new Date(child.enrolled_on).toLocaleDateString("en-CA", { month: "short", year: "numeric" })}`
+      ? `enrolled ${formatDateOnly(child.enrolled_on, { month: "short", year: "numeric" })}`
       : null,
   ]
     .filter(Boolean)
@@ -130,7 +150,7 @@ export function ChildProfileView({
         >
           <span aria-hidden>‹</span> Children
         </Link>
-        <Avatar name={name} size={44} />
+        <Avatar name={name} src={photoUrl} size={44} />
         <span className="min-w-0">
           <span className="block text-[20px] font-extrabold text-ink">{name}</span>
           <span className="block text-[12.5px] text-muted">{meta}</span>
@@ -144,11 +164,12 @@ export function ChildProfileView({
         </Link>
         <button
           type="button"
-          onClick={() => setModal("edit")}
-          className="rounded-btn bg-primary px-[18px] py-2.5 text-[13px] font-bold text-white hover:bg-primary-hover"
+          onClick={() => openEditor()}
+          className="rounded-btn border-[1.5px] border-[#D6E1F0] bg-card px-[18px] py-2.5 text-[13px] font-bold text-ink hover:bg-canvas"
         >
           Edit profile
         </button>
+        <RowMenu childId={child.id} childName={name} presentation="profile" />
       </div>
 
       <main className="grid flex-1 grid-cols-[1.6fr_1fr] items-start gap-4 p-7">
@@ -156,12 +177,26 @@ export function ChildProfileView({
         <div className="flex min-w-0 flex-col gap-4">
           {setup.incomplete > 0 && (
             <div className="flex items-center gap-3.5 rounded-2xl border border-[#F0E2C4] bg-warning-bg px-[18px] py-3.5">
-              <ProgressRing percent={setup.percent} />
+              <button
+                type="button"
+                onClick={() => setModal("setup")}
+                aria-label={`Review profile setup, ${setup.percent}% complete`}
+                className="rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+              >
+                <ProgressRing percent={setup.percent} />
+              </button>
               <span className="min-w-0 flex-1">
                 <span className="block text-[13px] font-extrabold text-ink">
                   Profile setup incomplete — {setup.items.filter((i) => i.done).length} of{" "}
                   {setup.items.length} sections
                 </span>
+                <button
+                  type="button"
+                  onClick={() => setModal("setup")}
+                  className="mt-1 text-[11.5px] font-bold text-warning-text underline-offset-2 hover:underline"
+                >
+                  Review setup checklist
+                </button>
                 <span className="block text-[11.5px] leading-normal text-warning-text">
                   Educators see a &ldquo;Profile incomplete&rdquo; flag on this child until
                   these are filled.
@@ -174,7 +209,17 @@ export function ChildProfileView({
                     <button
                       key={item.key}
                       type="button"
-                      onClick={() => setModal(item.key === "parents" ? "invite" : "edit")}
+                      onClick={() =>
+                        item.key === "parents"
+                          ? setModal("invite")
+                          : openEditor(
+                              item.key === "medical"
+                                ? "Medical"
+                                : item.key === "emergency"
+                                  ? "Family & pickups"
+                                  : "Details",
+                            )
+                      }
                       className="whitespace-nowrap rounded-full border-[1.5px] border-[#F0E2C4] bg-card px-3 py-1.5 text-[11.5px] font-bold text-warning-text hover:bg-white"
                     >
                       {item.label}
@@ -201,7 +246,7 @@ export function ChildProfileView({
               <span className="flex-1" />
               <button
                 type="button"
-                onClick={() => setModal("edit")}
+                onClick={() => openEditor("Medical")}
                 className="text-[12.5px] font-bold text-primary hover:text-primary-hover"
               >
                 Edit
@@ -215,12 +260,12 @@ export function ChildProfileView({
                   className="flex items-center gap-1.5 rounded-full border border-[#EFC9C9] bg-danger-bg px-2.5 py-1 text-[11.5px] font-bold text-danger"
                 >
                   <span aria-hidden>⚠</span>
-                  {a}
+                  {a}{isSevere(child.medical_notes) ? " · severe" : ""}
                 </span>
               ))}
               <button
                 type="button"
-                onClick={() => setModal("edit")}
+                onClick={() => openEditor("Medical")}
                 className="rounded-full border-[1.5px] border-dashed border-[#D6E1F0] px-2.5 py-1 text-[11.5px] font-semibold text-muted hover:bg-canvas"
               >
                 + Add allergy
@@ -241,9 +286,8 @@ export function ChildProfileView({
               <span className="flex-1" />
               <button
                 type="button"
-                disabled
-                title="Parents authorize medications from their app — you'll see them here"
-                className="cursor-default text-[12.5px] font-bold text-faint"
+                onClick={() => openEditor("Medications")}
+                className="text-[12.5px] font-bold text-primary hover:text-primary-hover"
               >
                 + Authorize
               </button>
@@ -272,7 +316,7 @@ export function ChildProfileView({
                         </span>
                       ) : (
                         <span className="rounded-full bg-canvas px-2.5 py-[3px] text-[11px] font-bold text-faint">
-                          Ended
+                          Consent needed
                         </span>
                       )}
                     </span>
@@ -309,11 +353,20 @@ export function ChildProfileView({
                   <span />
                 </div>
                 {child.guardians
-                  .filter((g) => g.parent && g.pickup_authorized)
+                  .filter(
+                    (g) =>
+                      g.parent &&
+                      g.pickup_authorized &&
+                      !pickups.some(
+                        (pickup) =>
+                          pickup.full_name.toLocaleLowerCase() ===
+                          g.parent!.full_name.toLocaleLowerCase(),
+                      ),
+                  )
                   .map((g) => (
                     <div key={g.parent!.id} className="grid grid-cols-[1.4fr_1fr_.6fr_.8fr_60px] items-center gap-2 border-b border-[#EDF3FB] py-2.5">
                       <span className="flex items-center gap-2">
-                        <Avatar name={g.parent!.full_name} size={26} />
+                    <Avatar name={g.parent!.full_name} size={26} />
                         <span className="text-[12.5px] font-bold text-ink">{g.parent!.full_name}</span>
                       </span>
                       <span className="text-[12.5px] text-muted">{g.relationship ?? "Parent"}</span>
@@ -335,8 +388,8 @@ export function ChildProfileView({
                     <span className="text-[12.5px] text-muted">{p.relationship ?? "—"}</span>
                     <span className="font-mono text-[12px] font-semibold text-ink">{p.pin}</span>
                     <span>
-                      <span className="rounded-full bg-[#E4F3EC] px-2.5 py-[3px] text-[11px] font-bold text-success">
-                        Approved
+                      <span className={`rounded-full px-2.5 py-[3px] text-[11px] font-bold ${p.is_primary ? "bg-[#E7F0FB] text-primary" : "bg-[#E4F3EC] text-success"}`}>
+                        {p.is_primary ? "Primary" : "Approved"}
                       </span>
                     </span>
                     <form action={removePickupAction}>
@@ -399,7 +452,7 @@ export function ChildProfileView({
                       {inv.email ?? "Invite"}
                     </span>
                     <span className="block text-[11.5px] text-muted">
-                      code <span className="font-mono font-semibold">{inv.code}</span> · invite sent
+                      {inv.relationship ?? "Parent"} · invite sent {formatShortDate(inv.created_at)}
                     </span>
                   </span>
                   <span className="rounded-full bg-warning-bg px-2.5 py-[3px] text-[11px] font-bold text-warning-text">
@@ -425,7 +478,7 @@ export function ChildProfileView({
               <span className="flex-1" />
               <button
                 type="button"
-                onClick={() => setModal("edit")}
+                onClick={() => openEditor("Details")}
                 className="text-[12.5px] font-bold text-primary hover:text-primary-hover"
               >
                 Move room
@@ -442,10 +495,10 @@ export function ChildProfileView({
                     ""}
                 </span>
               )}
+              <ScheduleSummary value={child.setup_state} />
             </div>
             <p className="mt-2.5 text-[11.5px] text-faint">
-              Attendance tracks day by day — recurring weekly schedules aren&apos;t
-              built yet.
+              This recurring booking drives attendance expectations and billing.
             </p>
           </section>
 
@@ -453,28 +506,34 @@ export function ChildProfileView({
             <h2 id="consents-h" className={`${cardTitle} mb-3`}>
               Consents &amp; documents
             </h2>
-            {consents.length === 0 ? (
-              <p className="text-[12.5px] text-faint">
-                No consent records yet — parents grant them from their app.
-              </p>
-            ) : (
-              <div className="flex flex-col gap-2">
-                {consents.map((c) => (
-                  <div key={c.id} className="flex items-center gap-2.5">
-                    <span className="flex-1 text-[12.5px] font-semibold text-ink">{c.kind}</span>
-                    {c.granted ? (
-                      <span className="text-[11.5px] font-bold text-success">Signed</span>
-                    ) : (
-                      <span className="text-[11.5px] font-bold text-warning-text">Request</span>
-                    )}
+            <div className="flex flex-col gap-2">
+              {CONSENT_KINDS.map((kind) => {
+                const granted = consents.find((consent) => consent.kind === kind)?.granted ?? false;
+                return (
+                  <div key={kind} className="flex items-center gap-2.5">
+                    <span className="flex-1 text-[12.5px] font-semibold text-ink">{kind}</span>
+                    <span className={`text-[11.5px] font-bold ${granted ? "text-success" : "text-warning-text"}`}>
+                      {granted ? "Signed" : "Request"}
+                    </span>
                   </div>
-                ))}
-              </div>
-            )}
-            <p className="mt-2.5 text-[11.5px] text-faint">
-              File uploads land here with the document vault — next on the
-              compliance roadmap.
-            </p>
+                );
+              })}
+              {documents.map((document) => (
+                <div key={document.id} className="flex items-center gap-2.5 border-t border-[#EDF3FB] pt-2">
+                  <span aria-hidden className="text-faint">▧</span>
+                  <span className="min-w-0 flex-1 truncate text-[12.5px] font-semibold text-ink">
+                    {document.title}
+                  </span>
+                  <Link
+                    href={`/documents/${document.id}`}
+                    target="_blank"
+                    className="text-[11.5px] font-bold text-primary hover:underline"
+                  >
+                    PDF
+                  </Link>
+                </div>
+              ))}
+            </div>
           </section>
         </div>
       </main>
@@ -486,8 +545,11 @@ export function ChildProfileView({
           pickups={pickups}
           medications={medications}
           consents={consents}
+          documents={documents}
           guardians={child.guardians}
           pendingInvites={pendingInvites}
+          photoUrl={photoUrl}
+          initialTab={editSection}
           onClose={() => setModal("none")}
         />
       )}
@@ -499,13 +561,64 @@ export function ChildProfileView({
       )}
       {modal === "setup" && (
         <SetupPanel
-          childName={child.first_name}
+          childName={name}
           roomName={child.classroom?.name ?? null}
+          enrolledOn={child.enrolled_on}
           setup={setup}
-          onFix={(key) => setModal(key === "parents" ? "invite" : "edit")}
+          onFix={(key) =>
+            key === "parents"
+              ? setModal("invite")
+              : openEditor(
+                  key === "medical"
+                    ? "Medical"
+                    : key === "emergency"
+                      ? "Family & pickups"
+                      : "Details",
+                )
+          }
           onClose={() => setModal("none")}
         />
       )}
     </>
+  );
+}
+
+function isSevere(notes: string | null): boolean {
+  return /severe|anaphyla|epipen/i.test(notes ?? "");
+}
+
+function formatShortDate(value: string | null): string {
+  if (!value) return "recently";
+  return new Date(value).toLocaleDateString("en-CA", { month: "short", day: "numeric" });
+}
+
+function ScheduleSummary({ value }: { value: unknown }) {
+  const profileState = value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+  const schedule = profileState.weekly_schedule && typeof profileState.weekly_schedule === "object" && !Array.isArray(profileState.weekly_schedule)
+    ? (profileState.weekly_schedule as Record<string, unknown>)
+    : {};
+  const days = [
+    ["mon", "M"],
+    ["tue", "T"],
+    ["wed", "W"],
+    ["thu", "T"],
+    ["fri", "F"],
+  ] as const;
+  return (
+    <div className="mt-3 grid grid-cols-5 gap-1.5" aria-label="Weekly schedule">
+      {days.map(([key, label]) => {
+        const status = schedule[key] === "full" || schedule[key] === "half" ? schedule[key] : "off";
+        return (
+          <span key={key} className="text-center">
+            <span className="block text-[9px] font-bold text-faint">{label}</span>
+            <span className={`mt-0.5 block rounded-md py-1 text-[9.5px] font-bold capitalize ${status === "off" ? "border border-[#D6E1F0] bg-card text-faint" : "bg-primary text-white"}`}>
+              {status}
+            </span>
+          </span>
+        );
+      })}
+    </div>
   );
 }

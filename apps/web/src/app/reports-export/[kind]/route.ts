@@ -4,6 +4,7 @@ import {
   hasPermission,
   listAttendanceDay,
   listInvoices,
+  listMedicalRegister,
   listRoster,
   listStaffTimeEntries,
 } from "@dailylog/db/queries";
@@ -27,6 +28,20 @@ function csv(rows: string[][]): string {
         .join(","),
     )
     .join("\n");
+}
+
+function emergencyContactSummary(value: unknown): string {
+  if (!Array.isArray(value)) return "";
+  return value
+    .map((contact) => {
+      if (!contact || typeof contact !== "object") return "";
+      const row = contact as Record<string, unknown>;
+      return [row.name, row.relation, row.phone]
+        .filter((part): part is string => typeof part === "string" && part.length > 0)
+        .join(" · ");
+    })
+    .filter(Boolean)
+    .join("; ");
 }
 
 export async function GET(
@@ -129,11 +144,51 @@ export async function GET(
       ]),
     ];
     name = "children-roster.csv";
+  } else if (kind === "children-medical") {
+    const register = await listMedicalRegister(supabase);
+    const flagged = register.filter(
+      (child) =>
+        (child.allergies?.length ?? 0) > 0 ||
+        child.medical_notes ||
+        child.medications.length > 0,
+    );
+    rows = [
+      [
+        "Child",
+        "Room",
+        "Allergies",
+        "Medical notes",
+        "Medications",
+        "Authorization status",
+        "Emergency contacts",
+      ],
+      ...flagged.map((child) => [
+        `${child.first_name} ${child.last_name}`,
+        child.classroom?.name ?? "",
+        (child.allergies ?? []).join("; "),
+        child.medical_notes ?? "",
+        child.medications.map((medication) => medication.name).join("; "),
+        child.medications.some((medication) => !medication.active)
+          ? "Consent needed"
+          : "Complete",
+        emergencyContactSummary(child.emergency_contacts),
+      ]),
+    ];
+    name = "children-medical-register.csv";
   } else if (kind === "invoices") {
     const invoices = await listInvoices(supabase);
+    const requestedIds = new Set(
+      (url.searchParams.get("ids") ?? "")
+        .split(",")
+        .map((id) => id.trim())
+        .filter(Boolean),
+    );
+    const selectedInvoices = requestedIds.size
+      ? invoices.filter((invoice) => requestedIds.has(invoice.id))
+      : invoices;
     rows = [
       ["Number", "Family", "Child", "Status", "Issued", "Due", "Total"],
-      ...invoices.map((invoice) => [
+      ...selectedInvoices.map((invoice) => [
         invoice.number ?? "",
         invoice.family?.display_name ?? invoice.billed_to_profile?.full_name ?? "",
         invoice.child ? `${invoice.child.first_name} ${invoice.child.last_name}` : "",

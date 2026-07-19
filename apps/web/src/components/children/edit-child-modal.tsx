@@ -1,6 +1,6 @@
 "use client";
 
-import type { ChildPickup, PendingParentInvite, Tables } from "@dailylog/db";
+import type { ChildDocument, ChildPickup, PendingParentInvite, Tables } from "@dailylog/db";
 import { CONSENT_KINDS, type EmergencyContact } from "@dailylog/shared";
 import { useActionState, useEffect, useRef, useState } from "react";
 import { Avatar } from "@/components/ui/avatar";
@@ -9,8 +9,11 @@ import {
   archiveChildAction,
   inviteParentAction,
   removePickupAction,
+  resendParentInviteAction,
+  saveMedicationAction,
   setConsentAction,
   unlinkParentAction,
+  uploadChildDocumentAction,
   updateChildAction,
   type ChildActionState,
 } from "@/lib/children/actions";
@@ -23,9 +26,11 @@ type Guardian = {
 
 type Medication = {
   id: string;
+  parent_id: string | null;
   name: string;
   dosage: string;
   schedule: string | null;
+  notes: string | null;
   active: boolean;
   parent: { full_name: string } | null;
 };
@@ -34,6 +39,22 @@ type Consent = { id: string; kind: string; granted: boolean };
 
 const TABS = ["Details", "Medical", "Medications", "Family & pickups", "Consents"] as const;
 type Tab = (typeof TABS)[number];
+const WEEKDAYS = ["mon", "tue", "wed", "thu", "fri"] as const;
+type Weekday = (typeof WEEKDAYS)[number];
+type ScheduleValue = "full" | "half" | "off";
+
+function readSchedule(value: unknown): Record<Weekday, ScheduleValue> {
+  const source = value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+  return Object.fromEntries(
+    WEEKDAYS.map((day) => [day, source[day] === "full" || source[day] === "half" ? source[day] : "off"]),
+  ) as Record<Weekday, ScheduleValue>;
+}
+
+function nextSchedule(value: ScheduleValue): ScheduleValue {
+  return value === "full" ? "half" : value === "half" ? "off" : "full";
+}
 
 const FORM_ID = "edit-child-record";
 const label = "text-[13px] font-bold text-ink";
@@ -50,8 +71,11 @@ export function EditChildModal({
   pickups,
   medications,
   consents,
+  documents,
   guardians,
   pendingInvites,
+  photoUrl,
+  initialTab,
   onClose,
 }: {
   child: Tables<"children">;
@@ -59,12 +83,24 @@ export function EditChildModal({
   pickups: ChildPickup[];
   medications: Medication[];
   consents: Consent[];
+  documents: ChildDocument[];
   guardians: Guardian[];
   pendingInvites: PendingParentInvite[];
+  photoUrl: string | null;
+  initialTab: Tab;
   onClose: () => void;
 }) {
-  const [tab, setTab] = useState<Tab>("Details");
+  const [tab, setTab] = useState<Tab>(initialTab);
   const [room, setRoom] = useState(child.classroom_id ?? "");
+  const [removePhoto, setRemovePhoto] = useState(false);
+  const [schedule, setSchedule] = useState<Record<Weekday, ScheduleValue>>(
+    readSchedule(
+      child.setup_state && typeof child.setup_state === "object" && !Array.isArray(child.setup_state)
+        ? (child.setup_state as Record<string, unknown>).weekly_schedule
+        : null,
+    ),
+  );
+  const [editingMedication, setEditingMedication] = useState<Medication | "new" | null>(null);
   const [state, action, pending] = useActionState<ChildActionState, FormData>(
     updateChildAction,
     {},
@@ -128,11 +164,13 @@ export function EditChildModal({
         </div>
 
         {/* Tabs */}
-        <div className="flex items-center gap-5 border-b border-[#EDF3FB] px-6">
+        <div className="flex items-center gap-5 border-b border-[#EDF3FB] px-6" role="tablist" aria-label="Edit child sections">
           {TABS.map((t) => (
             <button
               key={t}
               type="button"
+              role="tab"
+              aria-selected={tab === t}
               onClick={() => setTab(t)}
               className={`border-b-[2.5px] py-3 text-[13px] ${
                 tab === t
@@ -151,26 +189,37 @@ export function EditChildModal({
           <form id={FORM_ID} action={action} className="flex flex-col gap-5">
             <input type="hidden" name="child_id" value={child.id} />
             <input type="hidden" name="classroom_id" value={room} />
+            <input type="hidden" name="existing_photo_url" value={child.photo_url ?? ""} />
+            <input type="hidden" name="remove_photo" value={removePhoto.toString()} />
+            {WEEKDAYS.map((day) => (
+              <input key={day} type="hidden" name={`schedule_${day}`} value={schedule[day]} />
+            ))}
 
             {/* DETAILS */}
             <div className={`flex flex-col gap-4 ${shown("Details")}`}>
               <div className="flex items-center gap-3.5">
-                <Avatar name={name} size={56} />
+                <Avatar name={name} src={removePhoto ? null : photoUrl} size={64} />
                 <span className="min-w-0 flex-1">
                   <span className="block text-[13px] font-bold text-ink">Profile photo</span>
                   <span className="block text-[11.5px] leading-normal text-muted">
                     Shown to educators at check-in and pickup. Square image, at least 240px.
                   </span>
                   <span className="mt-1.5 flex items-center gap-3">
+                    <label className="cursor-pointer rounded-btn bg-tint px-3 py-1.5 text-[12px] font-bold text-primary hover:bg-[#D9E8FA]">
+                      Upload photo
+                      <input
+                        type="file"
+                        name="photo"
+                        accept="image/*"
+                        className="sr-only"
+                        onChange={() => setRemovePhoto(false)}
+                      />
+                    </label>
                     <button
                       type="button"
-                      disabled
-                      title="Photo upload arrives with the storage/document work"
-                      className="rounded-btn bg-tint px-3 py-1.5 text-[12px] font-bold text-primary/60"
+                      onClick={() => setRemovePhoto(true)}
+                      className="text-[12px] font-semibold text-faint hover:text-danger"
                     >
-                      Upload photo
-                    </button>
-                    <button type="button" disabled className="text-[12px] font-semibold text-faint">
                       Remove
                     </button>
                   </span>
@@ -232,22 +281,34 @@ export function EditChildModal({
                 ))}
               </div>
               <div className="rounded-[13px] bg-canvas px-3.5 py-3">
-                <div className="flex gap-1.5">
-                  {["MON", "TUE", "WED", "THU", "FRI"].map((d) => (
-                    <span
-                      key={d}
-                      className="flex-1 rounded-lg border border-[#E4ECF6] bg-card py-1.5 text-center"
-                    >
-                      <span className="block text-[9.5px] font-bold tracking-[.06em] text-faint">
-                        {d}
+                <div className="grid grid-cols-5 gap-2">
+                  {WEEKDAYS.map((day) => {
+                    const value = schedule[day];
+                    return (
+                      <span key={day} className="text-center">
+                        <span className="mb-1 block text-[9.5px] font-bold tracking-[.06em] text-faint">
+                          {day.toUpperCase()}
+                        </span>
+                        <button
+                          type="button"
+                          aria-label={`${day} schedule: ${value}. Click to change.`}
+                          onClick={() => setSchedule((current) => ({ ...current, [day]: nextSchedule(current[day]) }))}
+                          className={`w-full rounded-lg py-2 text-[11px] font-bold capitalize ${
+                            value === "off"
+                              ? "border-[1.5px] border-[#D6E1F0] bg-card text-faint"
+                              : value === "half"
+                                ? "bg-[#E7F0FB] text-primary"
+                                : "bg-primary text-white"
+                          }`}
+                        >
+                          {value}
+                        </button>
                       </span>
-                      <span className="block text-[11px] font-semibold text-faint">—</span>
-                    </span>
-                  ))}
+                    );
+                  })}
                 </div>
                 <p className="mt-2 text-[11px] text-faint">
-                  Recurring weekly schedules aren&apos;t built yet — attendance is tracked day
-                  by day.
+                  Select a day to cycle Full · Half · Off. The schedule drives attendance expectations and billing.
                 </p>
               </div>
             </div>
@@ -339,13 +400,20 @@ export function EditChildModal({
                 <span className="flex-1" />
                 <button
                   type="button"
-                  disabled
-                  title="Parents authorize medications from their app — they appear here"
-                  className="cursor-default text-[12.5px] font-bold text-faint"
+                  onClick={() => setEditingMedication("new")}
+                  className="text-[12.5px] font-bold text-primary hover:text-primary-hover"
                 >
                   + Authorize medication
                 </button>
               </div>
+              {editingMedication && (
+                <MedicationEditor
+                  childId={child.id}
+                  medication={editingMedication === "new" ? null : editingMedication}
+                  guardians={guardians}
+                  onCancel={() => setEditingMedication(null)}
+                />
+              )}
               {medications.length === 0 ? (
                 <p className="text-[12.5px] text-faint">None on file.</p>
               ) : (
@@ -371,6 +439,13 @@ export function EditChildModal({
                     >
                       {m.active ? "Active" : "Consent needed"}
                     </span>
+                    <button
+                      type="button"
+                      onClick={() => setEditingMedication(m)}
+                      className="text-[12px] font-bold text-primary hover:underline"
+                    >
+                      Edit
+                    </button>
                   </div>
                 ))
               )}
@@ -420,19 +495,20 @@ export function EditChildModal({
                 );
               })}
               <div className="mt-1 flex flex-col gap-2">
-                {["Immunization record", "Enrollment agreement"].map((doc) => (
-                  <div
-                    key={doc}
-                    className="flex items-center gap-3 rounded-[14px] border-[1.5px] border-[#EDF3FB] px-3.5 py-3"
-                  >
-                    <span className="flex-1 text-[13px] font-semibold text-ink">{doc}</span>
-                    <button type="button" disabled className="text-[12px] font-bold text-faint">
-                      Replace
-                    </button>
-                  </div>
-                ))}
+                <DocumentUploadRow
+                  childId={child.id}
+                  title="Immunization record"
+                  category="immunization_record"
+                  document={documents.find((document) => document.category === "immunization_record")}
+                />
+                <DocumentUploadRow
+                  childId={child.id}
+                  title="Enrollment agreement"
+                  category="enrollment_agreement"
+                  document={documents.find((document) => document.category === "enrollment_agreement")}
+                />
                 <p className="text-[11px] text-faint">
-                  Document uploads land here with the vault — next on the compliance roadmap.
+                  PDF and image uploads are stored in the center&apos;s private document vault.
                   Parents grant consents from their app; toggling here overrides for the record.
                 </p>
               </div>
@@ -485,6 +561,109 @@ export function EditChildModal({
         </div>
       </div>
     </div>
+  );
+}
+
+function MedicationEditor({
+  childId,
+  medication,
+  guardians,
+  onCancel,
+}: {
+  childId: string;
+  medication: Medication | null;
+  guardians: Guardian[];
+  onCancel: () => void;
+}) {
+  const [state, action, pending] = useActionState<ChildActionState, FormData>(
+    saveMedicationAction,
+    {},
+  );
+  return (
+    <form action={action} className="flex flex-col gap-3 rounded-[14px] border-[1.5px] border-[#D6E1F0] bg-canvas p-4">
+      <input type="hidden" name="child_id" value={childId} />
+      <input type="hidden" name="medication_id" value={medication?.id ?? ""} />
+      <div className="grid grid-cols-2 gap-2.5">
+        <input name="name" required defaultValue={medication?.name ?? ""} placeholder="Medication name" className={input} />
+        <input name="dosage" required defaultValue={medication?.dosage ?? ""} placeholder="Dosage" className={input} />
+        <input name="schedule" defaultValue={medication?.schedule ?? ""} placeholder="Schedule" className={input} />
+        <select name="status" defaultValue={medication?.active === false ? "consent" : "active"} className={input}>
+          <option value="active">Active</option>
+          <option value="consent">Consent needed</option>
+        </select>
+        <select name="parent_id" defaultValue={medication?.parent_id ?? ""} className={`${input} col-span-2`}>
+          <option value="">No parent authorization yet</option>
+          {guardians.filter((guardian) => guardian.parent).map((guardian) => (
+            <option key={guardian.parent!.id} value={guardian.parent!.id}>
+              Authorized by {guardian.parent!.full_name}
+            </option>
+          ))}
+        </select>
+        <textarea
+          name="notes"
+          defaultValue={medication?.notes ?? ""}
+          placeholder="Administration notes"
+          rows={2}
+          className={`${input} col-span-2`}
+        />
+      </div>
+      {state.error && <p className="text-[11.5px] font-semibold text-danger">{state.error}</p>}
+      {state.ok && <p className="text-[11.5px] font-semibold text-success">Medication saved.</p>}
+      <div className="flex justify-end gap-2">
+        <button type="button" onClick={onCancel} className="rounded-btn px-3.5 py-2 text-[12px] font-bold text-muted">
+          Cancel
+        </button>
+        <button type="submit" disabled={pending} className="rounded-btn bg-primary px-4 py-2 text-[12px] font-bold text-white hover:bg-primary-hover disabled:opacity-60">
+          {pending ? "Saving…" : "Save medication"}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function DocumentUploadRow({
+  childId,
+  title,
+  category,
+  document,
+}: {
+  childId: string;
+  title: string;
+  category: string;
+  document?: ChildDocument;
+}) {
+  const [state, action, pending] = useActionState<ChildActionState, FormData>(
+    uploadChildDocumentAction,
+    {},
+  );
+  return (
+    <form action={action} className="flex items-center gap-3 rounded-[14px] border-[1.5px] border-[#EDF3FB] px-3.5 py-3">
+      <input type="hidden" name="child_id" value={childId} />
+      <input type="hidden" name="title" value={title} />
+      <input type="hidden" name="category" value={category} />
+      <span aria-hidden className="text-faint">▧</span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-[13px] font-semibold text-ink">{title}</span>
+        {state.error && <span className="block text-[10.5px] font-semibold text-danger">{state.error}</span>}
+        {state.ok && <span className="block text-[10.5px] font-semibold text-success">Uploaded</span>}
+      </span>
+      {document && (
+        <a href={`/documents/${document.id}`} target="_blank" className="text-[12px] font-bold text-primary hover:underline">
+          View
+        </a>
+      )}
+      <label className="cursor-pointer text-[12px] font-bold text-primary hover:underline">
+        {pending ? "Uploading…" : document ? "Replace" : "Upload"}
+        <input
+          type="file"
+          name="file"
+          accept="application/pdf,image/*"
+          disabled={pending}
+          className="sr-only"
+          onChange={(event) => event.currentTarget.form?.requestSubmit()}
+        />
+      </label>
+    </form>
   );
 }
 
@@ -555,13 +734,19 @@ function LinkedParents({
               {inv.email ?? "Invite"}
             </span>
             <span className="block text-[11.5px] text-muted">
-              {inv.relationship ?? "Parent"} · code{" "}
-              <span className="font-mono font-semibold">{inv.code}</span>
+              {inv.relationship ?? "Parent"} · invite sent
             </span>
           </span>
           <span className="rounded-full bg-warning-bg px-2.5 py-[3px] text-[11px] font-bold text-warning-text">
             Pending
           </span>
+          <form action={resendParentInviteAction}>
+            <input type="hidden" name="child_id" value={childId} />
+            <input type="hidden" name="invite_id" value={inv.id} />
+            <button type="submit" className="text-[11.5px] font-bold text-primary hover:underline">
+              Resend
+            </button>
+          </form>
         </div>
       ))}
 

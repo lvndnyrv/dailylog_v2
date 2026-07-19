@@ -4,6 +4,7 @@ import {
   getMyProfile,
   listMyNotificationPreferences,
   listMyNotifications,
+  listMyDaycareLocations,
 } from "@dailylog/db/queries";
 import { isAdminRole } from "@dailylog/shared";
 import { redirect } from "next/navigation";
@@ -36,8 +37,9 @@ export default async function ShellLayout({ children }: { children: React.ReactN
   if (!isAdminRole(profile?.role)) redirect("/use-the-app");
   if (!profile) redirect("/sign-in");
 
-  const [daycare, badges, notifications, notificationPreferences, deliverySettings] = await Promise.all([
+  const [daycare, locations, badges, notifications, notificationPreferences, deliverySettings] = await Promise.all([
     getMyDaycare(supabase),
+    listMyDaycareLocations(supabase).catch(() => []),
     getNavBadges(supabase),
     listMyNotifications(supabase),
     // Keep the shell usable during rolling deploys where the web bundle lands
@@ -55,7 +57,8 @@ export default async function ShellLayout({ children }: { children: React.ReactN
     >
       <div className="flex min-h-screen bg-canvas">
         <Sidebar
-          daycareName={daycare?.name ?? "Your center"}
+          daycareName={locations.find((location) => location.is_active)?.group_name ?? daycare?.name ?? "Your center"}
+          locations={locations}
           profile={{
             full_name: profile.full_name,
             display_name: profile.display_name,

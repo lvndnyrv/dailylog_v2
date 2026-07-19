@@ -1,9 +1,10 @@
 "use client";
 
 import type { BillingPlan, BillingSummary, InvoiceRow } from "@dailylog/db/queries";
-import { useState } from "react";
+import { Download, Mail, MoreHorizontal, X } from "lucide-react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { Avatar } from "@/components/ui/avatar";
-import { voidInvoiceAction } from "@/lib/billing/actions";
+import { sendInvoiceRemindersAction, voidInvoiceAction } from "@/lib/billing/actions";
 import { InvoiceModal } from "./invoice-modal";
 import { NewInvoiceModal } from "./new-invoice-modal";
 import { PlanModal } from "./plan-modal";
@@ -44,6 +45,12 @@ export function BillingView({
   const [modal, setModal] = useState<
     "none" | "new" | "plan" | { invoice: InvoiceRow }
   >(openNew ? "new" : "none");
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [lastSelectedIndex, setLastSelectedIndex] = useState<number | null>(null);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [bulkMessage, setBulkMessage] = useState<{ tone: "success" | "error"; text: string } | null>(null);
+  const [reminding, startReminder] = useTransition();
+  const bulkRef = useRef<HTMLDivElement>(null);
 
   const [today] = useState(() => new Date().toISOString().slice(0, 10));
   const isOverdue = (invoice: InvoiceRow) =>
@@ -55,6 +62,55 @@ export function BillingView({
     if (filter === "paid") return invoice.status === "paid";
     return true;
   });
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setSelectedIds(new Set());
+        setLastSelectedIndex(null);
+        setMoreOpen(false);
+        setBulkMessage(null);
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
+
+  useEffect(() => {
+    if (!moreOpen) return;
+    const onPointer = (event: MouseEvent) => {
+      if (bulkRef.current && !bulkRef.current.contains(event.target as Node)) setMoreOpen(false);
+    };
+    document.addEventListener("mousedown", onPointer);
+    return () => document.removeEventListener("mousedown", onPointer);
+  }, [moreOpen]);
+
+  const toggleInvoice = (id: string, index: number, shiftKey: boolean) => {
+    setBulkMessage(null);
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      const shouldSelect = !next.has(id);
+      if (shiftKey && lastSelectedIndex !== null) {
+        const from = Math.min(lastSelectedIndex, index);
+        const to = Math.max(lastSelectedIndex, index);
+        visible.slice(from, to + 1).forEach((invoice) => {
+          if (shouldSelect) next.add(invoice.id);
+          else next.delete(invoice.id);
+        });
+      } else if (shouldSelect) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+    setLastSelectedIndex(index);
+  };
+
+  const allVisibleSelected = visible.length > 0 && visible.every((invoice) => selectedIds.has(invoice.id));
+  const clearSelection = () => {
+    setSelectedIds(new Set());
+    setLastSelectedIndex(null);
+    setMoreOpen(false);
+    setBulkMessage(null);
+  };
 
   const chip = (active: boolean) =>
     `rounded-full px-3 py-1.5 text-xs ${
@@ -155,7 +211,22 @@ export function BillingView({
           </div>
 
           <div className="overflow-hidden rounded-2xl border-[1.5px] border-[#D6E1F0] bg-card">
-            <div className={`grid grid-cols-[.9fr_1.4fr_1.2fr_.8fr_.8fr_1fr_90px] gap-2.5 border-b-[1.5px] border-[#EDF3FB] bg-[#F8FBFE] px-[18px] py-3 ${th}`}>
+            <div className={`grid grid-cols-[34px_.9fr_1.4fr_1.2fr_.8fr_.8fr_1fr_90px] items-center gap-2.5 border-b-[1.5px] border-[#EDF3FB] bg-[#F8FBFE] px-[18px] py-3 ${th}`}>
+              <input
+                type="checkbox"
+                aria-label="Select all visible invoices"
+                checked={allVisibleSelected}
+                onChange={() => {
+                  setBulkMessage(null);
+                  setSelectedIds((current) => {
+                    const next = new Set(current);
+                    if (allVisibleSelected) visible.forEach((invoice) => next.delete(invoice.id));
+                    else visible.forEach((invoice) => next.add(invoice.id));
+                    return next;
+                  });
+                }}
+                className="size-[17px] rounded-[5px] border-[#C3D2E6] accent-[var(--primary)]"
+              />
               <span>NUMBER</span>
               <span>FAMILY</span>
               <span>CHILD</span>
@@ -164,7 +235,7 @@ export function BillingView({
               <span>STATUS</span>
               <span />
             </div>
-            {visible.map((invoice) => {
+            {visible.map((invoice, index) => {
               const overdue = isOverdue(invoice);
               const overdueDays = overdue
                 ? Math.floor(
@@ -173,12 +244,28 @@ export function BillingView({
                   )
                 : 0;
               return (
-                <button
+                <div
                   key={invoice.id}
-                  type="button"
+                  role="button"
+                  tabIndex={0}
                   onClick={() => setModal({ invoice })}
-                  className="grid w-full grid-cols-[.9fr_1.4fr_1.2fr_.8fr_.8fr_1fr_90px] items-center gap-2.5 border-b border-[#EDF3FB] px-[18px] py-3 text-left last:border-b-0 hover:bg-[#F8FBFE]"
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") setModal({ invoice });
+                  }}
+                  className={`grid w-full cursor-pointer grid-cols-[34px_.9fr_1.4fr_1.2fr_.8fr_.8fr_1fr_90px] items-center gap-2.5 border-b border-[#EDF3FB] px-[18px] py-3 text-left last:border-b-0 hover:bg-[#F8FBFE] focus-visible:bg-[#F8FBFE] focus-visible:outline-none ${
+                    selectedIds.has(invoice.id) ? "bg-[#F5F9FE]" : ""
+                  }`}
                 >
+                  <input
+                    type="checkbox"
+                    aria-label={`Select invoice ${invoice.number ?? invoice.id}`}
+                    checked={selectedIds.has(invoice.id)}
+                    onClick={(event) => event.stopPropagation()}
+                    onChange={(event) =>
+                      toggleInvoice(invoice.id, index, event.nativeEvent instanceof MouseEvent && event.nativeEvent.shiftKey)
+                    }
+                    className="size-[17px] rounded-[5px] border-[#C3D2E6] accent-[var(--primary)]"
+                  />
                   <span className="font-mono text-[12px] font-semibold text-ink">
                     {invoice.number}
                   </span>
@@ -229,7 +316,7 @@ export function BillingView({
                   <span className="text-right text-[12px] font-bold text-primary">
                     {invoice.status === "open" ? "Record →" : "View →"}
                   </span>
-                </button>
+                </div>
               );
             })}
             {visible.length === 0 && (
@@ -263,6 +350,72 @@ export function BillingView({
               No plans yet — add your tuition rates.
             </p>
           )}
+        </div>
+      )}
+
+      {selectedIds.size > 0 && tab === "invoices" && (
+        <div
+          ref={bulkRef}
+          className="sticky bottom-4 z-30 mt-auto flex items-center gap-3 rounded-[14px] bg-ink px-4 py-3 text-white"
+          style={{ boxShadow: "0 14px 36px rgba(23,51,91,.28)" }}
+          role="toolbar"
+          aria-label="Bulk invoice actions"
+        >
+          <span className="rounded-full bg-white/15 px-3 py-1 text-[12.5px] font-bold">
+            {selectedIds.size} selected
+          </span>
+          {bulkMessage && (
+            <span className={`text-[11.5px] ${bulkMessage.tone === "error" ? "text-[#FFD0D0]" : "text-[#C9F1DB]"}`}>
+              {bulkMessage.text}
+            </span>
+          )}
+          <span className="flex-1" />
+          <button
+            type="button"
+            disabled={reminding}
+            onClick={() =>
+              startReminder(async () => {
+                const result = await sendInvoiceRemindersAction([...selectedIds]);
+                setBulkMessage(
+                  result.ok
+                    ? { tone: "success", text: `${result.queued} reminder${result.queued === 1 ? "" : "s"} queued` }
+                    : { tone: "error", text: result.error ?? "Could not queue reminders" },
+                );
+              })
+            }
+            className="flex items-center gap-1.5 text-[12.5px] font-bold hover:opacity-80 disabled:opacity-60"
+          >
+            <Mail size={14} strokeWidth={1.8} aria-hidden />
+            {reminding ? "Queuing…" : "Remind"}
+          </button>
+          <span className="h-[18px] w-px bg-white/20" />
+          <a
+            href={`/reports-export/invoices?ids=${encodeURIComponent([...selectedIds].join(","))}`}
+            download
+            className="flex items-center gap-1.5 text-[12.5px] font-bold hover:opacity-80"
+          >
+            <Download size={14} strokeWidth={1.8} aria-hidden /> Export
+          </a>
+          <span className="h-[18px] w-px bg-white/20" />
+          <div className="relative">
+            <button type="button" onClick={() => setMoreOpen((current) => !current)} className="flex items-center gap-1.5 text-[12.5px] font-bold hover:opacity-80" aria-expanded={moreOpen} aria-haspopup="menu">
+              <MoreHorizontal size={14} strokeWidth={1.8} aria-hidden /> More
+            </button>
+            {moreOpen && (
+              <div role="menu" className="absolute bottom-9 right-0 flex w-44 flex-col rounded-xl border border-hairline bg-card p-1.5 text-ink" style={{ boxShadow: "0 12px 32px rgba(23,51,91,.22)" }}>
+                <button type="button" role="menuitem" onClick={() => setModal({ invoice: invoices.find((invoice) => selectedIds.has(invoice.id))! })} className="rounded-lg px-2.5 py-2 text-left text-[12.5px] font-semibold hover:bg-canvas">
+                  Open first selected
+                </button>
+                <button type="button" role="menuitem" onClick={clearSelection} className="rounded-lg px-2.5 py-2 text-left text-[12.5px] font-semibold hover:bg-canvas">
+                  Clear selection
+                </button>
+              </div>
+            )}
+          </div>
+          <span className="h-[18px] w-px bg-white/20" />
+          <button type="button" onClick={clearSelection} aria-label="Clear invoice selection" className="grid size-6 place-items-center rounded-md hover:bg-white/15">
+            <X size={15} strokeWidth={1.8} aria-hidden />
+          </button>
         </div>
       )}
 

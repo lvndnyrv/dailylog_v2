@@ -58,6 +58,29 @@ export interface Database {
         };
         Relationships: [];
       };
+      profile_daycare_memberships: {
+        Row: {
+          profile_id: string;
+          daycare_id: string;
+          group_name: string;
+          location_label: string;
+          color: string;
+          created_at: string;
+        };
+        Insert: {
+          profile_id: string;
+          daycare_id: string;
+          group_name: string;
+          location_label: string;
+          color?: string;
+        };
+        Update: {
+          group_name?: string;
+          location_label?: string;
+          color?: string;
+        };
+        Relationships: [];
+      };
       classrooms: {
         Row: {
           id: string;
@@ -198,6 +221,49 @@ export interface Database {
           emergency_contacts?: Json;
           setup_state?: Json;
           enrolled_on?: string | null;
+          archived_at?: string | null;
+        };
+        Relationships: [];
+      };
+      documents: {
+        Row: {
+          id: string;
+          daycare_id: string;
+          child_id: string | null;
+          profile_id: string | null;
+          title: string;
+          category: string | null;
+          storage_path: string;
+          mime_type: string | null;
+          size_bytes: number | null;
+          expires_on: string | null;
+          uploaded_by: string | null;
+          archived_at: string | null;
+          created_at: string | null;
+          updated_at: string | null;
+        };
+        Insert: {
+          id?: string;
+          daycare_id: string;
+          child_id?: string | null;
+          profile_id?: string | null;
+          title: string;
+          category?: string | null;
+          storage_path: string;
+          mime_type?: string | null;
+          size_bytes?: number | null;
+          expires_on?: string | null;
+          uploaded_by?: string | null;
+          archived_at?: string | null;
+        };
+        Update: {
+          title?: string;
+          category?: string | null;
+          storage_path?: string;
+          mime_type?: string | null;
+          size_bytes?: number | null;
+          expires_on?: string | null;
+          uploaded_by?: string | null;
           archived_at?: string | null;
         };
         Relationships: [];
@@ -623,6 +689,8 @@ export interface Database {
           phone?: string | null;
           pin: string;
           is_primary?: boolean;
+          created_by?: string | null;
+          archived_at?: string | null;
         };
         Update: {
           full_name?: string;
@@ -649,14 +717,16 @@ export interface Database {
           created_at: string | null;
         };
         Insert: {
+          id?: string;
           daycare_id: string;
           child_id: string;
           code: string;
           email?: string | null;
           relationship?: string | null;
+          created_by?: string | null;
           expires_at?: string | null;
         };
-        Update: { used_at?: string | null };
+        Update: { used_at?: string | null; expires_at?: string | null };
         Relationships: [];
       };
       attendance_records: {
@@ -724,6 +794,7 @@ export interface Database {
           updated_at: string | null;
         };
         Insert: {
+          id?: string;
           daycare_id: string;
           child_id: string;
           parent_id?: string | null;
@@ -731,8 +802,17 @@ export interface Database {
           dosage: string;
           schedule?: string | null;
           notes?: string | null;
+          active?: boolean;
         };
-        Update: { active?: boolean; end_date?: string | null };
+        Update: {
+          parent_id?: string | null;
+          name?: string;
+          dosage?: string;
+          schedule?: string | null;
+          notes?: string | null;
+          active?: boolean;
+          end_date?: string | null;
+        };
         Relationships: [];
       };
       conversations: {
@@ -1376,6 +1456,7 @@ export interface Database {
         Insert: {
           daycare_id: string;
           child_id: string;
+          parent_id?: string | null;
           kind: string;
           version?: string;
           granted?: boolean;
@@ -1495,6 +1576,26 @@ export interface Database {
     };
     Views: Record<string, never>;
     Functions: {
+      list_my_daycare_locations: {
+        Args: Record<string, never>;
+        Returns: {
+          id: string;
+          group_name: string;
+          location_label: string;
+          address: string | null;
+          color: string;
+          checked_in_count: number;
+          is_active: boolean;
+        }[];
+      };
+      switch_daycare_location: {
+        Args: { p_daycare_id: string };
+        Returns: undefined;
+      };
+      create_daycare_location: {
+        Args: { p_location_label: string; p_address?: string | null; p_color?: string };
+        Returns: string;
+      };
       get_my_role: { Args: Record<string, never>; Returns: string };
       get_my_daycare_id: { Args: Record<string, never>; Returns: string };
       my_family_ids: { Args: Record<string, never>; Returns: string[] };

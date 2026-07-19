@@ -80,6 +80,40 @@ export async function getMyDaycare(client: Client) {
   return data;
 }
 
+export interface DaycareLocationRow {
+  id: string;
+  group_name: string;
+  location_label: string;
+  address: string | null;
+  color: string;
+  checked_in_count: number;
+  is_active: boolean;
+}
+
+export async function listMyDaycareLocations(client: Client): Promise<DaycareLocationRow[]> {
+  const { data, error } = await client.rpc('list_my_daycare_locations');
+  if (error) throw error;
+  return (data ?? []) as DaycareLocationRow[];
+}
+
+export async function switchDaycareLocation(client: Client, daycareId: string): Promise<void> {
+  const { error } = await client.rpc('switch_daycare_location', { p_daycare_id: daycareId });
+  if (error) throw error;
+}
+
+export async function createDaycareLocation(
+  client: Client,
+  values: { label: string; address?: string | null; color?: string },
+): Promise<string> {
+  const { data, error } = await client.rpc('create_daycare_location', {
+    p_location_label: values.label,
+    p_address: values.address ?? null,
+    p_color: values.color ?? '#2F7CD8',
+  });
+  if (error) throw error;
+  return data;
+}
+
 export async function getMyProfile(client: Client) {
   const { data: userData, error: userError } = await client.auth.getUser();
   if (userError || !userData.user) return null;

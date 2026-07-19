@@ -23,11 +23,19 @@ export function SectionHeader({
   subtitle,
   actions,
   showUtilities = true,
+  showSearch = true,
+  searchPlaceholder = "Search…",
+  searchValue,
+  onSearchChange,
 }: {
   title: string;
   subtitle?: string;
   actions?: React.ReactNode;
   showUtilities?: boolean;
+  showSearch?: boolean;
+  searchPlaceholder?: string;
+  searchValue?: string;
+  onSearchChange?: (value: string) => void;
 }) {
   const [open, setOpen] = useState<"none" | "new" | "bell">("none");
   const ref = useRef<HTMLDivElement>(null);
@@ -55,7 +63,7 @@ export function SectionHeader({
   }, []);
 
   return (
-    <div className="flex items-center gap-3.5 bg-card px-7 pb-4 pt-5">
+    <div className="flex items-center gap-3.5 bg-card px-7 pb-4 pt-5 print:hidden">
       <span className="min-w-0">
         <span className="block text-[22px] font-extrabold text-ink">{title}</span>
         {subtitle && (
@@ -64,12 +72,14 @@ export function SectionHeader({
       </span>
       <span className="flex-1" />
 
-      {showUtilities && (
+      {showUtilities && showSearch && (
         <label className="flex w-[190px] items-center gap-2 rounded-full border-[1.5px] border-[#D6E1F0] bg-canvas px-3.5 py-[9px]">
           <Search size={13} strokeWidth={1.8} className="text-faint" aria-hidden />
           <input
             type="search"
-            placeholder="Search…"
+            placeholder={searchPlaceholder}
+            value={searchValue}
+            onChange={onSearchChange ? (event) => onSearchChange(event.target.value) : undefined}
             className="w-full bg-transparent text-[12.5px] text-ink outline-none placeholder:text-faint"
             aria-label={`Search ${title.toLowerCase()}`}
           />

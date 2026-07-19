@@ -94,7 +94,15 @@ export function emptyPermission(): AreaPermission {
 }
 
 export function ageInMonths(dateOfBirth: string | Date, at: Date = new Date()): number {
-  const dob = typeof dateOfBirth === 'string' ? new Date(dateOfBirth) : dateOfBirth;
+  const dob = typeof dateOfBirth === 'string'
+    ? /^\d{4}-\d{2}-\d{2}$/.test(dateOfBirth)
+      ? new Date(
+          Number(dateOfBirth.slice(0, 4)),
+          Number(dateOfBirth.slice(5, 7)) - 1,
+          Number(dateOfBirth.slice(8, 10)),
+        )
+      : new Date(dateOfBirth)
+    : dateOfBirth;
   return (
     (at.getFullYear() - dob.getFullYear()) * 12 +
     (at.getMonth() - dob.getMonth()) -
@@ -137,40 +145,53 @@ export function childSetupChecklist(child: {
   allergies: string[] | null;
   medical_notes: string | null;
   emergency_contacts: unknown;
+  setup_state?: unknown;
   guardianCount: number;
   pendingInviteCount: number;
 }): { items: SetupItem[]; percent: number; incomplete: number } {
   const contacts = Array.isArray(child.emergency_contacts) ? child.emergency_contacts : [];
+  const setupState =
+    child.setup_state && typeof child.setup_state === 'object' && !Array.isArray(child.setup_state)
+      ? (child.setup_state as Record<string, unknown>)
+      : {};
+  const reviewed = (key: SetupItem['key'], fallback: boolean) =>
+    typeof setupState[key] === 'boolean' ? (setupState[key] as boolean) : fallback;
   const items: SetupItem[] = [
     {
       key: 'basics',
       label: 'Basic details',
       hint: 'Name & birthday',
-      done: Boolean(child.first_name && child.date_of_birth),
+      done: reviewed('basics', Boolean(child.first_name && child.date_of_birth)),
     },
     {
       key: 'photo',
       label: 'Photo',
       hint: 'Helps educators at pickup',
-      done: Boolean(child.photo_url),
+      done: reviewed('photo', Boolean(child.photo_url)),
     },
     {
       key: 'medical',
       label: 'Medical info',
       hint: 'Allergies, notes, medications',
-      done: Boolean((child.allergies?.length ?? 0) > 0 || child.medical_notes),
+      done: reviewed(
+        'medical',
+        Boolean((child.allergies?.length ?? 0) > 0 || child.medical_notes),
+      ),
     },
     {
       key: 'emergency',
       label: 'Emergency contacts',
       hint: 'At least one required',
-      done: contacts.length > 0,
+      done: reviewed('emergency', contacts.length > 0),
     },
     {
       key: 'parents',
       label: 'Linked parents',
       hint: 'Invite by email or choose existing',
-      done: child.guardianCount > 0 || child.pendingInviteCount > 0,
+      done: reviewed(
+        'parents',
+        child.guardianCount > 0 || child.pendingInviteCount > 0,
+      ),
     },
   ];
   const done = items.filter((i) => i.done).length;

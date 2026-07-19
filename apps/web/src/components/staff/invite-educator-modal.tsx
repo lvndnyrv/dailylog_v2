@@ -38,16 +38,18 @@ const ROLE_BLURBS: Record<RoleChip, { name: string; blurb: string }> = {
 export function InviteEducatorModal({
   classrooms,
   onClose,
+  template,
 }: {
   classrooms: { id: string; name: string }[];
   onClose: () => void;
+  template?: { name: string; role: RoleChip; classroomId: string | null } | null;
 }) {
   const [state, action, pending] = useActionState<StaffActionState, FormData>(
     inviteStaffAction,
     {},
   );
-  const [role, setRole] = useState<RoleChip>("educator");
-  const [room, setRoom] = useState<string>("floater");
+  const [role, setRole] = useState<RoleChip>(template?.role ?? "educator");
+  const [room, setRoom] = useState<string>(template?.classroomId ?? "floater");
   const [bgCheck, setBgCheck] = useState(true);
   const [copied, setCopied] = useState(false);
 
@@ -106,6 +108,12 @@ export function InviteEducatorModal({
         </>
       ) : (
         <form action={action} className="flex flex-col gap-4">
+          {template && (
+            <Notice tone="info">
+              Role and room copied from <b>{template.name}</b>. Enter the new educator&apos;s
+              name and email.
+            </Notice>
+          )}
           <Field label="Full name" name="full_name" placeholder="e.g. Sam Porter" required />
           <Field label="Email" name="email" type="email" placeholder="name@email.com" required />
 

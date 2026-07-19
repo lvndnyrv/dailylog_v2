@@ -2,13 +2,15 @@
 
 import type { MedicalRegisterRow, RosterChild } from "@dailylog/db/queries";
 import { childSetupChecklist, formatAge } from "@dailylog/shared";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { SectionHeader } from "@/components/shell/header";
 import { Avatar } from "@/components/ui/avatar";
 import { CreateChildModal } from "./create-child-modal";
 import { RowMenu } from "./row-menu";
 
-type Tab = "all" | "byroom" | "medical" | "consents";
+export type ChildrenTab = "all" | "byroom" | "medical" | "consents";
 
 interface Classroom {
   id: string;
@@ -26,54 +28,104 @@ export function RosterView({
   childrenRows,
   classrooms,
   medical,
+  startingSoon,
   openCreate,
   initialTab,
 }: {
   childrenRows: RosterChild[];
   classrooms: Classroom[];
   medical: MedicalRegisterRow[];
+  startingSoon: number;
   openCreate: boolean;
-  initialTab: Tab;
+  initialTab: ChildrenTab;
 }) {
-  const [tab, setTab] = useState<Tab>(initialTab);
+  const [tab, setTab] = useState<ChildrenTab>(initialTab);
   const [roomFilter, setRoomFilter] = useState<string | null>(null);
   const [creating, setCreating] = useState(openCreate);
+  const [query, setQuery] = useState("");
   const router = useRouter();
 
-  const filtered = roomFilter
-    ? childrenRows.filter((c) => c.classroom?.id === roomFilter)
-    : childrenRows;
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  const filtered = childrenRows.filter(
+    (child) =>
+      (!roomFilter || child.classroom?.id === roomFilter) &&
+      matchesChildSearch(child, normalizedQuery),
+  );
 
   const needSetup = childrenRows.filter(
     (c) => setupFor(c).incomplete > 0,
   ).length;
+  const enrolledNow = Math.max(0, childrenRows.length - startingSoon);
+
+  const selectTab = (nextTab: ChildrenTab) => {
+    setTab(nextTab);
+    setRoomFilter(null);
+    setQuery("");
+    const url = nextTab === "all" ? "/children" : `/children?tab=${nextTab}`;
+    window.history.replaceState(null, "", url);
+  };
 
   return (
-    <div className="flex flex-1 flex-col">
-      <div className="flex items-center gap-[22px] border-b-[1.5px] border-hairline bg-card px-7">
-        <button type="button" className={tabClass(tab === "all")} onClick={() => setTab("all")}>
+    <>
+      <SectionHeader
+        title="Children"
+        subtitle={
+          tab === "medical"
+            ? "Medical & allergies register · reviewed weekly"
+            : `${enrolledNow} enrolled · ${startingSoon} starting soon · ${needSetup} profiles incomplete`
+        }
+        showSearch={tab === "all" || tab === "byroom"}
+        searchPlaceholder="Search children…"
+        searchValue={query}
+        onSearchChange={setQuery}
+        actions={
+          tab === "medical" ? (
+            <>
+              <form action="/reports-export/children-medical" method="get">
+                <button
+                  type="submit"
+                  className="rounded-btn border-[1.5px] border-[#D6E1F0] bg-card px-4 py-2.5 text-[13px] font-bold text-ink hover:bg-canvas"
+                >
+                  Export register
+                </button>
+              </form>
+              <button
+                type="button"
+                onClick={() => window.print()}
+                className="rounded-btn bg-primary px-[18px] py-2.5 text-[13px] font-bold text-white hover:bg-primary-hover"
+              >
+                Print for rooms
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setCreating(true)}
+              className="rounded-btn bg-primary px-[18px] py-2.5 text-[13px] font-bold text-white hover:bg-primary-hover"
+            >
+              + Add child
+            </button>
+          )
+        }
+      />
+
+      <div className="flex flex-1 flex-col">
+      <div className="flex items-center gap-[22px] border-b-[1.5px] border-hairline bg-card px-7 print:hidden" role="tablist" aria-label="Children views">
+        <button type="button" role="tab" aria-selected={tab === "all"} className={tabClass(tab === "all")} onClick={() => selectTab("all")}>
           All children
         </button>
-        <button type="button" className={tabClass(tab === "byroom")} onClick={() => setTab("byroom")}>
+        <button type="button" role="tab" aria-selected={tab === "byroom"} className={tabClass(tab === "byroom")} onClick={() => selectTab("byroom")}>
           By room
         </button>
-        <button type="button" className={tabClass(tab === "medical")} onClick={() => setTab("medical")}>
+        <button type="button" role="tab" aria-selected={tab === "medical"} className={tabClass(tab === "medical")} onClick={() => selectTab("medical")}>
           Medical &amp; allergies
         </button>
-        <button type="button" className={tabClass(tab === "consents")} onClick={() => setTab("consents")}>
+        <button type="button" role="tab" aria-selected={tab === "consents"} className={tabClass(tab === "consents")} onClick={() => selectTab("consents")}>
           Consents
-        </button>
-        <span className="flex-1" />
-        <button
-          type="button"
-          onClick={() => setCreating(true)}
-          className="my-2 rounded-btn bg-primary px-[18px] py-2 text-[13px] font-bold text-white hover:bg-primary-hover"
-        >
-          + Add child
         </button>
       </div>
 
-      <div className="flex flex-col gap-3.5 px-7 pb-6 pt-[18px]">
+      <div className="flex flex-col gap-3.5 px-7 pb-6 pt-[18px] print:p-0">
         {(tab === "all" || tab === "byroom") && (
           <>
             <div className="flex items-center gap-2">
@@ -144,7 +196,8 @@ export function RosterView({
       {creating && (
         <CreateChildModal classrooms={classrooms} onClose={() => setCreating(false)} />
       )}
-    </div>
+      </div>
+    </>
   );
 }
 
@@ -154,6 +207,20 @@ function setupFor(child: RosterChild) {
     guardianCount: child.guardians.filter((g) => g.parent).length,
     pendingInviteCount: 0,
   });
+}
+
+function matchesChildSearch(child: RosterChild, query: string): boolean {
+  if (!query) return true;
+  const primary =
+    child.guardians.find((guardian) => guardian.is_primary)?.parent ??
+    child.guardians[0]?.parent;
+  return [
+    child.first_name,
+    child.last_name,
+    child.classroom?.name,
+    primary?.full_name,
+    ...(child.allergies ?? []),
+  ].some((value) => value?.toLocaleLowerCase().includes(query));
 }
 
 function FilterChip({
@@ -284,60 +351,133 @@ function MedicalRegister({ rows }: { rows: MedicalRegisterRow[] }) {
   const flagged = rows.filter(
     (r) => (r.allergies?.length ?? 0) > 0 || r.medical_notes || r.medications.length > 0,
   );
-
-  if (flagged.length === 0) {
-    return (
-      <div className="rounded-2xl border-[1.5px] border-[#D6E1F0] bg-card px-6 py-10 text-center text-[12.5px] text-muted">
-        No allergies, medical notes or medications on file.
-      </div>
-    );
-  }
+  const severeAllergies = rows.filter(
+    (row) => (row.allergies?.length ?? 0) > 0 && isSevereMedicalRow(row),
+  ).length;
+  const pendingAuthorizations = rows.reduce(
+    (total, row) => total + row.medications.filter((medication) => !medication.active).length,
+    0,
+  );
+  const activeMedications = rows.reduce(
+    (total, row) => total + row.medications.filter((medication) => medication.active).length,
+    0,
+  );
+  const emergencyContacts = rows.reduce(
+    (total, row) =>
+      total + (Array.isArray(row.emergency_contacts) ? row.emergency_contacts.length : 0),
+    0,
+  );
 
   return (
-    <div className="overflow-hidden rounded-2xl border-[1.5px] border-[#D6E1F0] bg-card">
-      <div className={`grid grid-cols-[1.6fr_1fr_1.6fr_1.4fr_90px] gap-2.5 border-b-[1.5px] border-[#EDF3FB] bg-[#F8FBFE] px-[18px] py-3 ${HEAD}`}>
-        <span>CHILD</span>
-        <span>ROOM</span>
-        <span>ALLERGIES</span>
-        <span>MEDICATIONS</span>
-        <span>ACTION</span>
+    <div data-children-medical-register className="flex flex-col gap-3.5">
+      <div className="grid grid-cols-4 gap-3">
+        <MedicalSummaryCard
+          value={severeAllergies}
+          label="Severe allergies"
+          className="border-[#F0D2D2] bg-[#FDF3F3] text-danger"
+        />
+        <MedicalSummaryCard
+          value={pendingAuthorizations}
+          label="Authorizations pending"
+          className="border-[#F0E2C4] bg-[#FFFBF2] text-warning-text"
+        />
+        <MedicalSummaryCard
+          value={activeMedications}
+          label="Active medications"
+          className="border-[#D6E1F0] bg-card text-ink"
+        />
+        <MedicalSummaryCard
+          value={emergencyContacts}
+          label="Emergency contacts on file"
+          className="border-[#D6E1F0] bg-card text-success"
+        />
       </div>
-      {flagged.map((row) => (
-        <div
-          key={row.id}
-          className="grid grid-cols-[1.6fr_1fr_1.6fr_1.4fr_90px] items-center gap-2.5 border-b border-[#EDF3FB] px-[18px] py-3 last:border-b-0"
-        >
-          <span className="flex items-center gap-2.5">
-            <Avatar name={`${row.first_name} ${row.last_name}`} size={28} />
-            <span className="text-[13px] font-bold text-ink">
-              {row.first_name} {row.last_name}
-            </span>
-          </span>
-          <span className="text-[12.5px] text-muted">{row.classroom?.name ?? "—"}</span>
-          <span className="flex flex-wrap gap-1">
-            {(row.allergies ?? []).map((a) => (
-              <span
-                key={a}
-                className="rounded-full bg-danger-bg px-2 py-[2px] text-[11px] font-bold text-danger"
-              >
-                {a}
-              </span>
-            ))}
-            {(row.allergies?.length ?? 0) === 0 && (
-              <span className="text-[12.5px] text-faint">—</span>
-            )}
-          </span>
-          <span className="text-[12.5px] text-muted">
-            {row.medications.filter((m) => m.active).map((m) => m.name).join(", ") || "—"}
-          </span>
-          <a
-            href={`/children/${row.id}`}
-            className="text-[12.5px] font-bold text-primary hover:text-primary-hover"
-          >
-            Open
-          </a>
+
+      <div className="overflow-hidden rounded-2xl border-[1.5px] border-[#D6E1F0] bg-card">
+        <div className={`grid grid-cols-[1.6fr_.9fr_1.4fr_1.4fr_1fr] gap-2.5 border-b-[1.5px] border-[#EDF3FB] bg-[#F8FBFE] px-[18px] py-3 ${HEAD}`}>
+          <span>CHILD</span>
+          <span>ROOM</span>
+          <span>ALLERGIES</span>
+          <span>MEDICATIONS</span>
+          <span>ACTION</span>
         </div>
-      ))}
+        {flagged.map((row) => {
+          const consentNeeded = row.medications.some((medication) => !medication.active);
+          const severe = isSevereMedicalRow(row);
+          return (
+          <Link
+            key={row.id}
+            href={`/children/${row.id}`}
+            aria-label={`Open medical profile for ${row.first_name} ${row.last_name}`}
+            className="grid grid-cols-[1.6fr_.9fr_1.4fr_1.4fr_1fr] items-center gap-2.5 border-b border-[#EDF3FB] px-[18px] py-3 last:border-b-0 hover:bg-[#F8FBFE] focus-visible:bg-[#F8FBFE] focus-visible:outline-none"
+          >
+            <span className="flex items-center gap-2.5">
+              <Avatar name={`${row.first_name} ${row.last_name}`} size={28} />
+              <span className="text-[13px] font-bold text-ink">
+                {row.first_name} {row.last_name}
+              </span>
+            </span>
+            <span className="text-[12.5px] text-muted">{row.classroom?.name ?? "—"}</span>
+            <span>
+              {(row.allergies?.length ?? 0) > 0 ? (
+                <span className="rounded-full border border-[#F0D2D2] bg-[#FAEBEB] px-2.5 py-[3px] text-[11px] font-bold text-danger">
+                  {row.allergies!.join(" · ")}{severe ? " · severe" : ""}
+                </span>
+              ) : (
+                <span className="text-[12px] text-faint">None on file</span>
+              )}
+            </span>
+            <span className={row.medications.length > 0 ? "text-[12px] text-ink" : "text-[12px] text-faint"}>
+              {row.medications.map((medication) => medication.name).join(" · ") || "—"}
+            </span>
+            <span>
+              <span
+                className={`whitespace-nowrap rounded-full px-2.5 py-[3px] text-[11px] font-bold ${
+                  consentNeeded
+                    ? "bg-warning-bg text-warning-text"
+                    : "bg-[#E4F3EC] text-success"
+                }`}
+              >
+                {consentNeeded ? "Consent needed" : "Complete"}
+              </span>
+            </span>
+          </Link>
+          );
+        })}
+        {flagged.length === 0 && (
+          <p className="px-6 py-10 text-center text-[12.5px] text-muted">
+            No allergies, medical notes or medications on file.
+          </p>
+        )}
+      </div>
+      <p className="text-center text-[11.5px] text-faint print:hidden">
+        Aggregates every child&apos;s medical record into one reviewable list — the
+        safety view Attendance, Rooms and Incidents each only saw a slice of.
+      </p>
     </div>
   );
+}
+
+function MedicalSummaryCard({
+  value,
+  label,
+  className,
+}: {
+  value: number;
+  label: string;
+  className: string;
+}) {
+  return (
+    <div className={`rounded-[14px] border-[1.5px] px-4 py-3 ${className}`}>
+      <span className="block text-[22px] font-extrabold">{value}</span>
+      <span className="mt-0.5 block text-[11.5px] font-semibold text-muted">{label}</span>
+    </div>
+  );
+}
+
+function isSevereMedicalRow(row: MedicalRegisterRow): boolean {
+  const medicalText = [...(row.allergies ?? []), row.medical_notes ?? ""]
+    .join(" ")
+    .toLocaleLowerCase();
+  return /severe|anaphyla|epipen/.test(medicalText);
 }

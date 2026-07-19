@@ -1,6 +1,8 @@
 import { listClassrooms, listMedicalRegister, listRoster } from "@dailylog/db/queries";
-import { SectionHeader } from "@/components/shell/header";
-import { RosterView } from "@/components/children/roster-view";
+import {
+  RosterView,
+  type ChildrenTab,
+} from "@/components/children/roster-view";
 import { getServerSupabase } from "@/lib/supabase/server";
 
 // Children roster 20a — the section home. Tabs: All children / By room /
@@ -21,20 +23,19 @@ export default async function ChildrenPage({
   const startingSoon = children.filter(
     (c) => c.enrolled_on && new Date(c.enrolled_on) > new Date(),
   ).length;
+  const initialTab: ChildrenTab =
+    params.tab === "byroom" || params.tab === "medical" || params.tab === "consents"
+      ? params.tab
+      : "all";
 
   return (
-    <>
-      <SectionHeader
-        title="Children"
-        subtitle={`${children.length} enrolled${startingSoon ? ` · ${startingSoon} starting soon` : ""}`}
-      />
-      <RosterView
-        childrenRows={children}
-        classrooms={classrooms}
-        medical={medical}
-        openCreate={params.new === "1"}
-        initialTab={params.tab === "medical" ? "medical" : "all"}
-      />
-    </>
+    <RosterView
+      childrenRows={children}
+      classrooms={classrooms}
+      medical={medical}
+      startingSoon={startingSoon}
+      openCreate={params.new === "1"}
+      initialTab={initialTab}
+    />
   );
 }

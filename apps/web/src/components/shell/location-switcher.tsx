@@ -48,13 +48,12 @@ export function LocationSwitcher({ locations }: { locations: DaycareLocationRow[
             open ? "border-[#BFD6F2] bg-[#F4F8FD]" : "border-[#D6E1F0] bg-card hover:bg-canvas"
           }`}
         >
-          <span className="block text-[9.5px] font-semibold tracking-[.08em] text-faint">LOCATION</span>
+          <span className="block text-[10px] font-semibold tracking-[.08em] text-faint">LOCATION</span>
           <span className="mt-0.5 flex items-center gap-1.5">
-            <span className="size-2.5 rounded-full" style={{ backgroundColor: active.color }} />
-            <span className="min-w-0 flex-1 truncate text-[12.5px] font-bold text-ink">
+            <span className="min-w-0 flex-1 truncate text-[13px] font-bold text-ink">
               {active.location_label}
             </span>
-            <ChevronDown size={13} strokeWidth={1.9} className="text-muted" aria-hidden />
+            <ChevronDown size={12} strokeWidth={2} className="text-muted" aria-hidden />
           </span>
         </button>
 
@@ -80,7 +79,10 @@ export function LocationSwitcher({ locations }: { locations: DaycareLocationRow[
                     location.is_active ? "bg-canvas" : "hover:bg-canvas"
                   }`}
                 >
-                  <span className="grid size-[26px] flex-none place-items-center rounded-lg bg-[#EDF2F9]">
+                  <span
+                    className="grid size-[26px] flex-none place-items-center rounded-lg"
+                    style={{ backgroundColor: `color-mix(in srgb, ${location.color} 12%, white)` }}
+                  >
                     <span className="size-[11px] rounded-full" style={{ backgroundColor: location.color }} />
                   </span>
                   <span className="min-w-0 flex-1">

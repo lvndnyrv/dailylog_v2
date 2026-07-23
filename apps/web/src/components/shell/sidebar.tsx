@@ -14,6 +14,19 @@ const ROLE_LABELS: Record<string, string> = {
   admin: "Admin",
 };
 
+// The sidebar uses the compact brand from the handoff while account surfaces
+// keep the center's full legal/display name. Common business descriptors make
+// otherwise short brands wrap or truncate inside the fixed 214px rail.
+function compactCenterName(name: string) {
+  const compact = name
+    .replace(
+      /\s+(?:early learning(?: center| centre)?|childcare|daycare(?: center| centre)?|learning center|learning centre)$/i,
+      "",
+    )
+    .trim();
+  return compact || name;
+}
+
 export function Sidebar({
   daycareName,
   profile,
@@ -35,10 +48,11 @@ export function Sidebar({
 }) {
   const pathname = usePathname();
   const [menuOpen, setMenuOpen] = useState(false);
+  const brandName = compactCenterName(daycareName);
 
   return (
-    <aside className="relative flex w-[214px] flex-none flex-col gap-[3px] border-r-[1.5px] border-hairline bg-card px-3 pb-4 pt-[18px] print:hidden">
-      <div className="mb-4 flex items-center gap-2.5 px-2.5">
+    <aside className="sticky top-0 z-30 flex h-dvh w-[214px] flex-none self-start flex-col border-r-[1.5px] border-hairline bg-card px-3 pb-4 pt-[18px] print:hidden">
+      <div className="mb-4 flex flex-none items-center gap-2.5 px-2.5">
         <span className="grid size-[34px] flex-none place-items-center rounded-full bg-warning-bg">
           <span
             className="size-4 rounded-full bg-warning"
@@ -47,13 +61,16 @@ export function Sidebar({
         </span>
         <span className="min-w-0">
           <span className="block truncate text-[14.5px] font-extrabold text-ink">
-            {daycareName}
+            {brandName}
           </span>
           <span className="block text-[10.5px] font-semibold text-faint">ADMIN</span>
         </span>
       </div>
 
-      <nav className="flex flex-col gap-[3px]" aria-label="Sections">
+      <nav
+        className="flex min-h-0 flex-1 flex-col gap-[3px] overflow-y-auto overscroll-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        aria-label="Sections"
+      >
         {NAV_ITEMS.map(({ label, href, icon: Icon }) => {
           const active = pathname === href || pathname.startsWith(`${href}/`);
           const badge = badges[href] ?? 0;
@@ -88,29 +105,29 @@ export function Sidebar({
         })}
       </nav>
 
-      <span className="flex-1" />
+      <div className="flex flex-none flex-col pt-2">
+        <LocationSwitcher locations={locations} />
 
-      <LocationSwitcher locations={locations} />
-
-      <button
-        type="button"
-        onClick={() => setMenuOpen((v) => !v)}
-        aria-haspopup="menu"
-        aria-expanded={menuOpen}
-        className={`flex items-center gap-[9px] rounded-xl px-2.5 py-1.5 text-left ${
-          menuOpen ? "border-[1.5px] border-[#D6E1F0] bg-canvas" : "hover:bg-canvas"
-        }`}
-      >
-        <Avatar name={profile.full_name} src={profile.avatar_url} />
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-[12.5px] font-bold text-ink">
-            {profile.full_name}
+        <button
+          type="button"
+          onClick={() => setMenuOpen((v) => !v)}
+          aria-haspopup="menu"
+          aria-expanded={menuOpen}
+          className={`flex items-center gap-[9px] rounded-xl px-2.5 py-1.5 text-left ${
+            menuOpen ? "border-[1.5px] border-[#D6E1F0] bg-canvas" : "hover:bg-canvas"
+          }`}
+        >
+          <Avatar name={profile.full_name} src={profile.avatar_url} />
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-[12.5px] font-bold text-ink">
+              {profile.full_name}
+            </span>
+            <span className="block text-[11px] text-faint">
+              {ROLE_LABELS[profile.role] ?? profile.role}
+            </span>
           </span>
-          <span className="block text-[11px] text-faint">
-            {ROLE_LABELS[profile.role] ?? profile.role}
-          </span>
-        </span>
-      </button>
+        </button>
+      </div>
 
       {menuOpen && (
         <AccountMenu

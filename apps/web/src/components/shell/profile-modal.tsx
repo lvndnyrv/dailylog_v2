@@ -2,9 +2,8 @@
 
 import { Check, LockKeyhole, Shield } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useActionState, useRef, useState } from "react";
+import { useActionState, useEffect, useRef, useState } from "react";
 import { updateProfileAction, type ActionState } from "@/lib/auth/actions";
-import { getBrowserSupabase } from "@/lib/supabase/browser";
 import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
@@ -43,8 +42,7 @@ export function ProfileModal({
 }) {
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
-  const [avatarUrl, setAvatarUrl] = useState(profile.avatar_url);
-  const [photoPending, setPhotoPending] = useState(false);
+  const [avatarPreviewUrl, setAvatarPreviewUrl] = useState<string>();
   const [photoError, setPhotoError] = useState<string>();
   const [securityOpen, setSecurityOpen] = useState(false);
   const [state, action, pending] = useActionState<ActionState, FormData>(
@@ -58,52 +56,37 @@ export function ProfileModal({
     ? `${phoneLabel ?? "A verified second factor"} protects this account.`
     : "No second factor is enrolled for this account.";
 
-  async function uploadPhoto(file: File) {
+  useEffect(() => {
+    return () => {
+      if (avatarPreviewUrl) URL.revokeObjectURL(avatarPreviewUrl);
+    };
+  }, [avatarPreviewUrl]);
+
+  useEffect(() => {
+    if (!state.sent) return;
+    router.refresh();
+    onClose();
+  }, [onClose, router, state.sent]);
+
+  function previewPhoto(file: File) {
     setPhotoError(undefined);
     if (!AVATAR_TYPES.has(file.type)) {
       setPhotoError("Choose a JPG, PNG, or WebP image.");
+      if (fileRef.current) fileRef.current.value = "";
+      setAvatarPreviewUrl(undefined);
       return;
     }
     if (file.size > MAX_AVATAR_BYTES) {
       setPhotoError("Choose an image smaller than 5 MB.");
+      if (fileRef.current) fileRef.current.value = "";
+      setAvatarPreviewUrl(undefined);
       return;
     }
-
-    setPhotoPending(true);
-    try {
-      const supabase = getBrowserSupabase();
-      const {
-        data: { user },
-        error: userError,
-      } = await supabase.auth.getUser();
-      if (userError || !user) throw new Error("Signed out — sign in again.");
-
-      const path = `${user.id}/avatar`;
-      const { error: uploadError } = await supabase.storage
-        .from("profile-avatars")
-        .upload(path, file, { cacheControl: "3600", contentType: file.type, upsert: true });
-      if (uploadError) throw uploadError;
-
-      const { data } = supabase.storage.from("profile-avatars").getPublicUrl(path);
-      const nextUrl = `${data.publicUrl}?v=${Date.now()}`;
-      const { error: profileError } = await supabase
-        .from("profiles")
-        .update({ avatar_url: nextUrl })
-        .eq("id", user.id);
-      if (profileError) throw profileError;
-
-      setAvatarUrl(nextUrl);
-      router.refresh();
-    } catch (error) {
-      setPhotoError(error instanceof Error ? error.message : "Photo could not be uploaded.");
-    } finally {
-      setPhotoPending(false);
-      if (fileRef.current) fileRef.current.value = "";
-    }
+    setAvatarPreviewUrl(URL.createObjectURL(file));
   }
 
   return (
-    <Modal onClose={onClose}>
+    <Modal onClose={pending ? () => undefined : onClose}>
       <div>
         <h2 className="text-[19px] font-extrabold text-ink">Your profile</h2>
         <p className="mt-0.5 text-[12.5px] leading-normal text-muted">
@@ -112,7 +95,7 @@ export function ProfileModal({
       </div>
 
       <div className="flex items-center gap-3 rounded-[14px] border-[1.5px] border-[#D6E1F0] bg-canvas px-3.5 py-3">
-        <Avatar name={profile.full_name} src={avatarUrl} size={44} />
+        <Avatar name={profile.full_name} src={avatarPreviewUrl ?? profile.avatar_url} size={44} />
         <span className="min-w-0 flex-1">
           <span className="block text-[13.5px] font-bold text-ink">{profile.full_name}</span>
           <span className="block truncate text-[11.5px] text-muted">
@@ -123,26 +106,33 @@ export function ProfileModal({
           type="button"
           className="flex-none text-[12px] font-bold text-primary hover:text-primary-hover disabled:opacity-60"
           onClick={() => fileRef.current?.click()}
-          disabled={photoPending}
+          disabled={pending}
         >
-          {photoPending ? "Uploading…" : "Change photo"}
+          Change photo
         </button>
         <input
           ref={fileRef}
+          form="admin-profile-form"
+          name="avatar"
           type="file"
           accept="image/jpeg,image/png,image/webp"
           className="sr-only"
           aria-label="Choose profile photo"
           onChange={(event) => {
             const file = event.currentTarget.files?.[0];
-            if (file) void uploadPhoto(file);
+            if (file) previewPhoto(file);
           }}
         />
       </div>
 
       {photoError && <Notice tone="error">{photoError}</Notice>}
+      {avatarPreviewUrl && (
+        <Notice tone="info">
+          Photo ready — <b>Save profile</b> applies it; <b>Cancel</b> discards it.
+        </Notice>
+      )}
 
-      <form action={action} className="flex flex-col gap-4">
+      <form id="admin-profile-form" action={action} className="flex flex-col gap-4">
         <div className="grid grid-cols-2 gap-2.5">
           <label className="flex min-w-0 flex-col gap-1.5">
             <span className="text-[12.5px] font-bold text-ink">Full name</span>
@@ -227,6 +217,7 @@ export function ProfileModal({
             variant="secondary"
             className="flex-1 rounded-full py-[13px] text-sm"
             onClick={onClose}
+            disabled={pending}
           >
             Cancel
           </Button>

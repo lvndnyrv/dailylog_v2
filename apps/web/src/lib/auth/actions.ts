@@ -228,11 +228,77 @@ export async function updateProfileAction(
   } = await supabase.auth.getUser();
   if (!user) return { error: "Signed out — sign in again." };
 
+  const avatarEntry = formData.get("avatar");
+  const avatar = typeof avatarEntry === "string" || !avatarEntry?.size ? null : avatarEntry;
+  const avatarExtensions: Record<string, string> = {
+    "image/jpeg": "jpg",
+    "image/png": "png",
+    "image/webp": "webp",
+  };
+  if (avatar && !avatarExtensions[avatar.type]) {
+    return { error: "Choose a JPG, PNG, or WebP image." };
+  }
+  if (avatar && avatar.size > 5 * 1024 * 1024) {
+    return { error: "Choose an image smaller than 5 MB." };
+  }
+
+  let uploadedPath: string | null = null;
+  let nextAvatarUrl: string | null = null;
+  let previousAvatarUrl: string | null = null;
+
+  if (avatar) {
+    const { data: currentProfile, error: currentProfileError } = await supabase
+      .from("profiles")
+      .select("avatar_url")
+      .eq("id", user.id)
+      .single();
+    if (currentProfileError) return { error: currentProfileError.message };
+    previousAvatarUrl = currentProfile.avatar_url;
+
+    uploadedPath = `${user.id}/avatar-${crypto.randomUUID()}.${avatarExtensions[avatar.type]}`;
+    const { error: uploadError } = await supabase.storage
+      .from("profile-avatars")
+      .upload(uploadedPath, avatar, {
+        cacheControl: "3600",
+        contentType: avatar.type,
+        upsert: false,
+      });
+    if (uploadError) return { error: uploadError.message };
+
+    const { data } = supabase.storage.from("profile-avatars").getPublicUrl(uploadedPath);
+    nextAvatarUrl = `${data.publicUrl}?v=${Date.now()}`;
+  }
+
   const { error } = await supabase
     .from("profiles")
-    .update({ full_name: fullName, display_name: displayName })
+    .update({
+      full_name: fullName,
+      display_name: displayName,
+      ...(nextAvatarUrl ? { avatar_url: nextAvatarUrl } : {}),
+    })
     .eq("id", user.id);
-  if (error) return { error: error.message };
+  if (error) {
+    if (uploadedPath) {
+      await supabase.storage.from("profile-avatars").remove([uploadedPath]);
+    }
+    return { error: error.message };
+  }
+
+  if (uploadedPath && previousAvatarUrl) {
+    try {
+      const marker = "/storage/v1/object/public/profile-avatars/";
+      const pathname = new URL(previousAvatarUrl).pathname;
+      const markerIndex = pathname.indexOf(marker);
+      const previousPath =
+        markerIndex >= 0 ? decodeURIComponent(pathname.slice(markerIndex + marker.length)) : null;
+      if (previousPath?.startsWith(`${user.id}/`) && previousPath !== uploadedPath) {
+        await supabase.storage.from("profile-avatars").remove([previousPath]);
+      }
+    } catch {
+      // The profile is already saved; an unrecognized legacy URL is safe to
+      // leave in storage and can be cleaned up separately.
+    }
+  }
 
   revalidatePath("/", "layout");
   return { sent: true };

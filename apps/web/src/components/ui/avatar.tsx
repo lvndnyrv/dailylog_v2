@@ -14,14 +14,20 @@ export function Avatar({
 }) {
   return (
     <span
-      className={`grid flex-none place-items-center rounded-full bg-tint font-bold text-primary ${className}`}
+      className={`grid flex-none place-items-center overflow-hidden rounded-full bg-tint font-bold text-primary ${className}`}
       style={{ width: size, height: size, fontSize: Math.max(10, Math.round(size * 0.36)) }}
       aria-hidden
     >
       {src ? (
         // Profile avatars come from the constrained public profile-avatars bucket.
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={src} alt="" className="size-full rounded-full object-cover" />
+        <img
+          src={src}
+          alt=""
+          width={size}
+          height={size}
+          className="block size-full rounded-full object-cover"
+        />
       ) : (
         initials(name)
       )}

@@ -72,37 +72,40 @@ export function EditStaffModal({
           defaultValue={member.started_on ?? ""}
         />
 
-        <fieldset className="flex flex-col gap-2">
+        <fieldset className="min-w-0 flex flex-col gap-2">
           <legend className="text-[13px] font-bold text-ink">Certifications</legend>
           {certs.map((cert, i) => (
-            <div key={i} className="grid grid-cols-[1.4fr_1fr_.9fr_.9fr_24px] items-center gap-1.5">
+            <div
+              key={i}
+              className="grid min-w-0 grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,.9fr)_minmax(0,.9fr)_24px] items-center gap-1.5"
+            >
               <input
                 name="cert_item"
                 defaultValue={cert.item}
                 placeholder="First Aid"
                 aria-label="Certification"
-                className="rounded-[10px] border-[1.5px] border-[#D6E1F0] bg-card px-2.5 py-2 text-[12.5px] text-ink outline-none focus:border-primary"
+                className="min-w-0 w-full rounded-[10px] border-[1.5px] border-[#D6E1F0] bg-card px-2.5 py-2 text-[12.5px] text-ink outline-none focus:border-primary"
               />
               <input
                 name="cert_issuer"
                 defaultValue={cert.issuer ?? ""}
                 placeholder="Red Cross"
                 aria-label="Issuer"
-                className="rounded-[10px] border-[1.5px] border-[#D6E1F0] bg-card px-2.5 py-2 text-[12.5px] text-ink outline-none focus:border-primary"
+                className="min-w-0 w-full rounded-[10px] border-[1.5px] border-[#D6E1F0] bg-card px-2.5 py-2 text-[12.5px] text-ink outline-none focus:border-primary"
               />
               <input
                 name="cert_issued"
                 type="date"
                 defaultValue={cert.issued ?? ""}
                 aria-label="Issued"
-                className="rounded-[10px] border-[1.5px] border-[#D6E1F0] bg-card px-2 py-2 text-[11.5px] text-ink outline-none focus:border-primary"
+                className="min-w-0 w-full rounded-[10px] border-[1.5px] border-[#D6E1F0] bg-card px-2 py-2 text-[11.5px] text-ink outline-none focus:border-primary"
               />
               <input
                 name="cert_expires"
                 type="date"
                 defaultValue={cert.expires_on ?? ""}
                 aria-label="Expires"
-                className="rounded-[10px] border-[1.5px] border-[#D6E1F0] bg-card px-2 py-2 text-[11.5px] text-ink outline-none focus:border-primary"
+                className="min-w-0 w-full rounded-[10px] border-[1.5px] border-[#D6E1F0] bg-card px-2 py-2 text-[11.5px] text-ink outline-none focus:border-primary"
               />
               <button
                 type="button"

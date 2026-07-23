@@ -55,7 +55,7 @@ export default async function ShellLayout({ children }: { children: React.ReactN
       initialPreferences={notificationPreferences}
       initialDeliverySettings={deliverySettings}
     >
-      <div className="flex min-h-screen bg-canvas">
+      <div className="flex min-h-dvh bg-canvas">
         <Sidebar
           daycareName={locations.find((location) => location.is_active)?.group_name ?? daycare?.name ?? "Your center"}
           locations={locations}

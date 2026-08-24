@@ -96,18 +96,21 @@ export function useIncidentForm(incidentId = null) {
     return { data: merged, queued };
   }
 
-  async function submitReport(id) {
+  async function submitReport(id, severity = 'minor') {
     return updateReport(id, {
       status: 'submitted',
-      parent_notified_at: new Date().toISOString(),
+      submitted_at: new Date().toISOString(),
+      // The database independently enforces this rule during offline replay:
+      // only serious reports reach parents before director sign-off.
+      parent_notified_at: severity === 'serious' ? new Date().toISOString() : null,
     });
   }
 
   // Phase 2 security: parents have no UPDATE grant on incident_reports.
   // Acknowledgment goes through the column-safe acknowledge_incident() RPC,
   // which validates the parent↔child link server-side and only touches
-  // status / parent_acknowledged_at / parent_acknowledge_name. Idempotent
-  // (only acts on status='submitted'), so offline replay is safe.
+  // status / parent_acknowledged_at / parent_acknowledge_name. The RPC also
+  // rejects drafts and routine reports that have not been director-signed.
   async function acknowledgeReport(id, fullName) {
     setSaving(true);
     const { error, queued } = await mutate({
@@ -162,4 +165,3 @@ export function useIncidentForm(incidentId = null) {
     getPhotoUrl,
   };
 }
-

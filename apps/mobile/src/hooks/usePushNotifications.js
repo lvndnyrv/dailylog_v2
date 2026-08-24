@@ -1,22 +1,68 @@
 import { useEffect, useRef } from 'react';
-import { Platform } from 'react-native';
+import { Linking, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as Device from 'expo-device';
-import * as Notifications from 'expo-notifications';
 import Constants from 'expo-constants';
 import { supabase } from '../lib/supabase';
-import { navigate } from '../lib/navigationRef';
+import { extractNotificationDestination } from '../lib/authLinks';
+import { openNotificationRoute } from '../lib/notificationRoutes';
+import { markNotificationPayloadRead } from './useParentNotifications';
 
-// Foreground presentation (keys cover both SDK 54 and SDK 56 handler shapes)
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldShowBanner: true,
-    shouldShowList: true,
-    shouldPlaySound: true,
-    shouldSetBadge: true,
-  }),
-});
+let notificationsPromise = null;
+
+export const PUSH_PRIME_KEY = 'dailylog:push_prime';
+
+export function pushPrimeKeyForUser(userId) {
+  return userId ? `${PUSH_PRIME_KEY}:${userId}` : PUSH_PRIME_KEY;
+}
+
+export async function getPushPrimeChoice(userId) {
+  const userKey = pushPrimeKeyForUser(userId);
+  const userChoice = await AsyncStorage.getItem(userKey);
+  if (userChoice) return userChoice;
+
+  // Migrate the previous device-global choice to the currently signed-in
+  // account, then remove it so a second account still receives its own ask.
+  if (userId) {
+    const legacyChoice = await AsyncStorage.getItem(PUSH_PRIME_KEY);
+    if (legacyChoice) {
+      await AsyncStorage.multiSet([[userKey, legacyChoice]]);
+      await AsyncStorage.removeItem(PUSH_PRIME_KEY);
+      return legacyChoice;
+    }
+  }
+
+  return null;
+}
+
+export async function setPushPrimeChoice(userId, choice) {
+  await AsyncStorage.setItem(pushPrimeKeyForUser(userId), choice);
+}
+
+function remotePushUnavailable() {
+  // Expo SDK 56 intentionally removes Android remote-push support from
+  // Expo Go. Avoid evaluating expo-notifications there; development and
+  // release builds still load the native module normally.
+  return Platform.OS === 'android' && Constants.appOwnership === 'expo';
+}
+
+async function loadNotifications() {
+  if (remotePushUnavailable()) return null;
+  if (!notificationsPromise) {
+    notificationsPromise = import('expo-notifications').then((Notifications) => {
+      Notifications.setNotificationHandler({
+        handleNotification: async () => ({
+          shouldShowAlert: true,
+          shouldShowBanner: true,
+          shouldShowList: true,
+          shouldPlaySound: true,
+          shouldSetBadge: true,
+        }),
+      });
+      return Notifications;
+    });
+  }
+  return notificationsPromise;
+}
 
 function getProjectId() {
   const projectId =
@@ -25,7 +71,7 @@ function getProjectId() {
   return projectId;
 }
 
-async function ensureAndroidChannels() {
+async function ensureAndroidChannels(Notifications) {
   if (Platform.OS !== 'android') return;
   await Notifications.setNotificationChannelAsync('default', {
     name: 'Daily updates',
@@ -43,25 +89,43 @@ async function ensureAndroidChannels() {
   });
 }
 
+function normalizedPermissionStatus(Notifications, settings) {
+  if (Platform.OS !== 'ios') return settings?.status || 'undetermined';
+
+  const authorizationStatus = settings?.ios?.status;
+  if (authorizationStatus == null) return settings?.status || 'undetermined';
+
+  if (
+    authorizationStatus === Notifications.IosAuthorizationStatus.AUTHORIZED ||
+    authorizationStatus === Notifications.IosAuthorizationStatus.PROVISIONAL ||
+    authorizationStatus === Notifications.IosAuthorizationStatus.EPHEMERAL
+  ) {
+    return 'granted';
+  }
+  if (authorizationStatus === Notifications.IosAuthorizationStatus.DENIED) {
+    return 'denied';
+  }
+  return 'undetermined';
+}
+
 /**
  * Registers this device for push notifications.
  * Returns the Expo push token string, or null if unavailable
- * (simulator, permission denied, or missing EAS projectId).
+ * (permission denied or missing EAS projectId).
  */
 export async function registerForPushNotificationsAsync() {
-  await ensureAndroidChannels();
+  const Notifications = await loadNotifications();
+  if (!Notifications) return null;
 
-  if (!Device.isDevice) {
-    console.log('Push disabled: not a physical device.');
-    return null;
-  }
+  await ensureAndroidChannels(Notifications);
+
   if (Platform.OS !== 'ios' && Platform.OS !== 'android') return null;
 
-  const { status: existing } = await Notifications.getPermissionsAsync();
-  let status = existing;
-  if (existing !== 'granted') {
-    const req = await Notifications.requestPermissionsAsync();
-    status = req.status;
+  let permission = await Notifications.getPermissionsAsync();
+  let status = normalizedPermissionStatus(Notifications, permission);
+  if (status !== 'granted') {
+    permission = await Notifications.requestPermissionsAsync();
+    status = normalizedPermissionStatus(Notifications, permission);
   }
   if (status !== 'granted') {
     console.log('Push disabled: permission not granted.');
@@ -78,23 +142,85 @@ export async function registerForPushNotificationsAsync() {
   return token;
 }
 
+export async function getPushPermissionStatus() {
+  const Notifications = await loadNotifications();
+  if (!Notifications) return 'unavailable';
+  const settings = await Notifications.getPermissionsAsync();
+  return normalizedPermissionStatus(Notifications, settings);
+}
+
 /**
  * Hook: registers the device token for this user and routes
  * notification taps. Mount once at the navigator root.
  */
-export function usePushNotifications(userId) {
-  const responseListener = useRef(null);
+export function usePushNotifications(userId, role) {
+  const handledResponses = useRef(new Set());
 
   useEffect(() => {
-    if (!userId) return;
+    if (!userId || !role) return undefined;
+    let active = true;
+
+    function openBusinessUrl(url) {
+      const destination = extractNotificationDestination(url);
+      if (!destination || !active) return;
+      setTimeout(() => {
+        if (active) {
+          openNotificationRoute(destination, role);
+          markNotificationPayloadRead(destination).catch(() => {});
+        }
+      }, 0);
+    }
+
+    Linking.getInitialURL().then(openBusinessUrl).catch(() => {});
+    const subscription = Linking.addEventListener('url', ({ url }) => {
+      openBusinessUrl(url);
+    });
+
+    return () => {
+      active = false;
+      subscription.remove();
+    };
+  }, [role, userId]);
+
+  useEffect(() => {
+    if (!userId || !role || remotePushUnavailable()) return undefined;
     let mounted = true;
+    let responseSubscription = null;
 
     (async () => {
       try {
+        const Notifications = await loadNotifications();
+        if (!Notifications || !mounted) return;
+
+        const handleResponse = (response) => {
+          const identifier = response?.notification?.request?.identifier
+            || response?.notification?.date
+            || JSON.stringify(response?.notification?.request?.content?.data || {});
+          if (handledResponses.current.has(identifier)) return;
+          handledResponses.current.add(identifier);
+          const data = response?.notification?.request?.content?.data || {};
+          openNotificationRoute(data, role);
+          markNotificationPayloadRead(data).catch(() => {});
+        };
+
+        // Install the response listener independently of permission/token
+        // registration. A cold-start tap must still route correctly while the
+        // OS permission is denied, a token is rotating, or EAS is unavailable.
+        responseSubscription = Notifications.addNotificationResponseReceivedListener(
+          handleResponse
+        );
+        const initialResponse = await Notifications.getLastNotificationResponseAsync();
+        if (initialResponse && mounted) {
+          handleResponse(initialResponse);
+          await Notifications.clearLastNotificationResponseAsync();
+        }
+
         // Respect the soft-ask priming: only auto-register if the user
         // accepted priming OR the OS permission is already granted.
-        const prime = await AsyncStorage.getItem('dailylog:push_prime');
-        const { status } = await Notifications.getPermissionsAsync();
+        const prime = await getPushPrimeChoice(userId);
+        const permission = await Notifications.getPermissionsAsync();
+        const status = normalizedPermissionStatus(Notifications, permission);
+        if (status === 'denied') return;
         if (status !== 'granted' && prime !== 'accepted') return;
 
         const token = await registerForPushNotificationsAsync();
@@ -108,31 +234,17 @@ export function usePushNotifications(userId) {
           { onConflict: 'user_id,token' }
         );
         if (error) console.warn('Push token save failed:', error.message);
+
       } catch (err) {
         console.log('Push registration failed:', err.message);
       }
     })();
 
-    // Route the user when they tap a notification
-    responseListener.current = Notifications.addNotificationResponseReceivedListener(
-      (response) => {
-        const data = response?.notification?.request?.content?.data || {};
-        if (data.type === 'announcement') {
-          // Announcements screen exists in every role's stack
-          navigate('Announcements');
-        } else if (data.type === 'incident' || data.type === 'medication' || data.childId) {
-          // Incident / medication / daily-log notifications land on the
-          // parent home, where banners and the day view are shown.
-          navigate('ParentTabs', { screen: 'ParentHome' });
-        }
-      }
-    );
-
     return () => {
       mounted = false;
-      responseListener.current?.remove();
+      responseSubscription?.remove();
     };
-  }, [userId]);
+  }, [role, userId]);
 }
 
 /**

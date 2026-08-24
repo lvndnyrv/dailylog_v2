@@ -14,6 +14,7 @@ import { getServerSupabase } from "@/lib/supabase/server";
 export interface EnrollmentActionState {
   error?: string;
   ok?: boolean;
+  journeyCode?: string;
 }
 
 function str(formData: FormData, key: string): string {
@@ -201,7 +202,7 @@ export async function bookTourAction(
       classroom_id: slot.classroom_id,
     })
     .eq("id", enrollmentId)
-    .select("guardian_email, guardian_name, child_first_name")
+    .select("guardian_email, guardian_name, child_first_name, offer_code")
     .single();
   if (enrollmentError) return { error: enrollmentError.message };
   await enqueueEnrollmentEmail(
@@ -210,7 +211,7 @@ export async function bookTourAction(
     enrollment.guardian_email,
     "tour_confirmation",
     "Your Sunny Grove tour is booked",
-    `${enrollment.guardian_name ?? "Hello"}, your tour for ${enrollment.child_first_name ?? "your family"} is confirmed for ${formatDateTime(slot.starts_at)}.`,
+    `${enrollment.guardian_name ?? "Hello"}, your tour for ${enrollment.child_first_name ?? "your family"} is confirmed for ${formatDateTime(slot.starts_at)}. View or reschedule it in DailyLog: dailylog://inquiry?code=${encodeURIComponent(enrollment.offer_code ?? "")}`,
     `tour:${enrollmentId}:${slot.starts_at}`,
   );
   revalidatePath("/enrollment");
@@ -264,7 +265,7 @@ export async function logTourOutcomeAction(
     .from("enrollments")
     .update(values)
     .eq("id", enrollmentId)
-    .select("guardian_email, guardian_name, child_first_name")
+    .select("guardian_email, guardian_name, child_first_name, offer_code")
     .single();
   if (error) return { error: error.message };
   if (outcome === "attended" && sendApplication) {
@@ -295,10 +296,34 @@ export async function requestDocumentsAction(
   if (requested.length === 0) return { error: "Select at least one missing document." };
   const { data: enrollment, error: readError } = await supabase
     .from("enrollments")
-    .select("documents_status, guardian_email, guardian_name, child_first_name")
+    .select("documents_status, guardian_email, guardian_name, child_first_name, child_id")
     .eq("id", enrollmentId)
     .single();
   if (readError) return { error: readError.message };
+  const message = str(formData, "message") || `${enrollment.guardian_name ?? "Hello"}, please upload the remaining enrollment documents.`;
+
+  // Once the application has become an enrolled child, keep the request in the
+  // standing parent document vault as well as the historical application record.
+  if (enrollment.child_id) {
+    const titles: Record<string, string> = {
+      immunization: "Updated immunization record",
+      birth_certificate: "Birth certificate",
+      custody: "Custody document",
+      allergy_medical: "Allergy & medical form",
+    };
+    const dueOn = new Date();
+    dueOn.setDate(dueOn.getDate() + 14);
+    for (const document of requested) {
+      const { error: requestError } = await supabase.rpc("create_parent_document_request", {
+        p_child_id: enrollment.child_id,
+        p_kind: document,
+        p_title: titles[document] ?? document.replaceAll("_", " "),
+        p_message: message,
+        p_due_on: dueOn.toISOString().slice(0, 10),
+      });
+      if (requestError) return { error: requestError.message };
+    }
+  }
   const statuses = jsonObject(enrollment.documents_status);
   for (const document of requested) statuses[document] = "requested";
   const { error } = await supabase
@@ -312,7 +337,7 @@ export async function requestDocumentsAction(
     enrollment.guardian_email,
     "enrollment_documents",
     `Documents needed for ${enrollment.child_first_name ?? "your application"}`,
-    str(formData, "message") || `${enrollment.guardian_name ?? "Hello"}, please upload the remaining enrollment documents.`,
+    message,
     `documents:${enrollmentId}:${requested.sort().join("-")}`,
   );
   revalidatePath("/enrollment");
@@ -390,7 +415,7 @@ export async function sendOfferAction(
       waitlist_status: "offer",
     })
     .eq("id", enrollmentId)
-    .select("guardian_email, guardian_name, child_first_name")
+    .select("guardian_email, guardian_name, child_first_name, offer_code")
     .single();
   if (error) return { error: error.message };
   await enqueueEnrollmentEmail(
@@ -399,7 +424,7 @@ export async function sendOfferAction(
     enrollment.guardian_email,
     "waitlist_offer",
     `${enrollment.child_first_name ?? "Your family"} has a spot at Sunny Grove`,
-    `${enrollment.guardian_name ?? "Hello"}, your enrollment offer is held until ${formatDateTime(expiresAt.toISOString())}.`,
+    `${enrollment.guardian_name ?? "Hello"}, your enrollment offer is held until ${formatDateTime(expiresAt.toISOString())}. Open it securely in DailyLog: dailylog://offer?code=${encodeURIComponent(enrollment.offer_code ?? "")}`,
     `offer:${enrollmentId}:${sentAt.toISOString().slice(0, 13)}`,
   );
   revalidatePath("/enrollment");
@@ -483,7 +508,7 @@ export async function addToWaitlistAction(
   }
   const { data: added } = await supabase
     .from("enrollments")
-    .select("guardian_email, guardian_name, child_first_name")
+    .select("guardian_email, guardian_name, child_first_name, offer_code")
     .eq("id", enrollmentId)
     .single();
   if (added) {
@@ -494,7 +519,7 @@ export async function addToWaitlistAction(
       added.guardian_email,
       "waitlist_confirmation",
       `${added.child_first_name ?? "Your family"} is on the waitlist`,
-      `${added.guardian_name ?? "Hello"}, your center-wide waitlist position is #${position}. We'll contact you when a matching room spot opens.`,
+      `${added.guardian_name ?? "Hello"}, your center-wide waitlist position is #${position}. Track your place in DailyLog: dailylog://inquiry?code=${encodeURIComponent(added.offer_code ?? "")}`,
       `waitlist-added:${enrollmentId}`,
     );
   }
@@ -685,23 +710,17 @@ export async function sendWaitlistCheckinAction(
   if (!profile?.daycare_id) return { error: "No center on your profile." };
   const ids = formData.getAll("enrollment_id").map(String);
   if (ids.length === 0) return { error: "Select at least one family." };
-  const { data: settings } = await supabase
-    .from("enrollment_settings")
-    .select("auto_archive_checkins")
-    .maybeSingle();
   const { data: families, error: readError } = await supabase
     .from("enrollments")
-    .select("id, guardian_email, guardian_name, waitlist_unanswered_checkins")
+    .select("id, guardian_email, guardian_name, waitlist_unanswered_checkins, offer_code")
     .in("id", ids);
   if (readError) return { error: readError.message };
   for (const family of families ?? []) {
     const unanswered = family.waitlist_unanswered_checkins + 1;
-    const archive = unanswered >= (settings?.auto_archive_checkins ?? 2);
     await supabase.from("enrollments").update({
       waitlist_last_contact_at: new Date().toISOString(),
       waitlist_unanswered_checkins: unanswered,
-      waitlist_status: archive ? "archived" : "active",
-      waitlist_position: archive ? null : undefined,
+      waitlist_response_due_at: new Date(Date.now() + 7 * 86400000).toISOString(),
     }).eq("id", family.id);
     await enqueueEnrollmentEmail(
       supabase,
@@ -709,7 +728,7 @@ export async function sendWaitlistCheckinAction(
       family.guardian_email,
       "waitlist_checkin",
       "Still interested in Sunny Grove?",
-      str(formData, "message") || `${family.guardian_name ?? "Hello"}, you're still on our waitlist. Please confirm that you'd like to keep your spot.`,
+      `${str(formData, "message") || `${family.guardian_name ?? "Hello"}, you're still on our waitlist. Please confirm that you'd like to keep your spot.`} Respond securely in DailyLog: dailylog://inquiry?code=${encodeURIComponent(family.offer_code ?? "")}`,
       `waitlist-checkin:${family.id}:${unanswered}`,
     );
   }
@@ -782,25 +801,26 @@ export async function publicInquiryAction(
 
   const name = str(formData, "guardian_name");
   const email = str(formData, "guardian_email");
-  const childFirstName = str(formData, "child_first_name");
-  if (!name || !email || !childFirstName) {
-    return { error: "Your name, email, and the child's first name are required." };
+  const childFullName = str(formData, "child_full_name");
+  if (!name || !email || !childFullName) {
+    return { error: "Your name, email, and the child's full name are required." };
   }
   const birthday = str(formData, "child_date_of_birth");
   const desiredStart = str(formData, "desired_start");
 
   try {
-    await submitEnrollmentInquiry(supabase, {
+    const inquiry = await submitEnrollmentInquiry(supabase, {
       daycareId: str(formData, "daycare_id"),
       guardianName: name,
       guardianEmail: email,
       guardianPhone: str(formData, "guardian_phone") || undefined,
-      childFirstName,
+      childFullName,
       childDateOfBirth: birthday ? `${birthday}-01` : undefined,
       classroomId: str(formData, "classroom_id") || undefined,
       desiredStart: desiredStart ? `${desiredStart}-01` : undefined,
       daysPerWeek: Number(str(formData, "days_per_week") || 5),
     });
+    return { ok: true, journeyCode: inquiry.journeyCode };
   } catch (error) {
     console.error("[public-inquiry]", error);
     return {
@@ -811,7 +831,6 @@ export async function publicInquiryAction(
     };
   }
 
-  return { ok: true };
 }
 
 function jsonObject(value: unknown): { [key: string]: Json | undefined } {

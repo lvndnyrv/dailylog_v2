@@ -1,4 +1,4 @@
-import { getStaffMember } from "@dailylog/db/queries";
+import { getStaffMember, listStaffCredentialSubmissions } from "@dailylog/db/queries";
 import { notFound } from "next/navigation";
 import { StaffProfileView } from "@/components/staff/staff-profile-view";
 import { getServerSupabase } from "@/lib/supabase/server";
@@ -16,12 +16,32 @@ export default async function StaffProfilePage({
   const supabase = await getServerSupabase();
 
   let member: Awaited<ReturnType<typeof getStaffMember>>;
+  let credentialSubmissions: Awaited<ReturnType<typeof listStaffCredentialSubmissions>> = [];
   try {
-    member = await getStaffMember(supabase, id);
+    [member, credentialSubmissions] = await Promise.all([
+      getStaffMember(supabase, id),
+      listStaffCredentialSubmissions(supabase, id),
+    ]);
   } catch {
     notFound();
   }
   if (!member.profile) notFound();
 
-  return <StaffProfileView member={member} openEdit={edit === "1"} />;
+  const submissionsWithUrls = await Promise.all(
+    credentialSubmissions.map(async (submission) => {
+      if (!submission.document?.storage_path) return { ...submission, documentUrl: null };
+      const { data } = await supabase.storage
+        .from("documents")
+        .createSignedUrl(submission.document.storage_path, 10 * 60);
+      return { ...submission, documentUrl: data?.signedUrl ?? null };
+    }),
+  );
+
+  return (
+    <StaffProfileView
+      member={member}
+      openEdit={edit === "1"}
+      credentialSubmissions={submissionsWithUrls}
+    />
+  );
 }

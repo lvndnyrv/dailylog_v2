@@ -1,0 +1,88 @@
+-- Extend the narrowly scoped parent demo-payment trigger exception to a
+-- deterministic failed attempt. This is still limited to the exact current
+-- balance, the signed-in family's active demo method, and the known decline
+-- reference emitted by complete_demo_parent_invoice_payment().
+
+create or replace function public.enforce_billing_edit()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_family uuid;
+  v_expected_cents int;
+  v_marker text;
+  v_valid_demo_payment boolean := false;
+begin
+  if auth.role() = 'service_role' or (auth.uid() is null and auth.role() is null) then
+    return coalesce(new, old);
+  end if;
+
+  if tg_table_name = 'payments' and tg_op = 'INSERT' then
+    v_valid_demo_payment := new.family_id is not null
+      and new.invoice_id is not null
+      and new.payment_method_id is not null
+      and new.paid_by = auth.uid()
+      and (
+        (new.status = 'succeeded' and new.external_ref like 'demo_%')
+        or (new.status = 'failed' and new.external_ref = 'demo_decline:insufficient_funds')
+      )
+      and public.can_manage_family_billing(new.family_id)
+      and exists (
+        select 1
+        from public.family_payment_methods method
+        where method.id = new.payment_method_id
+          and method.family_id = new.family_id
+          and method.daycare_id = new.daycare_id
+          and method.provider = 'demo'
+          and method.status = 'active'
+          and method.method_type = new.method
+          and (
+            new.status = 'succeeded'
+            or method.provider_payment_method_ref like 'demo_decline_%'
+          )
+      );
+
+    if v_valid_demo_payment then
+      select greatest(invoice.total_cents - coalesce((
+        select sum(payment.amount_cents)
+        from public.payments payment
+        where payment.invoice_id = invoice.id and payment.status = 'succeeded'
+      ), 0), 0)::int
+      into v_expected_cents
+      from public.invoices invoice
+      where invoice.id = new.invoice_id
+        and invoice.family_id = new.family_id
+        and invoice.daycare_id = new.daycare_id
+        and invoice.currency = new.currency
+        and invoice.status in ('open', 'overdue');
+
+      if v_expected_cents > 0 and new.amount_cents = v_expected_cents then
+        perform set_config('dailylog.parent_demo_payment_family', new.family_id::text, true);
+        return new;
+      end if;
+    end if;
+  end if;
+
+  v_marker := current_setting('dailylog.parent_demo_payment_family', true);
+  if v_marker is not null and v_marker <> '' then
+    if tg_table_name = 'invoices' and tg_op = 'UPDATE' then
+      v_family := new.family_id;
+    elsif tg_table_name = 'family_ledger_entries' and tg_op = 'INSERT' then
+      v_family := new.family_id;
+    end if;
+
+    if v_family is not null
+       and v_marker = v_family::text
+       and public.can_manage_family_billing(v_family) then
+      return coalesce(new, old);
+    end if;
+  end if;
+
+  if not public.has_permission('billing', 'edit') then
+    raise exception 'Billing edit permission required';
+  end if;
+  return coalesce(new, old);
+end;
+$$;

@@ -4,8 +4,6 @@ import { supabase } from '../lib/supabase';
 
 const AuthContext = createContext({});
 
-const VALID_ROLES = ['educator', 'parent', 'admin'];
-
 // Remembered account (last successful sign-in) — survives logout on purpose,
 // so returning users only need to enter their password.
 const REMEMBERED_EMAIL_KEY = 'dailylog_remembered_email';
@@ -54,6 +52,8 @@ export function AuthProvider({ children }) {
 
         if (!data) {
           data = await ensureProfileFromMetadata();
+        } else {
+          data = await fillMissingSafeProfileMetadata(data, session.user);
         }
       } catch (e) {
         // Network error — don't show failure screen, retry later
@@ -107,21 +107,22 @@ export function AuthProvider({ children }) {
     if (!u) return null;
 
     const meta = u.user_metadata || {};
-    const role = VALID_ROLES.includes(meta.role) ? meta.role : 'parent';
 
+    // Never trust client metadata for authorization. Legitimate staff
+    // elevation happens through start_center / invite / join-code RPCs.
     await supabase.from('profiles').upsert(
       {
         id: u.id,
         email: u.email,
         full_name: meta.full_name?.trim() || u.email?.split('@')[0] || 'User',
-        role,
+        role: 'parent',
         phone: meta.phone || '',
       },
       { onConflict: 'id', ignoreDuplicates: true }
     );
 
     // Process a pending child link from an educator invite
-    if (meta.pending_child_id && role === 'parent') {
+    if (meta.pending_child_id) {
       await supabase.from('parent_children').upsert(
         { parent_id: u.id, child_id: meta.pending_child_id },
         { onConflict: 'parent_id,child_id', ignoreDuplicates: true }
@@ -132,19 +133,52 @@ export function AuthProvider({ children }) {
     return data;
   }
 
-  async function fetchProfile(userId) {
-    let { data } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', userId)
-      .maybeSingle();
+  async function fillMissingSafeProfileMetadata(currentProfile, authUser) {
+    const meta = authUser?.user_metadata || {};
+    const updates = {};
 
-    if (!data) {
-      data = await ensureProfileFromMetadata();
+    if (!currentProfile.full_name?.trim() && meta.full_name?.trim()) {
+      updates.full_name = meta.full_name.trim();
     }
+    if (!currentProfile.phone?.trim() && meta.phone?.trim()) {
+      updates.phone = meta.phone.trim();
+    }
+    if (!Object.keys(updates).length) return currentProfile;
 
-    setProfile(data ?? null);
-    setLoading(false);
+    const { data } = await supabase
+      .from('profiles')
+      .update(updates)
+      .eq('id', currentProfile.id)
+      .select('*')
+      .single();
+
+    return data || { ...currentProfile, ...updates };
+  }
+
+  async function fetchProfile(userId, options = {}) {
+    const silent = options.silent === true;
+    if (!silent) setLoading(true);
+    try {
+      const profileResult = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', userId)
+        .maybeSingle();
+
+      if (profileResult.error) throw profileResult.error;
+
+      let data = profileResult.data;
+      if (!data) data = await ensureProfileFromMetadata();
+
+      setProfile(data ?? null);
+      setProfileFailed(!data);
+      return { data: data ?? null, error: data ? null : new Error('Profile not found') };
+    } catch (error) {
+      setProfileFailed(true);
+      return { data: null, error };
+    } finally {
+      if (!silent) setLoading(false);
+    }
   }
 
   async function signIn(email, password) {
@@ -198,12 +232,10 @@ export function AuthProvider({ children }) {
     }
   }
 
-  async function signUp(email, password, fullName, role, phone = '', activationCode = '') {
-    // Metadata is consumed by the handle_new_user DB trigger, which
-    // creates the profile server-side (works even when email
-    // confirmation is enabled and there is no session yet).
-    // role='admin' additionally requires a valid activation_code —
-    // the trigger downgrades to 'parent' otherwise (server-enforced).
+  async function signUp(email, password, fullName, role, phone = '', options = {}) {
+    // Metadata is consumed by the handle_new_user DB trigger, which creates a
+    // parent profile server-side. Role/setup metadata is only a UX intent
+    // marker; authorization is assigned by trusted center/invite RPCs.
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
@@ -212,7 +244,10 @@ export function AuthProvider({ children }) {
           full_name: fullName,
           role,
           phone,
-          ...(activationCode ? { activation_code: activationCode } : {}),
+          setup_center_pending: Boolean(options.setupCenter),
+          ...(options.registrationCode
+            ? { center_registration_code: options.registrationCode }
+            : {}),
         },
       },
     });
@@ -221,6 +256,13 @@ export function AuthProvider({ children }) {
     // If we already have a session, make sure the profile exists now
     // (covers databases where the trigger migration hasn't run).
     if (data?.session && data?.user) {
+      await supabase
+        .from('profiles')
+        .update({
+          full_name: fullName,
+          ...(phone ? { phone } : {}),
+        })
+        .eq('id', data.user.id);
       await fetchProfile(data.user.id);
       return { error: null, needsEmailConfirm: false };
     }

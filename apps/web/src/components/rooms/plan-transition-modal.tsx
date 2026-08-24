@@ -28,6 +28,7 @@ export function PlanTransitionModal({
     {},
   );
   const suggestedDate = plan?.move_on ?? transitionDate(transition);
+  const suggestedTransition = transitionWeekDates(suggestedDate);
 
   return (
     <Modal onClose={onClose} width={430}>
@@ -86,6 +87,49 @@ export function PlanTransitionModal({
           />
         </label>
 
+        <div className="grid grid-cols-2 gap-2.5">
+          <Field
+            label="Transition starts"
+            name="transition_starts_on"
+            type="date"
+            defaultValue={plan?.transition_starts_on ?? suggestedTransition.startsOn}
+          />
+          <Field
+            label="Transition ends"
+            name="transition_ends_on"
+            type="date"
+            defaultValue={plan?.transition_ends_on ?? suggestedTransition.endsOn}
+          />
+        </div>
+
+        <div className="grid grid-cols-2 gap-2.5">
+          <Field
+            label="Current tuition / mo"
+            name="current_tuition"
+            type="number"
+            min={0}
+            step="0.01"
+            defaultValue={plan?.current_tuition_cents == null ? "" : plan.current_tuition_cents / 100}
+            placeholder="1320"
+          />
+          <Field
+            label="New tuition / mo"
+            name="new_tuition"
+            type="number"
+            min={0}
+            step="0.01"
+            defaultValue={plan?.new_tuition_cents == null ? "" : plan.new_tuition_cents / 100}
+            placeholder="1180"
+          />
+        </div>
+
+        <Field
+          label="Message to family (optional)"
+          name="family_message"
+          defaultValue={plan?.family_message ?? ""}
+          placeholder={`${transition.first_name} is ready to move up — the new room is excited to welcome them.`}
+        />
+
         <Field
           label="Plan note"
           name="notes"
@@ -94,8 +138,8 @@ export function PlanTransitionModal({
         />
 
         <div className="rounded-[13px] bg-tint px-3.5 py-3 text-[12px] leading-relaxed text-ink">
-          The old spot stays occupied until the move date. Waitlist and billing
-          automation will consume this plan when those integrations are enabled.
+          The old spot stays occupied until the move date. The family is notified
+          now and sees the move day, transition visits, and any rate change in their app.
         </div>
 
         {state.ok && <Notice tone="success"><b>Move planned.</b> Close to see it on the panel.</Notice>}
@@ -112,6 +156,19 @@ export function PlanTransitionModal({
       </form>
     </Modal>
   );
+}
+
+function transitionWeekDates(moveOn: string): { startsOn: string; endsOn: string } {
+  const moveDate = new Date(`${moveOn}T12:00:00Z`);
+  const day = moveDate.getUTCDay() || 7;
+  const monday = new Date(moveDate);
+  monday.setUTCDate(moveDate.getUTCDate() - day - 6);
+  const friday = new Date(monday);
+  friday.setUTCDate(monday.getUTCDate() + 4);
+  return {
+    startsOn: monday.toISOString().slice(0, 10),
+    endsOn: friday.toISOString().slice(0, 10),
+  };
 }
 
 function transitionDate(transition: RoomTransition): string {

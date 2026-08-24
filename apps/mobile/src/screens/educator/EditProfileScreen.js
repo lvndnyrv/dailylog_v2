@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { isAdminRole } from '@dailylog/shared';
 import {
   View, Text, TouchableOpacity,
   StyleSheet
@@ -93,7 +94,7 @@ export default function EditProfileScreen({ navigation }) {
           </View>
           <View>
             <Text style={styles.roleLabel}>
-              {profile?.role === 'admin' ? '👑 Admin' : profile?.role === 'educator' ? '👩‍🏫 Educator' : '👨‍👩‍👧 Parent'}
+              {isAdminRole(profile?.role) ? '👑 Admin' : profile?.role === 'educator' ? '👩‍🏫 Educator' : '👨‍👩‍👧 Parent'}
             </Text>
             <Text style={styles.emailLabel}>{profile?.email}</Text>
           </View>

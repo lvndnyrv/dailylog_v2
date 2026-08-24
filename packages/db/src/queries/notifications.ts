@@ -107,9 +107,9 @@ export async function enqueueEmailNotification(
     p_recipient_email: values.recipientEmail,
     p_kind: values.kind,
     p_title: values.title,
-    p_body: values.body ?? null,
+    ...(values.body != null ? { p_body: values.body } : {}),
     p_payload: values.payload ?? {},
-    p_dedupe_key: values.dedupeKey ?? null,
+    ...(values.dedupeKey != null ? { p_dedupe_key: values.dedupeKey } : {}),
   });
   if (error) throw error;
   return data;

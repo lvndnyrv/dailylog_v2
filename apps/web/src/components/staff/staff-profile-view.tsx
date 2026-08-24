@@ -7,6 +7,10 @@ import { Avatar } from "@/components/ui/avatar";
 import { deactivateStaffAction } from "@/lib/staff/actions";
 import { Modal } from "@/components/ui/modal";
 import { EditStaffModal } from "./edit-staff-modal";
+import {
+  CredentialReviewCard,
+  type CredentialSubmissionWithUrl,
+} from "./credential-review-card";
 
 const card = "rounded-2xl border border-[rgba(23,51,91,.1)] bg-card p-[18px]";
 const cardTitle = "text-[14px] font-extrabold text-ink";
@@ -21,9 +25,11 @@ const ROLE_LABELS: Record<string, string> = {
 export function StaffProfileView({
   member,
   openEdit,
+  credentialSubmissions,
 }: {
   member: StaffRow;
   openEdit: boolean;
+  credentialSubmissions: CredentialSubmissionWithUrl[];
 }) {
   const [modal, setModal] = useState<"none" | "edit" | "deactivate">(
     openEdit ? "edit" : "none",
@@ -72,6 +78,28 @@ export function StaffProfileView({
 
       <main className="grid flex-1 grid-cols-[1.6fr_1fr] items-start gap-4 p-7">
         <div className="flex min-w-0 flex-col gap-4">
+          {credentialSubmissions.length > 0 && (
+            <section className={card} aria-labelledby="credential-review-h">
+              <div className="mb-3 flex items-center gap-2">
+                <h2 id="credential-review-h" className={cardTitle}>Credential renewals</h2>
+                <span className="flex-1" />
+                {credentialSubmissions.some((submission) => submission.status === "pending") && (
+                  <span className="rounded-full bg-warning-bg px-2.5 py-1 text-[11px] font-bold text-warning-text">
+                    {credentialSubmissions.filter((submission) => submission.status === "pending").length} to review
+                  </span>
+                )}
+              </div>
+              <div className="flex flex-col gap-2.5">
+                {credentialSubmissions.slice(0, 5).map((submission) => (
+                  <CredentialReviewCard key={submission.id} submission={submission} />
+                ))}
+              </div>
+              <p className="mt-2.5 text-[11.5px] text-faint">
+                Verification updates the compliance register and clears the educator&apos;s reminder.
+              </p>
+            </section>
+          )}
+
           {/* Certifications */}
           <section className={card} aria-labelledby="certs-h">
             <div className="mb-3 flex items-center gap-2">
@@ -108,7 +136,9 @@ export function StaffProfileView({
                     <span className="text-[12.5px] text-muted">{cert.issuer ?? "—"}</span>
                     <span className="text-[12.5px] text-muted">{cert.issued ?? "—"}</span>
                     <span className="text-[12.5px]">
-                      {cert.expires_on ? (
+                      {cert.missing ? (
+                        <span className="font-bold text-danger">Missing · required</span>
+                      ) : cert.expires_on ? (
                         <span className="text-muted">
                           Valid · until{" "}
                           {new Date(cert.expires_on).toLocaleDateString("en-CA", {
@@ -190,8 +220,7 @@ export function StaffProfileView({
           <section className={card}>
             <h2 className={`${cardTitle} mb-2`}>Documents</h2>
             <p className="text-[12.5px] text-faint">
-              Contracts and files land here with the document vault — next on
-              the compliance roadmap. Certifications already live on the{" "}
+              Credential renewals uploaded from the educator app are private and retained with their review history. Certifications also live on the{" "}
               <Link href="/compliance" className="font-bold text-primary hover:text-primary-hover">
                 Compliance register
               </Link>

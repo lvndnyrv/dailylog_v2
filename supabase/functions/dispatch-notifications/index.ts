@@ -14,6 +14,13 @@ type ExpoTicket = { status?: string; details?: { error?: string } };
 
 const jsonHeaders = { 'content-type': 'application/json' };
 
+class PermanentDeliveryError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'PermanentDeliveryError';
+  }
+}
+
 function requiredEnv(name: string): string {
   const value = Deno.env.get(name);
   if (!value) throw new Error(`Missing ${name}`);
@@ -77,7 +84,12 @@ async function deliverEmail(
   supabase: ReturnType<typeof createClient>,
   row: OutboxRow,
 ): Promise<{ response: unknown; permanent: boolean }> {
-  const webhookUrl = requiredEnv('EMAIL_WEBHOOK_URL');
+  const webhookUrl = Deno.env.get('EMAIL_WEBHOOK_URL');
+  if (!webhookUrl) {
+    throw new PermanentDeliveryError(
+      'Email delivery is not configured: set EMAIL_WEBHOOK_URL before enabling email notifications',
+    );
+  }
   let recipient = { email: row.recipient_email, full_name: null as string | null };
   if (!recipient.email && row.recipient_id) {
     const { data: profile, error } = await supabase
@@ -124,6 +136,16 @@ Deno.serve(async (request) => {
       requiredEnv('SUPABASE_SERVICE_ROLE_KEY'),
       { auth: { persistSession: false, autoRefreshToken: false } },
     );
+    // Every worker pass first materializes due credential reminders. The RPC
+    // is idempotent per credential, expiry date and reminder threshold.
+    const { error: reminderError } = await supabase.rpc(
+      'enqueue_staff_credential_expiry_reminders'
+    );
+    if (reminderError) throw reminderError;
+    const { error: waitlistError } = await supabase.rpc(
+      'process_overdue_waitlist_checkins'
+    );
+    if (waitlistError) throw waitlistError;
     const { data: rows, error } = await supabase.rpc('claim_notification_batch', { p_limit: 50 });
     if (error) throw error;
 
@@ -145,6 +167,7 @@ Deno.serve(async (request) => {
           p_id: row.id,
           p_succeeded: false,
           p_error: message,
+          p_permanent: deliveryError instanceof PermanentDeliveryError,
           p_retry_after_seconds: 60,
         });
         throw deliveryError;

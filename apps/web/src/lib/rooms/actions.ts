@@ -208,8 +208,23 @@ export async function planRoomTransitionAction(
   const fromRoomId = str(formData, "from_room_id");
   const toRoomId = str(formData, "to_room_id");
   const moveOn = str(formData, "move_on");
+  const transitionWeek = formData.get("transition_week") === "on";
+  const transitionStartsOn = str(formData, "transition_starts_on");
+  const transitionEndsOn = str(formData, "transition_ends_on");
   if (!childId || !fromRoomId || !toRoomId || !moveOn) {
     return { error: "Child, destination room, and move day are required." };
+  }
+  if (transitionWeek && (!transitionStartsOn || !transitionEndsOn)) {
+    return { error: "Add the start and end of the transition week." };
+  }
+  if (transitionWeek && (transitionEndsOn < transitionStartsOn || transitionEndsOn >= moveOn)) {
+    return { error: "Transition visits must end before the move day." };
+  }
+
+  const currentTuition = num(formData, "current_tuition");
+  const newTuition = num(formData, "new_tuition");
+  if ((currentTuition != null && currentTuition < 0) || (newTuition != null && newTuition < 0)) {
+    return { error: "Tuition cannot be negative." };
   }
 
   const { data: existing, error: existingError } = await supabase
@@ -223,7 +238,15 @@ export async function planRoomTransitionAction(
   const planValues = {
     to_classroom_id: toRoomId,
     move_on: moveOn,
-    transition_week: formData.get("transition_week") === "on",
+    transition_week: transitionWeek,
+    transition_starts_on: transitionWeek ? transitionStartsOn : null,
+    transition_ends_on: transitionWeek ? transitionEndsOn : null,
+    current_tuition_cents: currentTuition == null ? null : Math.round(currentTuition * 100),
+    new_tuition_cents: newTuition == null ? null : Math.round(newTuition * 100),
+    currency: "CAD",
+    family_message: str(formData, "family_message") || null,
+    family_visible: true,
+    published_at: existing ? undefined : new Date().toISOString(),
     notes: str(formData, "notes") || null,
     status: "planned",
   };

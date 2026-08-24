@@ -1,126 +1,232 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, FlatList, TouchableOpacity, TextInput, StyleSheet, RefreshControl } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  Image,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { useIsFocused } from '@react-navigation/native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { format } from 'date-fns';
+
 import { useAuth } from '../../hooks/useAuth';
+import { useAttendance } from '../../hooks/useAttendance';
 import { useClassroom } from '../../hooks/useClassroom';
 import { useNapTimer } from '../../hooks/useNapTimer';
-import { useAttendance } from '../../hooks/useAttendance';
-import { useIsFocused } from '@react-navigation/native';
 import { supabase } from '../../lib/supabase';
-import { mutate } from '../../lib/offlineQueue';
-import { newId } from '../../lib/uuid';
 import { showToast } from '../../components/Toast';
-import { LoadingScreen, EmptyState, AllergyBadge } from '../../components/ui';
-import { ClassroomSwitcher } from '../../components/ClassroomSwitcher';
 import { ChildAvatar } from '../../components/ChildAvatar';
-import { colors, spacing, radius } from '../../theme';
-import { format, subDays, addDays, isToday as checkIsToday } from 'date-fns';
+import { ClassroomSwitcher } from '../../components/ClassroomSwitcher';
+import { EmptyState, LoadingScreen } from '../../components/ui';
+import { colors, fonts, radius, spacing } from '../../theme';
+
+const COLLAPSED_ROW_COUNT = 2;
+
+export function getKidsDayPhase(date = new Date()) {
+  const hour = date.getHours();
+  if (hour < 11) return 'morning';
+  if (hour < 15) return 'midday';
+  return 'afternoon';
+}
+
+function formatAttendanceTime(value) {
+  if (!value) return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : format(parsed, 'h:mm');
+}
+
+function totalEntries(status) {
+  return (status?.mealCount || 0)
+    + (status?.sleepCount || 0)
+    + (status?.diaperCount || 0)
+    + (status?.activityCount || 0);
+}
+
+function ProfileAvatar({ profile, onPress }) {
+  const initial = profile?.display_name?.[0]
+    || profile?.full_name?.[0]
+    || '?';
+
+  return (
+    <TouchableOpacity
+      onPress={onPress}
+      style={styles.profileAvatar}
+      accessibilityRole="button"
+      accessibilityLabel="Open settings"
+      activeOpacity={0.75}
+    >
+      {profile?.avatar_url ? (
+        <Image source={{ uri: profile.avatar_url }} style={styles.profileAvatarImage} />
+      ) : (
+        <Text style={styles.profileAvatarText}>{initial.toUpperCase()}</Text>
+      )}
+    </TouchableOpacity>
+  );
+}
+
+function StatusChip({ label, tone = 'neutral', onPress }) {
+  const chip = (
+    <View style={[styles.statusChip, styles[`statusChip_${tone}`]]}>
+      <Text style={[styles.statusChipText, styles[`statusChipText_${tone}`]]}>
+        {label}
+      </Text>
+    </View>
+  );
+
+  if (!onPress) return chip;
+
+  return (
+    <TouchableOpacity
+      onPress={event => {
+        event.stopPropagation?.();
+        onPress();
+      }}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      activeOpacity={0.7}
+    >
+      {chip}
+    </TouchableOpacity>
+  );
+}
+
+function ChildRow({ item, onOpen, onStatusPress }) {
+  return (
+    <TouchableOpacity
+      onPress={() => onOpen(item.child)}
+      style={styles.childRow}
+      activeOpacity={0.72}
+      accessibilityRole="button"
+      accessibilityLabel={`Open ${item.child.first_name} ${item.child.last_name}`}
+    >
+      <View style={styles.childAvatarWrap}>
+        <ChildAvatar child={item.child} size={38} fontSize={13} />
+        {item.isPresent && <View style={styles.presentDot} />}
+      </View>
+      <Text style={styles.childName} numberOfLines={1}>
+        {item.child.first_name} {item.child.last_name}
+      </Text>
+      <StatusChip
+        label={item.chip}
+        tone={item.tone}
+        onPress={item.statusAction ? () => onStatusPress(item) : null}
+      />
+      <Ionicons name="chevron-forward" size={16} color={colors.textFaint} />
+    </TouchableOpacity>
+  );
+}
+
+function RosterBucket({
+  bucket,
+  expanded,
+  searchActive,
+  onToggle,
+  onOpen,
+  onStatusPress,
+}) {
+  if (!bucket.items.length) return null;
+
+  const visibleItems = searchActive || expanded
+    ? bucket.items
+    : bucket.items.slice(0, COLLAPSED_ROW_COUNT);
+  const hiddenCount = bucket.items.length - visibleItems.length;
+
+  return (
+    <View style={styles.bucketWrap}>
+      <View style={styles.bucketTitleRow}>
+        <Text style={styles.bucketTitle}>{bucket.title}</Text>
+        <View style={[styles.bucketCount, styles[`bucketCount_${bucket.tone}`]]}>
+          <Text style={[styles.bucketCountText, styles[`bucketCountText_${bucket.tone}`]]}>
+            {bucket.items.length}
+          </Text>
+        </View>
+      </View>
+
+      <View style={styles.bucketCard}>
+        {visibleItems.map((item, index) => (
+          <View key={item.child.id}>
+            {index > 0 && <View style={styles.rowDivider} />}
+            <ChildRow
+              item={item}
+              onOpen={onOpen}
+              onStatusPress={onStatusPress}
+            />
+          </View>
+        ))}
+        {hiddenCount > 0 && (
+          <>
+            <View style={styles.rowDivider} />
+            <TouchableOpacity
+              onPress={onToggle}
+              style={styles.moreButton}
+              accessibilityRole="button"
+            >
+              <Text style={styles.moreButtonText}>+ {hiddenCount} more children</Text>
+            </TouchableOpacity>
+          </>
+        )}
+        {!searchActive && expanded && bucket.items.length > COLLAPSED_ROW_COUNT && (
+          <>
+            <View style={styles.rowDivider} />
+            <TouchableOpacity
+              onPress={onToggle}
+              style={styles.moreButton}
+              accessibilityRole="button"
+            >
+              <Text style={styles.moreButtonText}>Show less</Text>
+            </TouchableOpacity>
+          </>
+        )}
+      </View>
+    </View>
+  );
+}
 
 export default function RosterScreen({ navigation }) {
-  const { profile }                     = useAuth();
-  const { active: activeClassroom }     = useClassroom();
-  const isFocused                       = useIsFocused();
-  const [children, setChildren]         = useState([]);
-  const [logStatus, setLogStatus]       = useState({});
-  const [loading, setLoading]           = useState(true);
-  const [refreshing, setRefreshing]     = useState(false);
-  const [filter, setFilter]             = useState('all');
-  const [searchQuery, setSearchQuery]   = useState('');
-  const [selectedDate, setSelectedDate] = useState(new Date());
+  const { profile } = useAuth();
+  const { active: activeClassroom } = useClassroom();
+  const isFocused = useIsFocused();
+  const [children, setChildren] = useState([]);
+  const [logStatus, setLogStatus] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [expandedBuckets, setExpandedBuckets] = useState({});
+  const [now, setNow] = useState(new Date());
 
-  const dateStr   = format(selectedDate, 'yyyy-MM-dd');
-  const isToday   = checkIsToday(selectedDate);
   const classroomId = activeClassroom?.id || profile?.classroom_id;
+  const today = format(now, 'yyyy-MM-dd');
+  const phase = getKidsDayPhase(now);
 
-  // Nap timer — only active for today
-  const { isNapping, getElapsed, startNap, endNap } = useNapTimer(isToday ? classroomId : null);
-
-  // Attendance — check-in/out per child for the selected day
   const {
-    checkIn, checkOut, getStatus: getAttendanceStatus, presentCount,
-  } = useAttendance(classroomId, selectedDate, profile?.id);
+    attendance,
+    getStatus: getAttendanceStatus,
+    presentCount,
+    refresh: refreshAttendance,
+  } = useAttendance(classroomId, now, profile?.id);
+  const {
+    activeNaps,
+    refresh: refreshNaps,
+  } = useNapTimer(classroomId);
 
-  // Quick action: check in / out toggle
-  async function quickAttendance(childId, childName) {
-    const status = getAttendanceStatus(childId);
-    if (status === 'absent') {
-      await checkIn(childId);
-      showToast(`✅ ${childName} checked in`, 'success');
-    } else if (status === 'present') {
-      await checkOut(childId);
-      showToast(`👋 ${childName} checked out`, 'success');
-    } else {
-      // departed → re-check-in
-      await checkIn(childId);
-      showToast(`✅ ${childName} checked back in`, 'success');
+  useEffect(() => {
+    const timer = setInterval(() => setNow(new Date()), 60_000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const load = useCallback(async () => {
+    if (!classroomId) {
+      setChildren([]);
+      setLogStatus({});
+      setLoading(false);
+      setRefreshing(false);
+      return;
     }
-  }
-
-  // Quick action: ensure log exists and return its id
-  async function ensureLogId(childId) {
-    // Check logStatus cache first
-    const cached = logStatus[childId];
-    if (cached?.logId) return cached.logId;
-
-    // Get or create today's log
-    const { data: existing } = await supabase
-      .from('daily_logs').select('id')
-      .eq('child_id', childId).eq('log_date', dateStr).maybeSingle();
-    if (existing) return existing.id;
-
-    const id = newId();
-    await mutate({
-      type: 'upsert', table: 'daily_logs',
-      data: { id, child_id: childId, log_date: dateStr, educator_id: profile.id },
-      onConflict: 'child_id,log_date', ignoreDuplicates: true,
-    });
-    return id;
-  }
-
-  // Quick action: add meal with default values
-  async function quickMeal(childId) {
-    const logId = await ensureLogId(childId);
-    if (!logId) return;
-    const { error } = await mutate({
-      type: 'insert', table: 'meal_entries',
-      data: { id: newId(), daily_log_id: logId, time: format(new Date(), 'HH:mm'), food_type: '', amount: 'some' },
-    });
-    if (error) showToast('Couldn\'t add meal', 'error');
-    else {
-      showToast('🍽 Meal added', 'success');
-      load(); // refresh counts
-    }
-  }
-
-  // Quick action: add diaper
-  async function quickDiaper(childId) {
-    const logId = await ensureLogId(childId);
-    if (!logId) return;
-    const { error } = await mutate({
-      type: 'insert', table: 'diaper_entries',
-      data: { id: newId(), daily_log_id: logId, time: format(new Date(), 'HH:mm'), type: 'diaper', wet: true, bm: false },
-    });
-    if (error) showToast('Couldn\'t add diaper entry', 'error');
-    else {
-      showToast('🩲 Diaper logged', 'success');
-      load();
-    }
-  }
-
-  // Quick action: toggle nap
-  async function quickNap(childId, childName) {
-    if (isNapping(childId)) {
-      await endNap(childId);
-      showToast(`😴 ${childName}'s nap ended`, 'success');
-    } else {
-      const logId = await ensureLogId(childId);
-      if (!logId) return;
-      await startNap(childId, logId, childName);
-      showToast(`😴 ${childName}'s nap started`, 'success');
-    }
-  }
-
-  async function load() {
-    if (!classroomId) return;
 
     const { data: kids, error: kidsError } = await supabase
       .from('children')
@@ -129,403 +235,592 @@ export default function RosterScreen({ navigation }) {
       .is('archived_at', null)
       .order('first_name');
 
-    if (kidsError) console.warn('Children query error:', kidsError.message);
-    console.log('Children loaded:', kids?.length, 'for classroom:', classroomId);
-
-    setChildren(kids || []);
-
-    if (kids?.length) {
-      // Preferred: single RPC (see supabase-phase0-reconciliation.sql)
-      const { data: statusRows, error: rpcError } = await supabase
-        .rpc('get_classroom_log_status', { p_classroom_id: classroomId, p_date: dateStr });
-
-      if (!rpcError && statusRows) {
-        const status = {};
-        statusRows.forEach(r => {
-          if (r.log_id) {
-            status[r.child_id] = {
-              sent: r.sent,
-              mood: r.moods?.[0],
-              entryCount: Number(r.entry_count) || 0,
-            };
-          }
-        });
-        setLogStatus(status);
-      } else {
-        // Fallback (migration not applied yet): 4 batched queries instead of 3-per-child
-        const { data: logs } = await supabase
-          .from('daily_logs')
-          .select('id, child_id, sent_to_parents, moods')
-          .in('child_id', kids.map(k => k.id))
-          .eq('log_date', dateStr);
-
-        const logIds = (logs || []).map(l => l.id);
-        const counts = {};
-        if (logIds.length) {
-          const [meals, diapers, activities] = await Promise.all([
-            supabase.from('meal_entries').select('id, daily_log_id').in('daily_log_id', logIds),
-            supabase.from('diaper_entries').select('id, daily_log_id').in('daily_log_id', logIds),
-            supabase.from('activity_entries').select('id, daily_log_id').in('daily_log_id', logIds),
-          ]);
-          [...(meals.data || []), ...(diapers.data || []), ...(activities.data || [])]
-            .forEach(e => { counts[e.daily_log_id] = (counts[e.daily_log_id] || 0) + 1; });
-        }
-
-        const status = {};
-        (logs || []).forEach(log => {
-          status[log.child_id] = {
-            sent: log.sent_to_parents,
-            mood: log.moods?.[0],
-            entryCount: counts[log.id] || 0,
-          };
-        });
-        setLogStatus(status);
-      }
-    } else {
-      setLogStatus({});
+    if (kidsError) {
+      showToast("We couldn't load this classroom.", 'error');
+      setChildren([]);
+      setLoading(false);
+      setRefreshing(false);
+      return;
     }
 
+    const nextChildren = kids || [];
+    setChildren(nextChildren);
+
+    if (!nextChildren.length) {
+      setLogStatus({});
+      setLoading(false);
+      setRefreshing(false);
+      return;
+    }
+
+    const childIds = nextChildren.map(child => child.id);
+    const { data: logs } = await supabase
+      .from('daily_logs')
+      .select('id, child_id, notes, comments, sent_to_parents, sent_at')
+      .in('child_id', childIds)
+      .eq('log_date', today);
+
+    const logIds = (logs || []).map(log => log.id);
+    const [meals, sleeps, diapers, activities] = logIds.length
+      ? await Promise.all([
+        supabase.from('meal_entries').select('daily_log_id').in('daily_log_id', logIds),
+        supabase.from('sleep_entries').select('daily_log_id, end_time').in('daily_log_id', logIds),
+        supabase.from('diaper_entries').select('daily_log_id').in('daily_log_id', logIds),
+        supabase.from('activity_entries').select('daily_log_id').in('daily_log_id', logIds),
+      ])
+      : [{ data: [] }, { data: [] }, { data: [] }, { data: [] }];
+
+    const byLog = {};
+    const ensure = id => {
+      byLog[id] ||= {
+        mealCount: 0,
+        sleepCount: 0,
+        diaperCount: 0,
+        activityCount: 0,
+      };
+      return byLog[id];
+    };
+
+    (meals.data || []).forEach(row => { ensure(row.daily_log_id).mealCount += 1; });
+    (sleeps.data || []).forEach(row => { ensure(row.daily_log_id).sleepCount += 1; });
+    (diapers.data || []).forEach(row => { ensure(row.daily_log_id).diaperCount += 1; });
+    (activities.data || []).forEach(row => { ensure(row.daily_log_id).activityCount += 1; });
+
+    const nextStatus = {};
+    (logs || []).forEach(log => {
+      nextStatus[log.child_id] = {
+        ...log,
+        ...ensure(log.id),
+      };
+    });
+    setLogStatus(nextStatus);
+
+    await Promise.all([refreshAttendance(), refreshNaps()]);
     setLoading(false);
     setRefreshing(false);
-  }
+  }, [classroomId, refreshAttendance, refreshNaps, today]);
 
   useEffect(() => {
-    if (isFocused && classroomId) load();
-  }, [isFocused, classroomId, dateStr]);
+    if (isFocused) load();
+  }, [isFocused, load]);
+
+  const rosterItems = useMemo(() => children.map(child => {
+    const attendanceStatus = getAttendanceStatus(child.id);
+    return {
+      child,
+      attendanceStatus,
+      attendance: attendance[child.id],
+      isPresent: attendanceStatus === 'present',
+      log: logStatus[child.id] || null,
+      isNapping: Boolean(activeNaps[child.id]),
+    };
+  }), [activeNaps, attendance, children, getAttendanceStatus, logStatus]);
+
+  const buckets = useMemo(() => {
+    if (phase === 'morning') {
+      const checkedIn = [];
+      const notIn = [];
+
+      rosterItems.forEach(item => {
+        if (item.attendanceStatus === 'present') {
+          const time = formatAttendanceTime(item.attendance?.checked_in_at);
+          checkedIn.push({
+            ...item,
+            chip: time ? `In ${time}` : 'Checked in',
+            tone: 'success',
+          });
+        } else if (item.attendanceStatus === 'departed') {
+          notIn.push({ ...item, chip: 'Picked up', tone: 'neutral' });
+        } else {
+          notIn.push({
+            ...item,
+            chip: item.attendance?.status === 'absent' ? 'Absent' : 'Not in yet',
+            tone: item.attendance?.status === 'absent' ? 'warning' : 'neutral',
+          });
+        }
+      });
+
+      return [
+        { key: 'checked-in', title: 'Checked in', tone: 'success', items: checkedIn },
+        { key: 'not-in', title: 'Not in yet', tone: 'neutral', items: notIn },
+      ];
+    }
+
+    if (phase === 'midday') {
+      const attention = [];
+      const allGood = [];
+
+      rosterItems.forEach(item => {
+        if (!item.isPresent) {
+          allGood.push({
+            ...item,
+            chip: item.attendanceStatus === 'departed' ? 'Picked up' : 'Not in today',
+            tone: 'neutral',
+          });
+        } else if (item.isNapping) {
+          allGood.push({ ...item, chip: 'Napping', tone: 'success' });
+        } else if (!item.log?.mealCount) {
+          attention.push({ ...item, chip: 'Log lunch', tone: 'warning' });
+        } else if (!item.log?.sleepCount) {
+          attention.push({ ...item, chip: 'Nap due', tone: 'warning' });
+        } else {
+          allGood.push({ ...item, chip: 'All logged', tone: 'primary' });
+        }
+      });
+
+      return [
+        { key: 'attention', title: 'Needs attention', tone: 'warning', items: attention },
+        { key: 'all-good', title: 'All good', tone: 'primary', items: allGood },
+      ];
+    }
+
+    const needsNote = [];
+    const ready = [];
+    const away = [];
+
+    rosterItems.forEach(item => {
+      if (!item.attendance?.checked_in_at && !item.log) {
+        away.push({ ...item, chip: 'Not in today', tone: 'neutral' });
+      } else if (item.log?.sent_to_parents) {
+        ready.push({ ...item, chip: 'Report sent', tone: 'success' });
+      } else if (item.log?.notes?.trim() || item.log?.comments?.trim() || totalEntries(item.log) >= 2) {
+        ready.push({ ...item, chip: 'Report ready', tone: 'primary' });
+      } else {
+        needsNote.push({ ...item, chip: 'Add note', tone: 'warning' });
+      }
+    });
+
+    return [
+      { key: 'needs-note', title: 'Needs a note', tone: 'warning', items: needsNote },
+      { key: 'ready', title: 'Ready to send', tone: 'primary', items: ready },
+      { key: 'away', title: 'Not in today', tone: 'neutral', items: away },
+    ];
+  }, [phase, rosterItems]);
+
+  const filteredBuckets = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return buckets;
+    return buckets.map(bucket => ({
+      ...bucket,
+      items: bucket.items.filter(({ child }) =>
+        `${child.first_name} ${child.last_name}`.toLowerCase().includes(query)
+      ),
+    }));
+  }, [buckets, searchQuery]);
+
+  const attentionBucket = buckets.find(bucket =>
+    bucket.key === 'attention' || bucket.key === 'needs-note'
+  );
+  const readyBucket = buckets.find(bucket => bucket.key === 'ready');
+  const nappingCount = rosterItems.filter(item => item.isNapping).length;
+  const readyCount = readyBucket?.items.length || 0;
+  const needNoteCount = phase === 'afternoon' ? (attentionBucket?.items.length || 0) : 0;
+
+  function openChild(child) {
+    navigation.navigate('ChildProfile', { child });
+  }
+
+  function openDailyLog(child) {
+    navigation.navigate('DailyLog', { child, date: today });
+  }
+
+  function handlePriorityAction() {
+    if (phase === 'morning') {
+      navigation.navigate('RollCall');
+      return;
+    }
+
+    const priorityChild = attentionBucket?.items[0]?.child
+      || readyBucket?.items[0]?.child
+      || rosterItems[0]?.child;
+    if (priorityChild) openDailyLog(priorityChild);
+  }
+
+  function toggleBucket(key) {
+    setExpandedBuckets(current => ({ ...current, [key]: !current[key] }));
+  }
+
+  function refresh() {
+    setRefreshing(true);
+    load();
+  }
 
   if (loading) return <LoadingScreen />;
 
-  const moodEmoji = { Happy: '😊', Fussy: '😤', Curious: '🧐', Irritable: '😠', Sleepy: '😴', Sick: '🤒' };
+  const firstName = profile?.display_name
+    || profile?.full_name?.split(' ')[0]
+    || 'there';
+  const timeLabel = format(now, 'h:mm a').toUpperCase();
+  const phaseConfig = phase === 'morning'
+    ? {
+      eyebrow: `${timeLabel} · MORNING`,
+      icon: 'sunny-outline',
+      title: 'Start the day',
+      subtitle: `${presentCount} of ${children.length} checked in`,
+      button: 'Take roll call',
+    }
+    : phase === 'midday'
+      ? {
+        eyebrow: `${timeLabel} · NAPTIME`,
+        icon: 'moon-outline',
+        title: 'Naps in progress',
+        subtitle: `${nappingCount} napping · ${attentionBucket?.items.length || 0} still to log`,
+        button: 'Log naps',
+      }
+      : {
+        eyebrow: `${timeLabel} · WRAPPING UP`,
+        icon: 'document-text-outline',
+        title: 'Daily reports',
+        subtitle: `${readyCount} ready · ${needNoteCount} need a note`,
+        button: 'Review & send reports',
+      };
 
-  // Summary counts for header
-  const sent    = Object.values(logStatus).filter(s => s.sent).length;
-  const started = Object.values(logStatus).filter(s => s.entryCount > 0 && !s.sent).length;
-  const empty   = children.length - sent - started;
-
-  function renderChild({ item }) {
-    const status    = logStatus[item.id];
-    const hasEntries = status?.entryCount > 0;
-    const isSent     = status?.sent;
-    const napping    = isToday && isNapping(item.id);
-    const attStatus  = getAttendanceStatus(item.id); // 'absent' | 'present' | 'departed'
-
-    return (
-      <TouchableOpacity
-        style={[styles.childCard, attStatus === 'absent' && isToday && styles.childCardAbsent]}
-        onPress={() => navigation.navigate('DailyLog', { child: item, date: dateStr })}
-        activeOpacity={0.7}
-      >
-        <View style={styles.childAvatarWrap}>
-          <ChildAvatar child={item} size={48} />
-          {/* Attendance dot */}
-          <View style={[
-            styles.attendanceDot,
-            attStatus === 'present' && styles.attendanceDotPresent,
-            attStatus === 'departed' && styles.attendanceDotDeparted,
-          ]} />
-        </View>
-        <View style={styles.childInfo}>
-          <View style={styles.nameRow}>
-            <Text style={styles.childName}>{item.first_name} {item.last_name}</Text>
-            <AllergyBadge allergies={item.allergies} compact />
-          </View>
-          <View style={styles.statusRow}>
-            {napping ? (
-              <View style={styles.napChip}>
-                <Text style={styles.napChipText}>😴 {getElapsed(item.id)}</Text>
-              </View>
-            ) : hasEntries ? (
-              <Text style={styles.entryCount}>{status.entryCount} entries</Text>
-            ) : (
-              <Text style={styles.noEntries}>No entries</Text>
-            )}
-            {status?.mood && <Text style={styles.moodBadge}>{moodEmoji[status.mood] || '😊'}</Text>}
-            {attStatus === 'departed' && <Text style={styles.departedText}>Left for the day</Text>}
-          </View>
-
-          {/* Quick-action row (only for today) */}
-          {isToday && !isSent && (
-            <View style={styles.quickActions}>
-              <TouchableOpacity
-                style={[
-                  styles.quickBtn,
-                  attStatus === 'present' && styles.quickBtnPresent,
-                  attStatus === 'departed' && styles.quickBtnDeparted,
-                ]}
-                onPress={() => quickAttendance(item.id, item.first_name)}
-                accessibilityLabel={
-                  attStatus === 'absent' ? `Check in ${item.first_name}`
-                  : attStatus === 'present' ? `Check out ${item.first_name}`
-                  : `Check ${item.first_name} back in`
-                }
-              >
-                <Text style={styles.quickBtnText}>
-                  {attStatus === 'absent' ? '📍' : attStatus === 'present' ? '✅' : '↩️'}
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.quickBtn}
-                onPress={() => quickMeal(item.id)}
-                accessibilityLabel={`Add meal for ${item.first_name}`}
-              >
-                <Text style={styles.quickBtnText}>🍽</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.quickBtn, napping && styles.quickBtnActive]}
-                onPress={() => quickNap(item.id, item.first_name)}
-                accessibilityLabel={napping ? `End nap for ${item.first_name}` : `Start nap for ${item.first_name}`}
-              >
-                <Text style={styles.quickBtnText}>😴</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.quickBtn}
-                onPress={() => quickDiaper(item.id)}
-                accessibilityLabel={`Add diaper entry for ${item.first_name}`}
-              >
-                <Text style={styles.quickBtnText}>🩲</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-        </View>
-        <View style={styles.rightCol}>
-          {isSent
-            ? <View style={styles.sentBadge}><Text style={styles.sentText}>Sent ✓</Text></View>
-            : hasEntries
-              ? <View style={styles.draftBadge}><Text style={styles.draftText}>Draft</Text></View>
-              : null
-          }
-          <Text style={styles.chevron}>›</Text>
-        </View>
-      </TouchableOpacity>
-    );
-  }
+  const hasSearchResults = filteredBuckets.some(bucket => bucket.items.length);
 
   return (
-    <View style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <View>
-          <Text style={styles.greeting}>Good {getTimeOfDay()}, {profile?.full_name?.split(' ')[0]} 👋</Text>
-          <ClassroomSwitcher />
-        </View>
-        <View style={styles.countBadge}>
-          <Text style={styles.countText}>{presentCount}/{children.length}</Text>
-          <Text style={styles.countLabel}>present</Text>
-        </View>
-      </View>
-
-      {/* Date navigation */}
-      <View style={styles.dateNav}>
-        <TouchableOpacity onPress={() => setSelectedDate(d => subDays(d, 1))} style={styles.dateBtn}>
-          <Text style={styles.dateBtnText}>‹</Text>
-        </TouchableOpacity>
-        <TouchableOpacity onPress={() => setSelectedDate(new Date())} style={styles.dateCenter}>
-          <Text style={styles.dateLabel}>{isToday ? 'Today' : format(selectedDate, 'EEE, MMM d')}</Text>
-          {!isToday && <Text style={styles.dateTap}>Tap for today</Text>}
-        </TouchableOpacity>
-        <TouchableOpacity
-          onPress={() => setSelectedDate(d => addDays(d, 1))}
-          style={[styles.dateBtn, isToday && { opacity: 0.3 }]}
-          disabled={isToday}
-        >
-          <Text style={styles.dateBtnText}>›</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Filter bar */}
-      {children.length > 0 && (
-        <View style={styles.filterBar}>
-          {[
-            { key: 'all',     label: 'All',     count: children.length },
-            { key: 'pending', label: 'Pending', count: empty + started },
-            { key: 'sent',    label: 'Sent',    count: sent },
-          ].map(f => (
-            <TouchableOpacity
-              key={f.key}
-              onPress={() => setFilter(f.key)}
-              style={[styles.filterBtn, filter === f.key && styles.filterBtnActive]}
-            >
-              <Text style={[styles.filterText, filter === f.key && styles.filterTextActive]}>
-                {f.label} ({f.count})
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-      )}
-
-      {/* Search bar */}
-      {children.length > 5 && (
-        <View style={styles.searchBar}>
-          <Text style={styles.searchIcon}>🔍</Text>
-          <TextInput
-            style={styles.searchInput}
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-            placeholder="Search by name..."
-            placeholderTextColor={colors.textMuted}
-            autoCorrect={false}
-          />
-          {searchQuery.length > 0 && (
-            <TouchableOpacity onPress={() => setSearchQuery('')} style={styles.searchClear}>
-              <Text style={styles.searchClearText}>✕</Text>
-            </TouchableOpacity>
-          )}
-        </View>
-      )}
-
-      <FlatList
-        data={children.filter(c => {
-          // Search filter
-          const query = searchQuery.toLowerCase().trim();
-          if (query) {
-            const fullName = `${c.first_name} ${c.last_name}`.toLowerCase();
-            if (!fullName.includes(query)) return false;
-          }
-          // Status filter
-          if (filter === 'all') return true;
-          const s = logStatus[c.id];
-          if (filter === 'sent') return s?.sent;
-          if (filter === 'pending') return !s?.sent;
-          return true;
-        })}
-        keyExtractor={c => c.id}
-        renderItem={renderChild}
-        contentContainerStyle={styles.list}
+    <SafeAreaView style={styles.safeArea} edges={['top']}>
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={styles.content}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} tintColor={colors.primary} />
+          <RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={colors.primary} />
         }
-        ListEmptyComponent={
-          <EmptyState icon="🏫" message={"No children in your classroom yet.\nGo to Settings → Manage classroom to add them."} />
-        }
-      />
-    </View>
+        keyboardShouldPersistTaps="handled"
+      >
+        <View style={styles.header}>
+          <View style={styles.headerCopy}>
+            <Text style={styles.greeting}>
+              Good {phase === 'morning' ? 'morning' : 'afternoon'}, {firstName}
+            </Text>
+            <ClassroomSwitcher compact childCount={children.length} />
+          </View>
+          <ProfileAvatar
+            profile={profile}
+            onPress={() => navigation.navigate('ProfileTab')}
+          />
+        </View>
+
+        <View style={styles.priorityBand}>
+          <Text style={styles.priorityEyebrow}>{phaseConfig.eyebrow}</Text>
+          <View style={styles.prioritySummary}>
+            <View style={styles.priorityIcon}>
+              <Ionicons name={phaseConfig.icon} size={23} color={colors.primary} />
+            </View>
+            <View style={styles.priorityCopy}>
+              <Text style={styles.priorityTitle}>{phaseConfig.title}</Text>
+              <Text style={styles.prioritySubtitle}>{phaseConfig.subtitle}</Text>
+            </View>
+          </View>
+          <TouchableOpacity
+            onPress={handlePriorityAction}
+            style={[styles.priorityButton, !children.length && styles.disabledButton]}
+            disabled={!children.length}
+            accessibilityRole="button"
+          >
+            <Text style={styles.priorityButtonText}>{phaseConfig.button}</Text>
+          </TouchableOpacity>
+        </View>
+
+        <TouchableOpacity
+          style={styles.pickupShortcut}
+          onPress={() => navigation.navigate('Pickups')}
+          activeOpacity={0.76}
+          accessibilityRole="button"
+          accessibilityLabel="Open today's pickups"
+        >
+          <View style={styles.pickupShortcutIcon}>
+            <Ionicons name="shield-checkmark-outline" size={22} color={colors.primary} />
+          </View>
+          <View style={styles.pickupShortcutCopy}>
+            <Text style={styles.pickupShortcutTitle}>Today’s pickups</Text>
+            <Text style={styles.pickupShortcutText}>Verify passes before children leave</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={colors.textFaint} />
+        </TouchableOpacity>
+
+        {children.length > 0 && (
+          <View style={styles.searchBar}>
+            <Ionicons name="search-outline" size={18} color={colors.textFaint} />
+            <TextInput
+              style={styles.searchInput}
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              placeholder={`Search ${children.length} children…`}
+              placeholderTextColor={colors.textFaint}
+              autoCorrect={false}
+              returnKeyType="search"
+            />
+            {searchQuery.length > 0 && (
+              <TouchableOpacity
+                onPress={() => setSearchQuery('')}
+                accessibilityRole="button"
+                accessibilityLabel="Clear search"
+              >
+                <Ionicons name="close-circle" size={19} color={colors.textFaint} />
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
+
+        {!children.length ? (
+          <EmptyState
+            icon="🏫"
+            message={"No children are assigned to this classroom yet.\nOpen Classroom to review the roster."}
+          />
+        ) : !hasSearchResults ? (
+          <EmptyState icon="🔎" message={`No children match “${searchQuery.trim()}”.`} />
+        ) : (
+          filteredBuckets.map(bucket => (
+            <RosterBucket
+              key={bucket.key}
+              bucket={bucket}
+              expanded={Boolean(expandedBuckets[bucket.key])}
+              searchActive={Boolean(searchQuery.trim())}
+              onToggle={() => toggleBucket(bucket.key)}
+              onOpen={openChild}
+              onStatusPress={undefined}
+            />
+          ))
+        )}
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
-function getTimeOfDay() {
-  const h = new Date().getHours();
-  if (h < 12) return 'morning';
-  if (h < 17) return 'afternoon';
-  return 'evening';
-}
-
 const styles = StyleSheet.create({
+  safeArea: { flex: 1, backgroundColor: colors.bg },
   container: { flex: 1, backgroundColor: colors.bg },
+  content: {
+    paddingHorizontal: spacing.xl,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.xxl,
+  },
   header: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    padding: spacing.xl, paddingTop: spacing.xl + spacing.md,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.md,
+    marginBottom: spacing.lg,
+  },
+  headerCopy: { flex: 1, minWidth: 0 },
+  greeting: {
+    color: colors.textPrimary,
+    fontFamily: fonts.black,
+    fontSize: 22,
+    lineHeight: 26,
+  },
+  profileAvatar: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    overflow: 'hidden',
+    backgroundColor: colors.primaryLight,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  profileAvatarImage: { width: '100%', height: '100%', resizeMode: 'cover' },
+  profileAvatarText: {
+    color: colors.primary,
+    fontFamily: fonts.bold,
+    fontSize: 16,
+  },
+  priorityBand: {
+    backgroundColor: colors.primaryLight,
+    borderRadius: radius.xl,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.lg,
+    gap: spacing.md,
+    marginTop: spacing.sm,
+    marginBottom: spacing.lg,
+  },
+  priorityEyebrow: {
+    color: '#5B7CA8',
+    fontFamily: fonts.bold,
+    fontSize: 10,
+    letterSpacing: 1.1,
+  },
+  prioritySummary: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+  },
+  priorityIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: radius.lg,
     backgroundColor: colors.surface,
-    borderBottomWidth: 1, borderBottomColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  greeting: { fontSize: 17, fontWeight: '600', color: colors.textPrimary, marginBottom: spacing.xs },
-  date: { fontSize: 13, color: colors.textSecondary, marginTop: 2 },
-  countBadge: {
-    backgroundColor: colors.primaryLight, borderRadius: radius.lg,
-    padding: spacing.md, alignItems: 'center', minWidth: 60,
+  priorityCopy: { flex: 1 },
+  priorityTitle: {
+    color: colors.textPrimary,
+    fontFamily: fonts.black,
+    fontSize: 18,
   },
-  countText: { fontSize: 22, fontWeight: '700', color: colors.primary },
-  countLabel: { fontSize: 11, color: colors.primary, fontWeight: '500' },
-  dateNav: {
-    flexDirection: 'row', alignItems: 'center',
+  prioritySubtitle: {
+    color: colors.textSecondary,
+    fontFamily: fonts.regular,
+    fontSize: 13,
+    marginTop: 2,
+  },
+  priorityButton: {
+    minHeight: 46,
+    borderRadius: radius.md,
+    backgroundColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.lg,
+  },
+  priorityButtonText: {
+    color: colors.white,
+    fontFamily: fonts.bold,
+    fontSize: 15,
+  },
+  disabledButton: { opacity: 0.5 },
+  finishRollCall: { alignItems: 'center', paddingVertical: 2 },
+  finishRollCallText: {
+    color: colors.primary,
+    fontFamily: fonts.bold,
+    fontSize: 13,
+  },
+  pickupShortcut: {
+    minHeight: 66,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    marginBottom: spacing.lg,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
     backgroundColor: colors.surface,
-    borderBottomWidth: 1, borderBottomColor: colors.border,
-    paddingHorizontal: spacing.sm,
   },
-  dateBtn: { padding: spacing.md },
-  dateBtnText: { fontSize: 20, color: colors.primary, fontWeight: '500' },
-  dateCenter: { flex: 1, alignItems: 'center', paddingVertical: spacing.sm },
-  dateLabel: { fontSize: 14, fontWeight: '600', color: colors.textPrimary },
-  dateTap: { fontSize: 11, color: colors.primary, marginTop: 2 },
-  filterBar: {
-    flexDirection: 'row', gap: spacing.sm,
-    paddingHorizontal: spacing.lg, paddingTop: spacing.md, paddingBottom: spacing.sm,
+  pickupShortcutIcon: {
+    width: 42,
+    height: 42,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radius.md,
+    backgroundColor: colors.primaryLight,
   },
-  filterBtn: {
-    paddingHorizontal: spacing.md, paddingVertical: spacing.sm,
-    borderRadius: radius.full, borderWidth: 1.5, borderColor: colors.border,
-    backgroundColor: colors.surface,
+  pickupShortcutCopy: { flex: 1, minWidth: 0 },
+  pickupShortcutTitle: {
+    color: colors.textPrimary,
+    fontFamily: fonts.black,
+    fontSize: 14,
   },
-  filterBtnActive: { borderColor: colors.primary, backgroundColor: colors.primaryLight },
-  filterText: { fontSize: 13, color: colors.textSecondary, fontWeight: '500' },
-  filterTextActive: { color: colors.primary, fontWeight: '600' },
+  pickupShortcutText: {
+    marginTop: 2,
+    color: colors.textMuted,
+    fontFamily: fonts.regular,
+    fontSize: 11.5,
+  },
   searchBar: {
-    flexDirection: 'row', alignItems: 'center',
-    marginHorizontal: spacing.lg, marginTop: spacing.sm, marginBottom: spacing.xs,
-    backgroundColor: colors.surface, borderRadius: radius.full,
-    borderWidth: 1, borderColor: colors.border,
-    paddingHorizontal: spacing.md, height: 40,
+    minHeight: 46,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    backgroundColor: colors.surface,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    paddingHorizontal: spacing.md,
+    marginBottom: spacing.lg,
   },
-  searchIcon: { fontSize: 14, marginRight: spacing.sm },
   searchInput: {
-    flex: 1, fontSize: 14, color: colors.textPrimary,
-    paddingVertical: 0,
+    flex: 1,
+    color: colors.textPrimary,
+    fontFamily: fonts.regular,
+    fontSize: 14,
+    paddingVertical: spacing.sm,
   },
-  searchClear: {
-    width: 22, height: 22, borderRadius: 11,
-    backgroundColor: colors.border, alignItems: 'center', justifyContent: 'center',
+  bucketWrap: { marginBottom: spacing.lg },
+  bucketTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginBottom: spacing.sm,
   },
-  searchClearText: { fontSize: 11, color: colors.textSecondary, fontWeight: '700' },
-  list: { padding: spacing.lg },
-  childCard: {
-    flexDirection: 'row', alignItems: 'center',
-    backgroundColor: colors.surface, borderRadius: radius.lg,
-    padding: spacing.lg, marginBottom: spacing.sm,
-    borderWidth: 1, borderColor: colors.border,
+  bucketTitle: {
+    color: colors.textPrimary,
+    fontFamily: fonts.black,
+    fontSize: 15,
   },
-  childAvatarWrap: {
-    marginRight: spacing.md,
-    position: 'relative',
+  bucketCount: {
+    minWidth: 30,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 10,
   },
-  childInfo: { flex: 1 },
-  childName: { fontSize: 16, fontWeight: '600', color: colors.textPrimary },
-  statusRow: { flexDirection: 'row', alignItems: 'center', marginTop: 3, gap: spacing.sm },
-  entryCount: { fontSize: 13, color: colors.textSecondary },
-  noEntries: { fontSize: 13, color: colors.textMuted },
-  moodBadge: { fontSize: 14 },
-  rightCol: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  sentBadge: { backgroundColor: colors.successLight, paddingHorizontal: spacing.sm, paddingVertical: 3, borderRadius: radius.full },
-  sentText: { fontSize: 12, fontWeight: '500', color: colors.success },
-  draftBadge: { backgroundColor: colors.amberLight, paddingHorizontal: spacing.sm, paddingVertical: 3, borderRadius: radius.full },
-  draftText: { fontSize: 12, fontWeight: '500', color: colors.amber },
-  chevron: { fontSize: 22, color: colors.textMuted, marginLeft: spacing.xs },
-
-  // Nap timer chip
-  napChip: {
-    backgroundColor: colors.purpleLight, paddingHorizontal: spacing.sm,
-    paddingVertical: 2, borderRadius: radius.full,
+  bucketCount_success: { backgroundColor: colors.successLight },
+  bucketCount_warning: { backgroundColor: colors.amberLight },
+  bucketCount_primary: { backgroundColor: colors.primaryLight },
+  bucketCount_neutral: { backgroundColor: '#EEF2F7' },
+  bucketCountText: { fontFamily: fonts.bold, fontSize: 12 },
+  bucketCountText_success: { color: colors.success },
+  bucketCountText_warning: { color: colors.amber },
+  bucketCountText_primary: { color: colors.primary },
+  bucketCountText_neutral: { color: colors.textFaint },
+  bucketCard: {
+    overflow: 'hidden',
+    backgroundColor: colors.surface,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    borderRadius: 18,
   },
-  napChipText: { fontSize: 12, color: colors.purple, fontWeight: '600' },
-
-  // Quick-action buttons
-  quickActions: {
-    flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm,
+  childRow: {
+    minHeight: 62,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    paddingHorizontal: 15,
+    paddingVertical: 11,
   },
-  quickBtn: {
-    width: 32, height: 32, borderRadius: 16,
-    backgroundColor: colors.bg, borderWidth: 1.5, borderColor: colors.border,
-    alignItems: 'center', justifyContent: 'center',
+  childAvatarWrap: { position: 'relative' },
+  presentDot: {
+    position: 'absolute',
+    right: -1,
+    bottom: -1,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: colors.success,
+    borderWidth: 2,
+    borderColor: colors.surface,
   },
-  quickBtnActive: {
-    backgroundColor: colors.purpleLight, borderColor: colors.purple,
+  childName: {
+    flex: 1,
+    minWidth: 0,
+    color: colors.textPrimary,
+    fontFamily: fonts.bold,
+    fontSize: 14.5,
   },
-  quickBtnPresent: {
-    backgroundColor: colors.successLight, borderColor: colors.success,
+  statusChip: {
+    borderRadius: radius.full,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
   },
-  quickBtnDeparted: {
-    backgroundColor: colors.amberLight, borderColor: colors.amber,
+  statusChip_success: { backgroundColor: colors.successLight },
+  statusChip_warning: { backgroundColor: colors.amberLight },
+  statusChip_primary: { backgroundColor: colors.primaryLight },
+  statusChip_neutral: { backgroundColor: '#EEF2F7' },
+  statusChipText: { fontFamily: fonts.bold, fontSize: 12 },
+  statusChipText_success: { color: colors.success },
+  statusChipText_warning: { color: colors.amber },
+  statusChipText_primary: { color: colors.primary },
+  statusChipText_neutral: { color: colors.textFaint },
+  rowDivider: { height: 1, backgroundColor: colors.primarySoft },
+  moreButton: {
+    minHeight: 42,
+    justifyContent: 'center',
+    paddingHorizontal: 15,
   },
-  quickBtnText: { fontSize: 14 },
-
-  // Attendance indicators
-  nameRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flexWrap: 'wrap' },
-  childCardAbsent: { opacity: 0.6 },
-  attendanceDot: {
-    position: 'absolute', bottom: 0, right: -2,
-    width: 14, height: 14, borderRadius: 7,
-    backgroundColor: colors.border,
-    borderWidth: 2, borderColor: colors.surface,
+  moreButtonText: {
+    color: colors.primary,
+    fontFamily: fonts.bold,
+    fontSize: 13,
   },
-  attendanceDotPresent: { backgroundColor: colors.success },
-  attendanceDotDeparted: { backgroundColor: colors.amber },
-  departedText: { fontSize: 12, color: colors.amber, fontWeight: '500' },
 });

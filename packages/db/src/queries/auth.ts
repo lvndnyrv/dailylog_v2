@@ -7,6 +7,8 @@ export interface StaffInvitePreview {
   email: string;
   full_name: string | null;
   role: string;
+  job_title: string | null;
+  require_background_check: boolean;
   daycare_name: string;
   classroom_name: string | null;
   invited_by_name: string | null;
@@ -24,8 +26,18 @@ export async function getStaffInvite(
   return data?.[0] ?? null;
 }
 
-export async function acceptStaffInvite(client: Client, code: string): Promise<void> {
-  const { error } = await client.rpc('accept_staff_invite', { p_code: code });
+export const STAFF_TERMS_VERSION = '2026-08-08';
+
+export async function acceptStaffInvite(
+  client: Client,
+  code: string,
+  termsAccepted: boolean,
+): Promise<void> {
+  const { error } = await client.rpc('accept_staff_invite', {
+    p_code: code,
+    p_terms_version: STAFF_TERMS_VERSION,
+    p_terms_accepted: termsAccepted,
+  });
   if (error) throw error;
 }
 

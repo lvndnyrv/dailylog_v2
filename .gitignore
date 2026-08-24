@@ -36,6 +36,9 @@ yarn-error.*
 # Supabase CLI local state
 supabase/.temp/
 
+# Local Codex screenshots and generated app exports
+.codex-artifacts/
+
 # typescript
 *.tsbuildinfo
 

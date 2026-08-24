@@ -1,4 +1,9 @@
-import { getAttendanceWeek, getMyDaycare, listAttendanceDay } from "@dailylog/db/queries";
+import {
+  getAttendanceWeek,
+  getClosureForDate,
+  getMyDaycare,
+  listAttendanceDay,
+} from "@dailylog/db/queries";
 import Link from "next/link";
 import { SectionHeader } from "@/components/shell/header";
 import { AttendanceView } from "@/components/attendance/attendance-view";
@@ -18,15 +23,16 @@ export default async function AttendancePage({
   const today = dateInTimeZone(new Date(), timeZone);
   const date = isDate(params.date) ? params.date : today;
 
-  const [rows, week] = await Promise.all([
+  const [rows, week, closure] = await Promise.all([
     listAttendanceDay(supabase, date),
     getAttendanceWeek(supabase),
+    getClosureForDate(supabase, date),
   ]);
 
   const withRecord = rows.map((row) => ({ row, att: row.attendance[0] ?? null }));
   const checkedIn = withRecord.filter((r) => r.att?.checked_in_at).length;
   const checkedOut = withRecord.filter((r) => r.att?.checked_out_at).length;
-  const notIn = withRecord.filter((r) => !r.att?.checked_in_at).length;
+  const notIn = closure ? 0 : withRecord.filter((r) => !r.att?.checked_in_at).length;
 
   const label = new Date(`${date}T12:00`).toLocaleDateString("en-CA", {
     weekday: "long",
@@ -38,7 +44,9 @@ export default async function AttendancePage({
     <>
       <SectionHeader
         title="Attendance"
-        subtitle={`${label} · ${checkedIn} checked in · ${notIn} expected · ${checkedOut} checked out`}
+        subtitle={closure
+          ? `${label} · center closed · ${closure.reason}`
+          : `${label} · ${checkedIn} checked in · ${notIn} expected · ${checkedOut} checked out`}
         showUtilities={false}
         actions={
           <>
@@ -49,7 +57,7 @@ export default async function AttendancePage({
             >
               Export day
             </a>
-            {date === today && (
+            {date === today && !closure && (
               <Link
                 href={`/attendance?date=${date}&checkin=1`}
                 className="rounded-full bg-primary px-[20px] py-2.5 text-[13px] font-bold text-white hover:bg-primary-hover"
@@ -68,6 +76,7 @@ export default async function AttendancePage({
         isToday={date === today}
         openCheckIn={params.checkin === "1"}
         timeZone={timeZone}
+        closure={closure}
       />
     </>
   );

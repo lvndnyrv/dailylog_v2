@@ -1,9 +1,17 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import {
+  ActivityIndicator,
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+} from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 import { useAuth } from '../../hooks/useAuth';
 import { Input, Button } from '../../components/ui';
-import { colors, spacing, radius } from '../../theme';
+import { AuthArtwork, AuthBackButton, BrandMark } from '../../components/AuthVisuals';
+import { colors, fonts, spacing, radius } from '../../theme';
 
 export default function LoginScreen({ navigation }) {
   const { signIn, getRememberedAccount, clearRememberedAccount } = useAuth();
@@ -11,9 +19,8 @@ export default function LoginScreen({ navigation }) {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState({});
-  const [remembered, setRemembered] = useState(null); // { email, name } | null
-  // 'loading' → reading storage | 'picker' → tap your account
-  // 'password' → remembered email + password only | 'full' → email + password
+  const [remembered, setRemembered] = useState(null);
+  // loading → local storage | picker → design 1a | password/full → design 1b
   const [mode, setMode] = useState('loading');
 
   useEffect(() => {
@@ -29,39 +36,42 @@ export default function LoginScreen({ navigation }) {
       }
     })();
     return () => { active = false; };
-  }, []);
+  }, [getRememberedAccount]);
 
   async function handleLogin() {
     const candidateEmail = (mode === 'password' ? remembered?.email : email) || '';
+    const nextErrors = {};
 
-    const errs = {};
-    if (!candidateEmail.trim()) errs.email = 'Email is required';
-    else if (!/\S+@\S+\.\S+/.test(candidateEmail.trim())) errs.email = 'Enter a valid email address';
-    if (!password) errs.password = 'Password is required';
+    if (!candidateEmail.trim()) nextErrors.email = 'Email is required';
+    else if (!/\S+@\S+\.\S+/.test(candidateEmail.trim())) {
+      nextErrors.email = 'Enter a valid email address';
+    }
+    if (!password) nextErrors.password = 'Password is required';
 
-    // Stored email is unusable → fall back to the full form so the
-    // error is visible and fixable (email field is hidden in password mode).
-    if (errs.email && mode === 'password') {
+    if (nextErrors.email && mode === 'password') {
       setEmail(candidateEmail);
       setMode('full');
-      setErrors(errs);
+      setErrors(nextErrors);
       return;
     }
 
-    setErrors(errs);
-    if (Object.keys(errs).length > 0) return;
+    setErrors(nextErrors);
+    if (Object.keys(nextErrors).length) return;
 
     setLoading(true);
     setErrors({});
     const { error } = await signIn(candidateEmail.trim().toLowerCase(), password);
     setLoading(false);
+
     if (error) {
-      setErrors({ general: error.message === 'Invalid login credentials'
-        ? 'Incorrect email or password. Please try again.'
-        : error.message });
-    } else {
-      setPassword('');
+      setErrors({
+        general: error.message === 'Invalid login credentials'
+          ? 'Incorrect email or password. Please try again.'
+          : error.message,
+      });
+      return;
     }
+    setPassword('');
   }
 
   function handlePickRemembered() {
@@ -83,305 +93,380 @@ export default function LoginScreen({ navigation }) {
     handleUseAnotherAccount();
   }
 
+  function handleBack() {
+    setErrors({});
+    setPassword('');
+    if (remembered?.email) setMode('picker');
+  }
+
   const displayName = remembered?.name?.trim() || null;
   const initial = (displayName || remembered?.email || '?').charAt(0).toUpperCase();
 
+  if (mode === 'loading') {
+    return (
+      <View style={styles.loading}>
+        <ActivityIndicator color={colors.primary} size="large" />
+      </View>
+    );
+  }
+
+  if (mode === 'picker') {
+    return (
+      <KeyboardAwareScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.pickerContainer}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.content}>
+          <BrandMark />
+          <AuthArtwork style={styles.welcomeArtwork} />
+
+          <View>
+            <Text style={styles.title}>Welcome back!</Text>
+            <Text style={styles.subtitle}>
+              Your classroom is ready. Pick up right where you left off.
+            </Text>
+          </View>
+
+          <TouchableOpacity
+            style={styles.accountCard}
+            onPress={handlePickRemembered}
+            activeOpacity={0.72}
+            accessibilityRole="button"
+            accessibilityLabel={`Continue as ${displayName || remembered?.email}`}
+          >
+            <View style={styles.accountAvatar}>
+              <Text style={styles.accountAvatarText}>{initial}</Text>
+            </View>
+            <View style={styles.accountInfo}>
+              {displayName ? <Text style={styles.accountName}>{displayName}</Text> : null}
+              <Text style={styles.accountEmail} numberOfLines={1}>{remembered?.email}</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={colors.textFaint} />
+          </TouchableOpacity>
+
+          <Button label="Continue" onPress={handlePickRemembered} />
+
+          <View style={styles.linkGroup}>
+            <TouchableOpacity onPress={handleUseAnotherAccount} accessibilityRole="button">
+              <Text style={styles.primaryLink}>Use another account</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={handleForgetAccount} accessibilityRole="button">
+              <Text style={styles.quietLink}>Forget this account</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => navigation.navigate('Signup')} accessibilityRole="button">
+              <Text style={styles.promptText}>
+                Don't have an account? <Text style={styles.primaryLink}>Sign up</Text>
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </KeyboardAwareScrollView>
+    );
+  }
+
   return (
     <KeyboardAwareScrollView
-      contentContainerStyle={styles.container}
+      style={styles.scroll}
+      contentContainerStyle={styles.formContainer}
       keyboardShouldPersistTaps="handled"
       enableOnAndroid
-      extraScrollHeight={20}
+      extraScrollHeight={24}
+      showsVerticalScrollIndicator={false}
     >
-      <View style={styles.header}>
-        <Text style={styles.logo}>📋</Text>
-        <Text style={styles.appName}>DailyLog</Text>
-        <Text style={styles.tagline}>Daycare daily reports, digitized</Text>
-      </View>
+      <View style={styles.content}>
+        <View style={styles.backRow}>
+          {remembered?.email
+            ? <AuthBackButton onPress={handleBack} />
+            : <View style={styles.backPlaceholder} />}
+        </View>
 
-      {mode !== 'loading' && (
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>{mode === 'picker' ? 'Welcome back' : 'Sign in'}</Text>
+        <BrandMark stacked style={styles.centeredBrand} />
 
-          {errors.general && (
-            <View style={styles.errorBanner}>
-              <Text style={styles.errorBannerText}>{errors.general}</Text>
+        {errors.general ? (
+          <View style={styles.errorBanner}>
+            <Ionicons name="alert-circle-outline" size={19} color={colors.danger} />
+            <Text style={styles.errorBannerText}>{errors.general}</Text>
+          </View>
+        ) : null}
+
+        {mode === 'password' ? (
+          <View style={styles.identityCard}>
+            <View style={styles.identityAvatar}>
+              <Text style={styles.identityAvatarText}>{initial}</Text>
             </View>
-          )}
-
-          {/* ── Picker: tap your account to continue ── */}
-          {mode === 'picker' && (
-            <>
-              <TouchableOpacity style={styles.accountBtn} onPress={handlePickRemembered} activeOpacity={0.7}>
-                <View style={styles.accountAvatar}>
-                  <Text style={styles.accountAvatarText}>{initial}</Text>
-                </View>
-                <View style={styles.accountInfo}>
-                  {displayName && <Text style={styles.accountName}>{displayName}</Text>}
-                  <Text style={styles.accountEmail} numberOfLines={1}>{remembered?.email}</Text>
-                </View>
-                <Text style={styles.accountChevron}>›</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity onPress={handleUseAnotherAccount} style={styles.linkBtn}>
-                <Text style={styles.linkText}>Use another account</Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={handleForgetAccount} style={styles.linkBtnTight}>
-                <Text style={styles.forgetText}>Forget this account</Text>
-              </TouchableOpacity>
-            </>
-          )}
-
-          {/* ── Password step: identity shown, only password needed ── */}
-          {mode === 'password' && (
-            <>
-              <View style={styles.identityRow}>
-                <View style={styles.accountAvatarSm}>
-                  <Text style={styles.accountAvatarSmText}>{initial}</Text>
-                </View>
-                <View style={styles.accountInfo}>
-                  {displayName && <Text style={styles.accountName}>{displayName}</Text>}
-                  <Text style={styles.accountEmail} numberOfLines={1}>{remembered?.email}</Text>
-                </View>
-                <TouchableOpacity
-                  onPress={handleUseAnotherAccount}
-                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                >
-                  <Text style={styles.notYouText}>Not you?</Text>
-                </TouchableOpacity>
-              </View>
-
-              <Input
-                label="Password"
-                value={password}
-                onChangeText={(v) => { setPassword(v); if (errors.password) setErrors(e => ({ ...e, password: null })); }}
-                placeholder="••••••••"
-                secureTextEntry
-                error={errors.password}
-                autoFocus
-                returnKeyType="go"
-                onSubmitEditing={handleLogin}
-              />
-
-              <Button
-                label="Sign in"
-                onPress={handleLogin}
-                loading={loading}
-                style={styles.loginBtn}
-              />
-            </>
-          )}
-
-          {/* ── Full form: email + password ── */}
-          {mode === 'full' && (
-            <>
-              <Input
-                label="Email"
-                value={email}
-                onChangeText={(v) => { setEmail(v); if (errors.email) setErrors(e => ({ ...e, email: null })); }}
-                placeholder="your@email.com"
-                keyboardType="email-address"
-                autoCapitalize="none"
-                autoCorrect={false}
-                error={errors.email}
-              />
-
-              <Input
-                label="Password"
-                value={password}
-                onChangeText={(v) => { setPassword(v); if (errors.password) setErrors(e => ({ ...e, password: null })); }}
-                placeholder="••••••••"
-                secureTextEntry
-                error={errors.password}
-              />
-
-              <Button
-                label="Sign in"
-                onPress={handleLogin}
-                loading={loading}
-                style={styles.loginBtn}
-              />
-
-              {remembered?.email && (
-                <TouchableOpacity onPress={() => { setErrors({}); setMode('picker'); }} style={styles.linkBtn}>
-                  <Text style={styles.linkText}>Back to {remembered.email}</Text>
-                </TouchableOpacity>
-              )}
-            </>
-          )}
-
-          {mode !== 'picker' && (
-            <TouchableOpacity onPress={() => navigation.navigate('ForgotPassword')} style={styles.forgotLink}>
-              <Text style={styles.forgotText}>Forgot password?</Text>
+            <View style={styles.accountInfo}>
+              {displayName ? <Text style={styles.identityName}>{displayName}</Text> : null}
+              <Text style={styles.identityEmail} numberOfLines={1}>{remembered?.email}</Text>
+            </View>
+            <TouchableOpacity onPress={handleUseAnotherAccount} accessibilityRole="button">
+              <Text style={styles.notYouText}>Not you?</Text>
             </TouchableOpacity>
-          )}
+          </View>
+        ) : (
+          <View>
+            <Text style={styles.signInTitle}>Sign in</Text>
+            <Text style={styles.signInSubtitle}>Welcome back to your DailyLog account.</Text>
+          </View>
+        )}
 
-          <TouchableOpacity onPress={() => navigation.navigate('Signup')} style={styles.signupLink}>
-            <Text style={styles.signupText}>
-              Don't have an account? <Text style={{ color: colors.primary, fontWeight: '600' }}>Sign up</Text>
+        <View style={styles.formFields}>
+          {mode === 'full' ? (
+            <Input
+              label="Email"
+              value={email}
+              onChangeText={(value) => {
+                setEmail(value);
+                if (errors.email) setErrors((current) => ({ ...current, email: null }));
+              }}
+              placeholder="your@email.com"
+              keyboardType="email-address"
+              autoCapitalize="none"
+              autoCorrect={false}
+              textContentType="emailAddress"
+              autoComplete="email"
+              error={errors.email}
+            />
+          ) : null}
+
+          <Input
+            label="Password"
+            value={password}
+            onChangeText={(value) => {
+              setPassword(value);
+              if (errors.password) setErrors((current) => ({ ...current, password: null }));
+            }}
+            placeholder="Enter your password"
+            secureTextEntry
+            autoFocus={mode === 'password'}
+            textContentType="password"
+            autoComplete="current-password"
+            error={errors.password}
+            returnKeyType="go"
+            onSubmitEditing={handleLogin}
+          />
+        </View>
+
+        <Button label="Sign in" onPress={handleLogin} loading={loading} />
+
+        <View style={styles.linkGroup}>
+          <TouchableOpacity
+            onPress={() => navigation.navigate('ForgotPassword')}
+            accessibilityRole="button"
+          >
+            <Text style={styles.primaryLink}>Forgot password?</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => navigation.navigate('Signup')} accessibilityRole="button">
+            <Text style={styles.promptText}>
+              Don't have an account? <Text style={styles.primaryLink}>Sign up</Text>
             </Text>
           </TouchableOpacity>
         </View>
-      )}
+
+        <AuthArtwork compact style={styles.footerArtwork} />
+      </View>
     </KeyboardAwareScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flexGrow: 1,
+  scroll: {
+    flex: 1,
     backgroundColor: colors.bg,
-    justifyContent: 'center',
-    padding: spacing.xl,
   },
-  header: {
+  loading: {
+    flex: 1,
     alignItems: 'center',
-    marginBottom: spacing.xxxl,
+    justifyContent: 'center',
+    backgroundColor: colors.bg,
   },
-  logo: {
-    fontSize: 56,
-    marginBottom: spacing.sm,
+  content: {
+    width: '100%',
+    maxWidth: 440,
+    alignSelf: 'center',
   },
-  appName: {
-    fontSize: 30,
-    fontWeight: '700',
+  pickerContainer: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    paddingHorizontal: spacing.xxl,
+    paddingVertical: spacing.xl,
+  },
+  formContainer: {
+    flexGrow: 1,
+    paddingHorizontal: spacing.xxl,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.xxl,
+  },
+  welcomeArtwork: {
+    marginTop: spacing.lg,
+    marginBottom: spacing.lg,
+  },
+  title: {
     color: colors.textPrimary,
-    letterSpacing: -0.5,
+    fontFamily: fonts.black,
+    fontSize: 26,
+    lineHeight: 32,
+    letterSpacing: -0.35,
   },
-  tagline: {
+  subtitle: {
+    color: colors.textMuted,
+    fontFamily: fonts.regular,
     fontSize: 14,
-    color: colors.textSecondary,
+    lineHeight: 21,
     marginTop: spacing.xs,
   },
-  card: {
+  accountCard: {
+    minHeight: 72,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
     backgroundColor: colors.surface,
-    borderRadius: radius.xl,
-    padding: spacing.xl,
-    borderWidth: 1,
+    borderWidth: 1.5,
     borderColor: colors.border,
+    borderRadius: radius.lg,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    marginTop: spacing.lg,
+    marginBottom: spacing.lg,
   },
-  cardTitle: {
-    fontSize: 20,
-    fontWeight: '600',
+  accountAvatar: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.primaryLight,
+  },
+  accountAvatarText: {
+    color: colors.primary,
+    fontFamily: fonts.bold,
+    fontSize: 16,
+  },
+  accountInfo: {
+    flex: 1,
+    minWidth: 0,
+  },
+  accountName: {
     color: colors.textPrimary,
+    fontFamily: fonts.bold,
+    fontSize: 15,
+    marginBottom: 2,
+  },
+  accountEmail: {
+    color: colors.textMuted,
+    fontFamily: fonts.regular,
+    fontSize: 12.5,
+  },
+  linkGroup: {
+    alignItems: 'center',
+    gap: spacing.md,
+    marginTop: spacing.lg,
+  },
+  primaryLink: {
+    color: colors.primary,
+    fontFamily: fonts.bold,
+    fontSize: 14,
+  },
+  quietLink: {
+    color: colors.textFaint,
+    fontFamily: fonts.regular,
+    fontSize: 13,
+  },
+  promptText: {
+    color: colors.textMuted,
+    fontFamily: fonts.regular,
+    fontSize: 14,
+  },
+  backRow: {
+    minHeight: 42,
+    justifyContent: 'center',
+  },
+  backPlaceholder: {
+    height: 40,
+  },
+  centeredBrand: {
+    marginTop: spacing.sm,
     marginBottom: spacing.xl,
   },
-  loginBtn: {
-    marginTop: spacing.sm,
-  },
   errorBanner: {
-    backgroundColor: '#FEF2F2',
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.sm,
+    backgroundColor: colors.dangerLight,
     borderWidth: 1,
-    borderColor: '#FECACA',
+    borderColor: '#EDBABA',
     borderRadius: radius.md,
     padding: spacing.md,
     marginBottom: spacing.lg,
   },
   errorBannerText: {
+    flex: 1,
+    color: colors.danger,
+    fontFamily: fonts.regular,
     fontSize: 13,
-    color: '#DC2626',
     lineHeight: 18,
   },
-  forgotLink: {
-    alignItems: 'center',
-    marginTop: spacing.md,
-  },
-  forgotText: {
-    fontSize: 14,
-    color: colors.primary,
-    fontWeight: '500',
-  },
-  signupLink: {
-    alignItems: 'center',
-    marginTop: spacing.lg,
-  },
-  signupText: {
-    fontSize: 14,
-    color: colors.textSecondary,
-  },
-  // Remembered-account styles
-  accountBtn: {
+  identityCard: {
+    minHeight: 66,
     flexDirection: 'row',
     alignItems: 'center',
+    gap: spacing.md,
     backgroundColor: colors.surface,
-    borderRadius: radius.lg,
     borderWidth: 1.5,
-    borderColor: colors.primary,
-    padding: spacing.md,
-  },
-  accountAvatar: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: colors.primaryLight,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: spacing.md,
-  },
-  accountAvatarText: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: colors.primary,
-  },
-  accountAvatarSm: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: colors.primaryLight,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: spacing.md,
-  },
-  accountAvatarSmText: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: colors.primary,
-  },
-  accountInfo: {
-    flex: 1,
-  },
-  accountName: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: colors.textPrimary,
-  },
-  accountEmail: {
-    fontSize: 13,
-    color: colors.textSecondary,
-  },
-  accountChevron: {
-    fontSize: 24,
-    color: colors.textMuted,
-    marginLeft: spacing.sm,
-  },
-  identityRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
     marginBottom: spacing.lg,
   },
-  notYouText: {
-    fontSize: 13,
-    color: colors.primary,
-    fontWeight: '600',
-    marginLeft: spacing.sm,
-  },
-  linkBtn: {
+  identityAvatar: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     alignItems: 'center',
-    marginTop: spacing.lg,
-    padding: spacing.xs,
+    justifyContent: 'center',
+    backgroundColor: colors.primaryLight,
   },
-  linkText: {
+  identityAvatarText: {
+    color: colors.primary,
+    fontFamily: fonts.bold,
+    fontSize: 15,
+  },
+  identityName: {
+    color: colors.textPrimary,
+    fontFamily: fonts.bold,
     fontSize: 14,
-    color: colors.primary,
-    fontWeight: '500',
+    marginBottom: 1,
   },
-  linkBtnTight: {
-    alignItems: 'center',
-    marginTop: spacing.sm,
-    padding: spacing.xs,
-  },
-  forgetText: {
-    fontSize: 12,
+  identityEmail: {
     color: colors.textMuted,
+    fontFamily: fonts.regular,
+    fontSize: 12,
+  },
+  notYouText: {
+    color: colors.primary,
+    fontFamily: fonts.bold,
+    fontSize: 13,
+  },
+  signInTitle: {
+    color: colors.textPrimary,
+    fontFamily: fonts.black,
+    fontSize: 26,
+    lineHeight: 32,
+  },
+  signInSubtitle: {
+    color: colors.textMuted,
+    fontFamily: fonts.regular,
+    fontSize: 14,
+    lineHeight: 21,
+    marginTop: spacing.xs,
+    marginBottom: spacing.lg,
+  },
+  formFields: {
+    marginTop: spacing.xs,
+  },
+  footerArtwork: {
+    marginTop: spacing.xl,
   },
 });

@@ -9,9 +9,13 @@ export interface IncidentRow {
   location: string;
   severity: string;
   injury_type: string;
+  injury_side: string | null;
   body_parts: string[] | null;
   description: string;
   first_aid_given: string;
+  first_aid_by: string | null;
+  witness_id: string | null;
+  submitted_at: string | null;
   status: string;
   signed_off_at: string | null;
   parent_acknowledged_at: string | null;
@@ -20,8 +24,9 @@ export interface IncidentRow {
   classroom: { id: string; name: string } | null;
 }
 
-const INCIDENT_SELECT = `id, occurred_at, location, severity, injury_type, body_parts,
-  description, first_aid_given, status, signed_off_at, parent_acknowledged_at,
+const INCIDENT_SELECT = `id, occurred_at, location, severity, injury_type, injury_side, body_parts,
+  description, first_aid_given, first_aid_by, witness_id, submitted_at,
+  status, signed_off_at, parent_acknowledged_at,
   child:children(id, first_name, last_name, date_of_birth),
   educator:profiles!incident_reports_educator_id_fkey(id, full_name),
   classroom:classrooms(id, name)`;

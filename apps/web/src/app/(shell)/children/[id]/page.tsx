@@ -38,6 +38,7 @@ export default async function ChildProfilePage({
       medications={data.medications as never}
       consents={data.consents as never}
       documents={data.documents}
+      documentRequests={data.documentRequests}
       pendingInvites={data.pendingInvites}
       classrooms={classrooms}
       photoUrl={photoUrl}

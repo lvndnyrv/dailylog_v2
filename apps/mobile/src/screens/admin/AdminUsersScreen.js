@@ -1,9 +1,12 @@
 import React, { useState, useEffect } from 'react';
+import { isStaffRole } from '@dailylog/shared';
 import {
   View, Text, FlatList, TouchableOpacity,
-  StyleSheet, Alert, RefreshControl, Modal, TextInput
+  StyleSheet, Alert, RefreshControl, Modal, TextInput,
+  KeyboardAvoidingView, Platform, ScrollView
 } from 'react-native';
 import { useIsFocused } from '@react-navigation/native';
+import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../hooks/useAuth';
 import { supabase } from '../../lib/supabase';
 import { LoadingScreen, EmptyState, Badge, Button } from '../../components/ui';
@@ -11,6 +14,7 @@ import { showToast } from '../../components/Toast';
 import { colors, spacing, radius } from '../../theme';
 
 const ROLE_STYLE = {
+  owner_admin: { label: 'Owner admin', color: colors.purple, bg: colors.purpleLight },
   admin:    { label: 'Admin',    color: colors.purple,  bg: colors.purpleLight },
   educator: { label: 'Educator', color: colors.primary, bg: colors.primaryLight },
   parent:   { label: 'Parent',   color: colors.amber,   bg: colors.amberLight },
@@ -32,6 +36,9 @@ export default function AdminUsersScreen() {
   // Invite educator modal
   const [inviteOpen, setInviteOpen]   = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteName, setInviteName] = useState('');
+  const [inviteJobTitle, setInviteJobTitle] = useState('Educator');
+  const [inviteBackgroundCheck, setInviteBackgroundCheck] = useState(false);
   const [inviteError, setInviteError] = useState(null);
   const [inviteRoom, setInviteRoom]   = useState(null);
   const [rooms, setRooms]             = useState([]);
@@ -49,8 +56,8 @@ export default function AdminUsersScreen() {
     // Pending staff invites
     const { data: inviteRows } = await supabase
       .from('staff_invites')
-      .select('id, email, role, created_at, classroom:classrooms(name)')
-      .is('consumed_at', null)
+      .select('id, email, full_name, role, job_title, require_background_check, created_at, classroom:classrooms(name)')
+      .is('accepted_at', null)
       .order('created_at', { ascending: false });
     setInvites(inviteRows || []);
 
@@ -70,17 +77,22 @@ export default function AdminUsersScreen() {
 
   async function handleSendInvite() {
     const email = inviteEmail.trim().toLowerCase();
+    const fullName = inviteName.trim();
     if (!email) { setInviteError('Email is required'); return; }
     if (!/\S+@\S+\.\S+/.test(email)) { setInviteError('Enter a valid email address'); return; }
+    if (fullName.length < 2) { setInviteError('Full name is required'); return; }
 
     setSendingInvite(true);
     setInviteError(null);
 
     // 1. Create the server-side invite (authoritative role/daycare/classroom)
-    const { error: rpcError } = await supabase.rpc('invite_staff', {
+    const { data: inviteCode, error: rpcError } = await supabase.rpc('invite_staff', {
       p_email: email,
       p_role: 'educator',
       p_classroom_id: inviteRoom?.id || null,
+      p_full_name: fullName,
+      p_job_title: inviteJobTitle.trim() || 'Educator',
+      p_require_background_check: inviteBackgroundCheck,
     });
     if (rpcError) {
       setSendingInvite(false);
@@ -88,22 +100,33 @@ export default function AdminUsersScreen() {
       return;
     }
 
-    // 2. Send the magic-link email (account is created on first open;
-    //    handle_new_user consumes the invite and assigns educator role)
-    const { error: otpError } = await supabase.auth.signInWithOtp({
-      email,
-      options: {
-        shouldCreateUser: true,
-        emailRedirectTo: 'dailylog://auth',
-        data: { role: 'educator' },
-      },
+    // 2. Queue the business invite link. The recipient creates or signs into
+    //    their own account before accept_staff_invite assigns the trusted role.
+    const inviteLink = `dailylog://invite?code=${encodeURIComponent(inviteCode)}`;
+    const { error: emailError } = await supabase.rpc('enqueue_email_notification', {
+      p_daycare_id: profile.daycare_id,
+      p_recipient_email: email,
+      p_kind: 'staff_invite',
+      p_title: "You're invited to DailyLog",
+      p_body: `Your center invited you to join DailyLog. Open this invitation on your phone: ${inviteLink}`,
+      p_payload: { type: 'staff_invite', inviteLink },
+      p_dedupe_key: `staff-invite:${inviteCode}`,
     });
     setSendingInvite(false);
-    if (otpError) { setInviteError(otpError.message); return; }
+    if (emailError) {
+      setInviteError(
+        `The invitation was created, but its email could not be queued: ${emailError.message}`
+      );
+      load();
+      return;
+    }
 
     showToast(`✉️ Invite sent to ${email}`, 'success');
     setInviteOpen(false);
     setInviteEmail('');
+    setInviteName('');
+    setInviteJobTitle('Educator');
+    setInviteBackgroundCheck(false);
     setInviteRoom(null);
     load();
   }
@@ -152,7 +175,7 @@ export default function AdminUsersScreen() {
   }
 
   const filtered = users.filter(u => {
-    if (filter === 'staff') return u.role === 'educator' || u.role === 'admin';
+    if (filter === 'staff') return isStaffRole(u.role);
     if (filter === 'parents') return u.role === 'parent';
     return true;
   });
@@ -160,12 +183,13 @@ export default function AdminUsersScreen() {
   function renderUser({ item }) {
     const roleStyle = ROLE_STYLE[item.role] || ROLE_STYLE.parent;
     const isMe = item.id === profile.id;
+    const isOwner = item.role === 'owner_admin';
     return (
       <TouchableOpacity
         style={styles.userCard}
         onPress={() => handleChangeRole(item)}
         activeOpacity={0.7}
-        disabled={isMe}
+        disabled={isMe || isOwner}
       >
         <View style={styles.userAvatar}>
           <Text style={styles.userInitial}>{item.full_name?.[0] || '?'}</Text>
@@ -236,10 +260,13 @@ export default function AdminUsersScreen() {
                   activeOpacity={0.7}
                 >
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.inviteEmail}>{inv.email}</Text>
+                    <Text style={styles.inviteEmail}>{inv.full_name || inv.email}</Text>
                     <Text style={styles.inviteMeta}>
-                      {inv.classroom?.name ? `🏫 ${inv.classroom.name} · ` : ''}Waiting for sign-up — hold to revoke
+                      {inv.job_title || 'Educator'}
+                      {inv.classroom?.name ? ` · ${inv.classroom.name}` : ''}
+                      {inv.require_background_check ? ' · Clearance required' : ''}
                     </Text>
+                    {inv.full_name ? <Text style={styles.inviteAddress}>{inv.email}</Text> : null}
                   </View>
                   <Badge label="Invited" color={colors.amber} bg={colors.amberLight} />
                 </TouchableOpacity>
@@ -255,13 +282,32 @@ export default function AdminUsersScreen() {
 
       {/* Invite educator modal */}
       <Modal visible={inviteOpen} transparent animationType="fade" onRequestClose={() => setInviteOpen(false)}>
-        <View style={styles.modalBackdrop}>
-          <View style={styles.modalCard}>
+        <KeyboardAvoidingView
+          style={styles.modalBackdrop}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <ScrollView
+            contentContainerStyle={styles.modalScroll}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
+            <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>Invite an educator</Text>
             <Text style={styles.modalDesc}>
               They'll get an email link. Their account is created with educator access
               to your daycare — no public sign-up.
             </Text>
+
+            <Text style={styles.modalLabel}>Full name</Text>
+            <TextInput
+              style={[styles.modalInput, inviteError && styles.modalInputError]}
+              value={inviteName}
+              onChangeText={(v) => { setInviteName(v); setInviteError(null); }}
+              placeholder="Priya Sharma"
+              placeholderTextColor={colors.textMuted}
+              autoCapitalize="words"
+              autoCorrect={false}
+            />
 
             <Text style={styles.modalLabel}>Email</Text>
             <TextInput
@@ -275,6 +321,16 @@ export default function AdminUsersScreen() {
               autoCorrect={false}
             />
             {inviteError && <Text style={styles.modalError}>{inviteError}</Text>}
+
+            <Text style={styles.modalLabel}>Job title</Text>
+            <TextInput
+              style={styles.modalInput}
+              value={inviteJobTitle}
+              onChangeText={setInviteJobTitle}
+              placeholder="Educator"
+              placeholderTextColor={colors.textMuted}
+              autoCapitalize="words"
+            />
 
             {rooms.length > 0 && (
               <>
@@ -295,6 +351,23 @@ export default function AdminUsersScreen() {
               </>
             )}
 
+            <TouchableOpacity
+              style={styles.checkRow}
+              onPress={() => setInviteBackgroundCheck((current) => !current)}
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: inviteBackgroundCheck }}
+            >
+              <View style={[styles.checkBox, inviteBackgroundCheck && styles.checkBoxActive]}>
+                {inviteBackgroundCheck ? (
+                  <Ionicons name="checkmark" size={15} color={colors.white} />
+                ) : null}
+              </View>
+              <View style={styles.checkCopy}>
+                <Text style={styles.checkTitle}>Require background check</Text>
+                <Text style={styles.checkText}>Shown to the educator before they join.</Text>
+              </View>
+            </TouchableOpacity>
+
             <Button
               label={sendingInvite ? 'Sending...' : 'Send invite'}
               onPress={handleSendInvite}
@@ -307,8 +380,9 @@ export default function AdminUsersScreen() {
               onPress={() => { setInviteOpen(false); setInviteError(null); }}
               style={{ marginTop: spacing.sm }}
             />
-          </View>
-        </View>
+            </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
       </Modal>
     </View>
   );
@@ -342,9 +416,12 @@ const styles = StyleSheet.create({
   },
   inviteEmail: { fontSize: 14, fontWeight: '600', color: colors.textPrimary },
   inviteMeta: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
+  inviteAddress: { fontSize: 11.5, color: colors.textMuted, marginTop: 2 },
   modalBackdrop: {
     flex: 1, backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'center', padding: spacing.xl,
+  },
+  modalScroll: {
+    flexGrow: 1, justifyContent: 'center', padding: spacing.xl,
   },
   modalCard: {
     backgroundColor: colors.surface, borderRadius: radius.xl,
@@ -370,6 +447,19 @@ const styles = StyleSheet.create({
   roomChipSelected: { borderColor: colors.primary, backgroundColor: colors.primaryLight },
   roomChipText: { fontSize: 13, color: colors.textSecondary, fontWeight: '500' },
   roomChipTextSelected: { color: colors.primary, fontWeight: '600' },
+  checkRow: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm,
+    marginTop: spacing.sm, marginBottom: spacing.sm,
+  },
+  checkBox: {
+    width: 21, height: 21, borderRadius: 5,
+    borderWidth: 1.5, borderColor: colors.border,
+    alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface,
+  },
+  checkBoxActive: { borderColor: colors.primary, backgroundColor: colors.primary },
+  checkCopy: { flex: 1 },
+  checkTitle: { fontSize: 13, fontWeight: '600', color: colors.textPrimary },
+  checkText: { marginTop: 2, fontSize: 11.5, color: colors.textMuted },
   filterBar: {
     flexDirection: 'row', gap: spacing.sm,
     paddingHorizontal: spacing.lg, paddingTop: spacing.md, paddingBottom: spacing.sm,
@@ -398,4 +488,3 @@ const styles = StyleSheet.create({
   userEmail: { fontSize: 12, color: colors.textSecondary, marginTop: 1 },
   userRoom: { fontSize: 12, color: colors.textMuted, marginTop: 2 },
 });
-

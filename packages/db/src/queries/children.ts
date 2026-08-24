@@ -104,8 +104,43 @@ export interface ChildDocument {
   created_at: string | null;
 }
 
+export interface ParentDocumentRequestReviewRow {
+  id: string;
+  kind: string;
+  title: string;
+  message: string | null;
+  due_on: string | null;
+  status: string;
+  requested_at: string;
+  submitted_at: string | null;
+  completed_at: string | null;
+  rejection_reason: string | null;
+  latest_document: {
+    id: string;
+    title: string;
+    mime_type: string | null;
+    size_bytes: number | null;
+    created_at: string | null;
+  } | null;
+  submissions: {
+    id: string;
+    status: string;
+    submitted_at: string;
+    reviewed_at: string | null;
+    rejection_reason: string | null;
+  }[];
+}
+
 export async function getChildProfile(client: Client, childId: string) {
-  const [childRes, pickupsRes, medsRes, consentsRes, invitesRes, documentsRes] = await Promise.all([
+  const [
+    childRes,
+    pickupsRes,
+    medsRes,
+    consentsRes,
+    invitesRes,
+    documentsRes,
+    documentRequestsRes,
+  ] = await Promise.all([
     client
       .from('children')
       .select(
@@ -142,9 +177,25 @@ export async function getChildProfile(client: Client, childId: string) {
       .eq('child_id', childId)
       .is('archived_at', null)
       .order('created_at', { ascending: false }),
+    client
+      .from('parent_document_requests')
+      .select(
+        `id, kind, title, message, due_on, status, requested_at, submitted_at,
+         completed_at, rejection_reason,
+         latest_document:documents!parent_document_requests_latest_document_id_fkey(
+           id, title, mime_type, size_bytes, created_at
+         ),
+         submissions:parent_document_submissions(
+           id, status, submitted_at, reviewed_at, rejection_reason
+         )`,
+      )
+      .eq('child_id', childId)
+      .neq('status', 'cancelled')
+      .order('requested_at', { ascending: false }),
   ]);
 
   if (childRes.error) throw childRes.error;
+  if (documentRequestsRes.error) throw documentRequestsRes.error;
   return {
     child: childRes.data,
     pickups: (pickupsRes.data ?? []) as ChildPickup[],
@@ -152,6 +203,7 @@ export async function getChildProfile(client: Client, childId: string) {
     consents: consentsRes.data ?? [],
     pendingInvites: (invitesRes.data ?? []) as PendingParentInvite[],
     documents: (documentsRes.data ?? []) as ChildDocument[],
+    documentRequests: (documentRequestsRes.data ?? []) as unknown as ParentDocumentRequestReviewRow[],
   };
 }
 
@@ -199,8 +251,8 @@ export async function addPickup(
   const { data, error } = await client.rpc('create_pickup', {
     p_child_id: values.child_id,
     p_full_name: values.full_name,
-    p_relationship: values.relationship ?? null,
-    p_phone: values.phone ?? null,
+    ...(values.relationship != null ? { p_relationship: values.relationship } : {}),
+    ...(values.phone != null ? { p_phone: values.phone } : {}),
   });
   if (error) throw error;
   return data;
@@ -270,7 +322,7 @@ export async function createParentInvite(
   const { data, error } = await client.rpc('create_parent_invite', {
     p_child_id: childId,
     p_email: email,
-    p_relationship: relationship ?? null,
+    ...(relationship != null ? { p_relationship: relationship } : {}),
   });
   if (error) throw error;
   return data;

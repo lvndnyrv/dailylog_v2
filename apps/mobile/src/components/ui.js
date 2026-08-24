@@ -1,7 +1,7 @@
 import React, { useState as useLocalState } from 'react';
 import { View, Text, TouchableOpacity, TextInput, ActivityIndicator, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { colors, spacing, radius, typography } from '../theme';
+import { colors, spacing, radius, fonts } from '../theme';
 
 // ---- CHIP (toggle button) ----
 export function Chip({ label, selected, onPress, color = colors.primary, lightColor }) {
@@ -33,14 +33,17 @@ export function Button({ label, onPress, loading, disabled, variant = 'primary',
     : variant === 'danger' ? colors.danger
     : 'transparent';
   const textColor = variant === 'ghost' ? colors.primary : colors.white;
-  const border = variant === 'ghost' ? { borderWidth: 1.5, borderColor: colors.primary } : {};
+  const border = variant === 'ghost' ? { borderWidth: 1.8, borderColor: colors.primary } : {};
+  const inactive = loading || disabled;
 
   return (
     <TouchableOpacity
       onPress={onPress}
-      style={[styles.button, { backgroundColor: bg }, border, style]}
+      style={[styles.button, { backgroundColor: bg }, border, inactive && styles.buttonDisabled, style]}
       activeOpacity={0.8}
-      disabled={loading || disabled}
+      disabled={inactive}
+      accessibilityRole="button"
+      accessibilityState={{ disabled: inactive, busy: loading }}
     >
       {loading
         ? <ActivityIndicator color={textColor} />
@@ -187,7 +190,7 @@ const styles = StyleSheet.create({
   },
   chipText: {
     fontSize: 13,
-    fontWeight: '500',
+    fontFamily: fonts.bold,
     color: colors.textSecondary,
   },
   section: {
@@ -200,28 +203,33 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     fontSize: 15,
-    fontWeight: '600',
+    fontFamily: fonts.bold,
     color: colors.textPrimary,
     marginBottom: spacing.md,
   },
   button: {
-    paddingVertical: spacing.md + 2,
+    minHeight: 50,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
     borderRadius: radius.md,
     alignItems: 'center',
     justifyContent: 'center',
   },
+  buttonDisabled: {
+    opacity: 0.55,
+  },
   buttonText: {
-    fontSize: 15,
-    fontWeight: '600',
+    fontSize: 16,
+    fontFamily: fonts.bold,
   },
   inputWrap: {
     marginBottom: spacing.md,
   },
   inputLabel: {
-    fontSize: 13,
-    fontWeight: '500',
-    color: colors.textSecondary,
-    marginBottom: spacing.xs,
+    fontSize: 13.5,
+    fontFamily: fonts.bold,
+    color: colors.textPrimary,
+    marginBottom: spacing.sm,
   },
   input: {
     borderWidth: 1.5,
@@ -230,6 +238,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.md - 2,
     fontSize: 15,
+    fontFamily: fonts.regular,
     color: colors.textPrimary,
     backgroundColor: colors.surface,
   },
@@ -244,8 +253,9 @@ const styles = StyleSheet.create({
   inputInner: {
     flex: 1,
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.md - 2,
+    paddingVertical: spacing.md,
     fontSize: 15,
+    fontFamily: fonts.regular,
     color: colors.textPrimary,
   },
   eyeBtn: {
@@ -264,7 +274,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: colors.danger,
     marginTop: spacing.xs,
-    fontWeight: '500',
+    fontFamily: fonts.bold,
   },
   pwStrengthWrap: {
     flexDirection: 'row', alignItems: 'center', gap: spacing.md,
@@ -272,7 +282,7 @@ const styles = StyleSheet.create({
   },
   pwStrengthBars: { flexDirection: 'row', gap: 4, flex: 1 },
   pwStrengthBar: { flex: 1, height: 4, borderRadius: 2 },
-  pwStrengthLabel: { fontSize: 12, fontWeight: '600', width: 48, textAlign: 'right' },
+  pwStrengthLabel: { fontSize: 12, fontFamily: fonts.bold, width: 48, textAlign: 'right' },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -284,7 +294,7 @@ const styles = StyleSheet.create({
   },
   badgeText: {
     fontSize: 12,
-    fontWeight: '500',
+    fontFamily: fonts.bold,
   },
   allergyBadge: {
     backgroundColor: colors.dangerLight,
@@ -298,7 +308,7 @@ const styles = StyleSheet.create({
   },
   allergyBadgeText: {
     fontSize: 11,
-    fontWeight: '600',
+    fontFamily: fonts.bold,
     color: colors.danger,
   },
   empty: {
@@ -311,6 +321,7 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     fontSize: 14,
+    fontFamily: fonts.regular,
     color: colors.textMuted,
     textAlign: 'center',
   },

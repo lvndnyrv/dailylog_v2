@@ -110,7 +110,9 @@ export async function listStaffTimeOffRequests(
 }
 
 export async function clockIn(client: Client, classroomId?: string | null): Promise<string> {
-  const { data, error } = await client.rpc('clock_in', { p_classroom_id: classroomId ?? null });
+  const { data, error } = await client.rpc('clock_in', {
+    ...(classroomId != null ? { p_classroom_id: classroomId } : {}),
+  });
   if (error) throw error;
   return data;
 }

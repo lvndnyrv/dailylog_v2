@@ -4,8 +4,22 @@ import type { Tables, TablesInsert, TablesUpdate } from '../types';
 
 type Client = SupabaseClient<Database>;
 
-export type RoomLiveStatus =
-  Database['public']['Functions']['get_rooms_live_status']['Returns'][number] & {
+type GeneratedRoomLiveStatus =
+  Database['public']['Functions']['get_rooms_live_status']['Returns'][number];
+
+export interface RoomEducator {
+  id: string;
+  full_name: string;
+}
+
+function isRoomEducator(value: unknown): value is RoomEducator {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const educator = value as Record<string, unknown>;
+  return typeof educator.id === 'string' && typeof educator.full_name === 'string';
+}
+
+export type RoomLiveStatus = Omit<GeneratedRoomLiveStatus, 'educators'> & {
+    educators: RoomEducator[];
     opens_on: string | null;
     nap_start: string | null;
     nap_end: string | null;
@@ -35,6 +49,14 @@ export interface RoomTransitionPlanRow {
   to_classroom_id: string;
   move_on: string;
   transition_week: boolean;
+  transition_starts_on: string | null;
+  transition_ends_on: string | null;
+  current_tuition_cents: number | null;
+  new_tuition_cents: number | null;
+  currency: string;
+  family_message: string | null;
+  family_visible: boolean;
+  published_at: string | null;
   status: string;
   notes: string | null;
   child: { id: string; first_name: string; last_name: string } | null;
@@ -54,13 +76,19 @@ export async function listRoomsLive(client: Client): Promise<RoomLiveStatus[]> {
   if (live.error) throw live.error;
   if (settings.error) throw settings.error;
   const byId = new Map((settings.data ?? []).map((room) => [room.id, room]));
-  return (live.data ?? []).map((room) => ({
-    ...room,
-    opens_on: byId.get(room.id)?.opens_on ?? null,
-    nap_start: byId.get(room.id)?.nap_start ?? null,
-    nap_end: byId.get(room.id)?.nap_end ?? null,
-    lead_educator_id: byId.get(room.id)?.lead_educator_id ?? null,
-  }));
+  return (live.data ?? []).map((room): RoomLiveStatus => {
+    const educators = Array.isArray(room.educators)
+      ? (room.educators as unknown[]).filter(isRoomEducator)
+      : [];
+    return {
+      ...room,
+      educators,
+      opens_on: byId.get(room.id)?.opens_on ?? null,
+      nap_start: byId.get(room.id)?.nap_start ?? null,
+      nap_end: byId.get(room.id)?.nap_end ?? null,
+      lead_educator_id: byId.get(room.id)?.lead_educator_id ?? null,
+    };
+  });
 }
 
 // Children close to aging out of their band, with the suggested next room (7e).
@@ -113,6 +141,8 @@ export async function listRoomTransitionPlans(client: Client): Promise<RoomTrans
     .from('room_transition_plans')
     .select(
       `id, child_id, from_classroom_id, to_classroom_id, move_on, transition_week,
+       transition_starts_on, transition_ends_on, current_tuition_cents,
+       new_tuition_cents, currency, family_message, family_visible, published_at,
        status, notes, child:children(id, first_name, last_name),
        from_room:classrooms!room_transition_plans_from_classroom_id_fkey(id, name),
        to_room:classrooms!room_transition_plans_to_classroom_id_fkey(id, name)`,

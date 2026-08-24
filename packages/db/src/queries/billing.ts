@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { Database } from '../types.gen';
+import type { Database, Json } from '../types.gen';
 
 type Client = SupabaseClient<Database>;
 
@@ -59,7 +59,7 @@ export async function createInvoice(
     p_child_id: childId,
     p_billed_to: billedTo,
     p_due_on: dueOn,
-    p_lines: lines,
+    p_lines: lines as unknown as Json,
   });
   if (error) throw error;
   return data;

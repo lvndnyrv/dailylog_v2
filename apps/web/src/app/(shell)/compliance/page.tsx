@@ -57,7 +57,9 @@ export default async function CompliancePage() {
                 <span>STATUS</span>
               </div>
               {certRows.map((cert, i) => {
-                const state = !cert.expires_on
+                const state = cert.missing
+                  ? { label: "Missing", cls: "bg-danger-bg text-danger" }
+                  : !cert.expires_on
                   ? { label: "On file", cls: "bg-[#E4F3EC] text-success" }
                   : cert.expires_on < today
                     ? { label: "Expired", cls: "bg-danger-bg text-danger" }

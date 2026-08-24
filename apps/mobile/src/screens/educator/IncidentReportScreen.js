@@ -1,704 +1,1198 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
-  View, Text, ScrollView, TouchableOpacity,
-  StyleSheet, Alert, TextInput, Image, ActivityIndicator
+  Alert,
+  Image,
+  Modal,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
+import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
-import { useAuth } from '../../hooks/useAuth';
-import { useIncidentForm } from '../../hooks/useIncidentReport';
-import { notifyIncident } from '../../hooks/usePushNotifications';
-import { Chip, Button } from '../../components/ui';
-import { ChildAvatar } from '../../components/ChildAvatar';
-import { colors, spacing, radius } from '../../theme';
 import { format } from 'date-fns';
 
-const LOCATIONS = [
-  { label: 'Classroom', emoji: '🏫' },
-  { label: 'Playground', emoji: '🛝' },
-  { label: 'Bathroom', emoji: '🚻' },
-  { label: 'Hallway', emoji: '🚪' },
-  { label: 'Gym', emoji: '🏋️' },
-  { label: 'Kitchen', emoji: '🍽️' },
-  { label: 'Nap room', emoji: '🛏️' },
-  { label: 'Other', emoji: '📍' },
+import { ChildAvatar } from '../../components/ChildAvatar';
+import { Button, Chip } from '../../components/ui';
+import { useAuth } from '../../hooks/useAuth';
+import { useIncidentForm } from '../../hooks/useIncidentReport';
+import { supabase } from '../../lib/supabase';
+import { colors, fonts, radius, spacing } from '../../theme';
+
+const LOCATIONS = ['Classroom', 'Play area', 'Playground', 'Bathroom', 'Hallway', 'Gym', 'Nap room', 'Other'];
+const INJURY_TYPES = ['Bump / bruise', 'Cut / scrape', 'Bite', 'Fall', 'Pinch / scratch', 'Head bump', 'Allergic reaction', 'Other'];
+const BODY_PARTS = ['Forehead', 'Head', 'Face', 'Mouth / teeth', 'Neck', 'Arm', 'Hand', 'Torso', 'Back', 'Knee', 'Leg', 'Foot'];
+const SEVERITIES = [
+  { key: 'minor', label: 'Minor', color: colors.success, bg: colors.successLight },
+  { key: 'moderate', label: 'Moderate', color: colors.amber, bg: colors.amberLight },
+  { key: 'serious', label: 'Serious', color: colors.danger, bg: colors.dangerLight },
 ];
 
-const INJURY_TYPES = [
-  { label: 'Bump / bruise', emoji: '🟣' },
-  { label: 'Cut / scrape', emoji: '🩹' },
-  { label: 'Bite', emoji: '😬' },
-  { label: 'Fall', emoji: '⬇️' },
-  { label: 'Pinch / scratch', emoji: '✋' },
-  { label: 'Head bump', emoji: '🤕' },
-  { label: 'Allergic reaction', emoji: '🤧' },
-  { label: 'Other', emoji: '❓' },
-];
+function displayName(person) {
+  if (!person?.full_name) return 'Choose staff';
+  const parts = person.full_name.trim().split(/\s+/);
+  return parts.length > 1 ? `${parts[0]} ${parts[parts.length - 1][0]}.` : parts[0];
+}
 
-const BODY_PARTS = [
-  'Head', 'Face', 'Neck', 'Arm (L)', 'Arm (R)',
-  'Hand (L)', 'Hand (R)', 'Torso', 'Back',
-  'Leg (L)', 'Leg (R)', 'Knee (L)', 'Knee (R)',
-  'Foot (L)', 'Foot (R)', 'Finger', 'Mouth / teeth',
-];
+function initials(person) {
+  return String(person?.full_name || '?')
+    .split(/\s+/)
+    .filter(Boolean)
+    .map(part => part[0])
+    .join('')
+    .slice(0, 2)
+    .toUpperCase();
+}
 
-const SEVERITY_OPTIONS = [
-  { key: 'minor', label: 'Minor', desc: 'Small bump, no lasting mark', color: colors.amber, bg: colors.amberLight },
-  { key: 'moderate', label: 'Moderate', desc: 'Visible mark, some first aid', color: colors.coral, bg: colors.coralLight },
-  { key: 'serious', label: 'Serious', desc: 'Needs medical attention', color: colors.danger, bg: colors.dangerLight },
-];
+function childName(child) {
+  return [child?.first_name, child?.last_name].filter(Boolean).join(' ') || 'Child';
+}
 
-const FIRST_AID_OPTIONS = [
-  'Ice pack applied', 'Wound cleaned', 'Bandage applied',
-  'Comfort given', 'Monitored for symptoms', 'None needed',
-];
+function FieldLabel({ children, optional }) {
+  return (
+    <Text style={styles.fieldLabel}>
+      {children}
+      {optional ? <Text style={styles.optional}> (optional)</Text> : null}
+    </Text>
+  );
+}
+
+function StaffPickerSheet({ visible, title, people, selectedId, onSelect, onClose }) {
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <View style={styles.sheetOverlay}>
+        <TouchableOpacity style={styles.sheetDismiss} activeOpacity={1} onPress={onClose} />
+        <View style={styles.sheet}>
+          <View style={styles.sheetGrabber} />
+          <View style={styles.sheetHeader}>
+            <Text style={styles.sheetTitle}>{title}</Text>
+            <TouchableOpacity onPress={onClose} style={styles.closeCircle}>
+              <Ionicons name="close" size={19} color={colors.textMuted} />
+            </TouchableOpacity>
+          </View>
+          <ScrollView style={styles.staffList}>
+            {people.map((person, index) => {
+              const selected = selectedId === person.id;
+              return (
+                <TouchableOpacity
+                  key={person.id}
+                  onPress={() => {
+                    onSelect(person);
+                    onClose();
+                  }}
+                  style={[styles.staffRow, index > 0 && styles.staffRowBorder]}
+                  activeOpacity={0.72}
+                >
+                  <View style={styles.staffAvatar}>
+                    <Text style={styles.staffAvatarText}>{initials(person)}</Text>
+                  </View>
+                  <View style={styles.staffCopy}>
+                    <Text style={styles.staffName}>{person.full_name}</Text>
+                    <Text style={styles.staffRole}>
+                      {person.role === 'owner_admin' ? 'Owner admin' : person.role === 'admin' ? 'Administrator' : 'Educator'}
+                    </Text>
+                  </View>
+                  {selected && <Ionicons name="checkmark-circle" size={21} color={colors.primary} />}
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
+}
 
 export default function IncidentReportScreen({ route, navigation }) {
-  const { child } = route.params;
+  const child = route.params?.child;
+  const initialReportId = route.params?.reportId || null;
   const { profile } = useAuth();
-  const { createDraft, updateReport, submitReport, uploadPhoto } = useIncidentForm();
+  const {
+    report,
+    createDraft,
+    updateReport,
+    submitReport,
+    uploadPhoto,
+  } = useIncidentForm(initialReportId);
 
-  const [step, setStep] = useState(1);
-  const [saving, setSaving] = useState(false);
-  const [reportId, setReportId] = useState(null);
-
-  // Step 1 state
-  const [occurredAt] = useState(new Date());
+  const [stage, setStage] = useState('capture');
+  const [reportId, setReportId] = useState(initialReportId);
+  const [occurredAt, setOccurredAt] = useState(new Date());
   const [location, setLocation] = useState('');
-  const [severity, setSeverity] = useState('minor');
   const [injuryType, setInjuryType] = useState('');
+  const [injurySide, setInjurySide] = useState('front');
   const [bodyParts, setBodyParts] = useState([]);
+  const [severity, setSeverity] = useState('minor');
   const [description, setDescription] = useState('');
-
-  // Step 2 state
-  const [firstAid, setFirstAid] = useState('');
-  const [firstAidChecks, setFirstAidChecks] = useState([]);
-  const [witnesses, setWitnesses] = useState('');
-  const [photos, setPhotos] = useState([]); // array of local URIs
-  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [actionTaken, setActionTaken] = useState('');
+  const [firstAidGiven, setFirstAidGiven] = useState(true);
+  const [firstAidBy, setFirstAidBy] = useState(profile || null);
+  const [witness, setWitness] = useState(null);
   const [notes, setNotes] = useState('');
+  const [photoUri, setPhotoUri] = useState(null);
+  const [existingPhotoPaths, setExistingPhotoPaths] = useState([]);
+  const [staff, setStaff] = useState([]);
+  const [picker, setPicker] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [hydrated, setHydrated] = useState(!initialReportId);
+
+  useEffect(() => {
+    if (!profile?.daycare_id) return;
+    supabase
+      .from('profiles')
+      .select('id, full_name, role, avatar_url')
+      .eq('daycare_id', profile.daycare_id)
+      .in('role', ['owner_admin', 'admin', 'educator'])
+      .is('archived_at', null)
+      .order('full_name')
+      .then(({ data }) => setStaff(data || []));
+  }, [profile?.daycare_id]);
+
+  useEffect(() => {
+    if (profile && !firstAidBy) setFirstAidBy(profile);
+  }, [profile?.id]);
+
+  useEffect(() => {
+    if (!initialReportId || !report || hydrated) return;
+    setOccurredAt(new Date(report.occurred_at));
+    setLocation(report.location || '');
+    setInjuryType(report.injury_type || '');
+    setInjurySide(report.injury_side || 'front');
+    setBodyParts(report.body_parts || []);
+    setSeverity(report.severity || 'minor');
+    setDescription(report.description || '');
+    setActionTaken(report.first_aid_given || '');
+    setFirstAidGiven(Boolean(report.first_aid_given));
+    setNotes(report.notes || '');
+    setExistingPhotoPaths(report.photo_paths || []);
+    setFirstAidBy(staff.find(person => person.id === report.first_aid_by) || profile || null);
+    setWitness(staff.find(person => person.id === report.witness_id) || null);
+    setHydrated(true);
+  }, [initialReportId, report, hydrated, staff, profile]);
+
+  useEffect(() => {
+    if (!report || !staff.length) return;
+    if (report.witness_id && !witness) {
+      setWitness(staff.find(person => person.id === report.witness_id) || null);
+    }
+    if (report.first_aid_by) {
+      setFirstAidBy(staff.find(person => person.id === report.first_aid_by) || profile || null);
+    }
+  }, [staff, report?.witness_id, report?.first_aid_by]);
+
+  const witnessOptions = useMemo(
+    () => staff.filter(person => person.id !== profile?.id),
+    [staff, profile?.id],
+  );
 
   function toggleBodyPart(part) {
-    setBodyParts(prev =>
-      prev.includes(part) ? prev.filter(p => p !== part) : [...prev, part]
-    );
+    setBodyParts(current => (
+      current.includes(part)
+        ? current.filter(item => item !== part)
+        : [...current, part]
+    ));
   }
 
-  function toggleFirstAidCheck(item) {
-    setFirstAidChecks(prev =>
-      prev.includes(item) ? prev.filter(i => i !== item) : [...prev, item]
-    );
+  function validateForReview() {
+    const missing = [];
+    if (!location) missing.push('where it happened');
+    if (!injuryType) missing.push('injury type');
+    if (!bodyParts.length) missing.push('injury location');
+    if (!description.trim()) missing.push('what happened');
+    if (!actionTaken.trim()) missing.push('action taken');
+    if (!witness) missing.push('staff witness');
+
+    if (missing.length) {
+      Alert.alert('Complete the report', `Please add: ${missing.join(', ')}.`);
+      return false;
+    }
+    return true;
   }
 
-  async function handlePickPhoto() {
-    Alert.alert('Add photo', 'Choose a source', [
-      { text: 'Camera', onPress: () => capturePhoto('camera') },
-      { text: 'Photo library', onPress: () => capturePhoto('library') },
+  function draftPayload() {
+    return {
+      daycare_id: profile.daycare_id,
+      child_id: child.id,
+      educator_id: profile.id,
+      classroom_id: child.classroom_id || profile.classroom_id,
+      occurred_at: occurredAt.toISOString(),
+      location: location || 'Classroom',
+      severity,
+      injury_type: injuryType || 'Incident',
+      injury_side: injurySide,
+      body_parts: bodyParts,
+      description: description.trim(),
+      first_aid_given: actionTaken.trim(),
+      first_aid_by: firstAidGiven ? (firstAidBy?.id || profile.id) : null,
+      witness_id: witness?.id || null,
+      witnesses: witness ? [witness.full_name] : [],
+      photo_paths: existingPhotoPaths,
+      notes: notes.trim(),
+      status: 'draft',
+    };
+  }
+
+  async function persistDraft({ close = false } = {}) {
+    if (!child?.id || !profile?.id || !profile?.daycare_id) {
+      Alert.alert('Unable to save', 'Your child or center context is missing. Reopen the report and try again.');
+      return null;
+    }
+
+    setSaving(true);
+    const result = reportId
+      ? await updateReport(reportId, draftPayload())
+      : await createDraft(draftPayload());
+    setSaving(false);
+
+    if (result.error) {
+      Alert.alert('Could not save draft', result.error.message);
+      return null;
+    }
+
+    const id = reportId || result.data?.id;
+    if (!reportId) setReportId(id);
+    if (close) {
+      Alert.alert(
+        result.queued ? 'Draft saved for sync' : 'Draft saved',
+        result.queued
+          ? 'The report will sync automatically when this device reconnects.'
+          : 'You can finish it from the incident hub.',
+        [{ text: 'Done', onPress: () => navigation.navigate('IncidentHub') }],
+      );
+    }
+    return id;
+  }
+
+  async function reviewReport() {
+    if (!validateForReview()) return;
+    const id = await persistDraft();
+    if (id) setStage('review');
+  }
+
+  async function pickPhoto(source) {
+    let result;
+    if (source === 'camera') {
+      const permission = await ImagePicker.requestCameraPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert('Camera permission needed', 'Allow camera access to attach an incident photo.');
+        return;
+      }
+      result = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.85 });
+    } else {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert('Photo permission needed', 'Allow photo access to attach an incident photo.');
+        return;
+      }
+      result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.85 });
+    }
+
+    if (!result.canceled) {
+      const resized = await ImageManipulator.manipulateAsync(
+        result.assets[0].uri,
+        [{ resize: { width: 1200 } }],
+        { compress: 0.82, format: ImageManipulator.SaveFormat.JPEG },
+      );
+      setPhotoUri(resized.uri);
+    }
+  }
+
+  function choosePhoto() {
+    Alert.alert('Attach a photo', 'Choose a source.', [
+      { text: 'Take photo', onPress: () => pickPhoto('camera') },
+      { text: 'Photo library', onPress: () => pickPhoto('library') },
       { text: 'Cancel', style: 'cancel' },
     ]);
   }
 
-  async function capturePhoto(source) {
-    let result;
-    if (source === 'camera') {
-      const { status } = await ImagePicker.requestCameraPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('Permission needed', 'Please allow camera access.');
-        return;
-      }
-      result = await ImagePicker.launchCameraAsync({
-        mediaTypes: ['images'],
-        quality: 0.8,
-      });
-    } else {
-      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('Permission needed', 'Please allow photo library access.');
-        return;
-      }
-      result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ['images'],
-        quality: 0.8,
-      });
-    }
-
-    if (!result.canceled) {
-      const manipResult = await ImageManipulator.manipulateAsync(
-        result.assets[0].uri,
-        [{ resize: { width: 1000 } }],
-        { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG }
-      );
-      setPhotos(prev => [...prev, manipResult.uri]);
-    }
-  }
-
-  function removePhoto(index) {
-    setPhotos(prev => prev.filter((_, i) => i !== index));
-  }
-
-  // Save draft and advance to next step
-  async function handleNext() {
-    if (step === 1) {
-      if (!location) {
-        Alert.alert('Required', 'Please select where the incident occurred.');
-        return;
-      }
-      if (!injuryType) {
-        Alert.alert('Required', 'Please select the type of injury.');
-        return;
-      }
-      if (bodyParts.length === 0) {
-        Alert.alert('Required', 'Please select the affected body part(s).');
-        return;
-      }
-
-      // Create draft on first next
-      if (!reportId) {
-        setSaving(true);
-        const { data, error } = await createDraft({
-          child_id: child.id,
-          educator_id: profile.id,
-          classroom_id: profile.classroom_id,
-          occurred_at: occurredAt.toISOString(),
-          location,
-          severity,
-          injury_type: injuryType,
-          body_parts: bodyParts,
-          description,
-          status: 'draft',
-        });
-        setSaving(false);
-        if (error) {
-          Alert.alert('Error', error.message);
-          return;
-        }
-        setReportId(data.id);
-      } else {
-        // Update existing draft
-        await updateReport(reportId, {
-          location,
-          severity,
-          injury_type: injuryType,
-          body_parts: bodyParts,
-          description,
-        });
-      }
-      setStep(2);
-    } else if (step === 2) {
-      setStep(3);
-    }
-  }
-
-  async function handleSubmit() {
-    setSaving(true);
-
-    // Upload photos — a failure (e.g. offline on the playground) must not
-    // block the incident report itself
-    const uploadedPaths = [];
-    let photoFailure = null;
-    for (const uri of photos) {
-      const { path, error } = await uploadPhoto(reportId, child.id, uri);
-      if (error) { photoFailure = error; break; }
-      uploadedPaths.push(path);
-    }
-
-    if (photoFailure) {
-      const proceed = await new Promise(resolve => {
-        Alert.alert(
-          'Photo upload failed',
-          `${photoFailure.message || 'Network error'}\n\nSubmit the report without the remaining photos? You can add photos later.`,
-          [
-            { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
-            { text: 'Submit without photos', onPress: () => resolve(true) },
-          ]
-        );
-      });
-      if (!proceed) {
-        setSaving(false);
-        return;
-      }
-    }
-
-    // Combine first aid text
-    const combinedFirstAid = [
-      ...firstAidChecks,
-      ...(firstAid.trim() ? [firstAid.trim()] : []),
-    ].join('. ');
-
-    // Final update with all step 2 data
-    await updateReport(reportId, {
-      first_aid_given: combinedFirstAid,
-      witnesses: witnesses.trim() ? witnesses.split(',').map(w => w.trim()) : [],
-      photo_paths: uploadedPaths,
-      notes,
-    });
-
-    // Submit and notify
-    const { error, queued } = await submitReport(reportId);
-    setSaving(false);
-
-    if (error) {
-      Alert.alert('Error', error.message);
+  async function submit() {
+    if (!validateForReview()) {
+      setStage('capture');
       return;
     }
 
-    // Send push notification to parents (skipped when offline — the queued
-    // report syncs on reconnect, but pushes need a live connection)
-    if (!queued) {
-      try {
-        await notifyIncident(child.id, child.first_name, severity);
-      } catch (e) {
-        // Non-blocking: notification failure shouldn't block the form
-        console.warn('Push notification failed:', e);
+    setSaving(true);
+    let id = reportId;
+    if (!id) {
+      const result = await createDraft(draftPayload());
+      if (result.error) {
+        setSaving(false);
+        Alert.alert('Could not save report', result.error.message);
+        return;
+      }
+      id = result.data.id;
+      setReportId(id);
+    } else {
+      const result = await updateReport(id, draftPayload());
+      if (result.error) {
+        setSaving(false);
+        Alert.alert('Could not update report', result.error.message);
+        return;
       }
     }
 
-    Alert.alert(
-      queued ? 'Report saved — will submit when online' : 'Report submitted ✓',
-      queued
-        ? `You're offline. ${child.first_name}'s incident report is saved and will be submitted automatically when you reconnect. Notify parents in person or by phone in the meantime.`
-        : `The incident report for ${child.first_name} has been submitted and parents have been notified.`,
-      [{ text: 'Done', onPress: () => navigation.goBack() }]
+    let photoPaths = [...existingPhotoPaths];
+    if (photoUri) {
+      const uploaded = await uploadPhoto(id, child.id, photoUri);
+      if (uploaded.error) {
+        const proceed = await new Promise(resolve => {
+          Alert.alert(
+            'Photo could not upload',
+            'Submit the incident without this photo? You can keep it as a draft and retry later.',
+            [
+              { text: 'Keep draft', style: 'cancel', onPress: () => resolve(false) },
+              { text: 'Submit without photo', onPress: () => resolve(true) },
+            ],
+          );
+        });
+        if (!proceed) {
+          setSaving(false);
+          return;
+        }
+      } else {
+        photoPaths = [...photoPaths, uploaded.path];
+        await updateReport(id, { photo_paths: photoPaths });
+        setExistingPhotoPaths(photoPaths);
+      }
+    }
+
+    const result = await submitReport(id, severity);
+    setSaving(false);
+    if (result.error) {
+      Alert.alert('Could not submit report', result.error.message);
+      return;
+    }
+
+    setStage('submitted');
+  }
+
+  if (!hydrated) {
+    return (
+      <View style={styles.loading}>
+        <Text style={styles.loadingText}>Loading incident draft…</Text>
+      </View>
     );
   }
 
-  // ─── STEP 1: WHAT HAPPENED ───────────────────────────────────────────────
-  function renderStep1() {
+  if (stage === 'submitted') {
+    const isSerious = severity === 'serious';
     return (
-      <>
-        {/* Timestamp */}
-        <View style={styles.infoRow}>
-          <Text style={styles.infoLabel}>When</Text>
-          <Text style={styles.infoValue}>
-            {format(occurredAt, 'h:mm a')} · {format(occurredAt, 'MMM d, yyyy')}
+      <View style={styles.container}>
+        <View style={styles.submittedContent}>
+          <View style={styles.successCircle}>
+            <Ionicons name="checkmark" size={38} color={colors.success} />
+          </View>
+          <Text style={styles.successTitle}>Report submitted</Text>
+          <Text style={styles.successSub}>
+            Sent to the director for sign-off.{' '}
+            {isSerious
+              ? `${child.first_name}'s parents were notified immediately.`
+              : `${child.first_name}'s parents are notified the moment it is signed.`}
           </Text>
-        </View>
 
-        {/* Severity */}
-        <Text style={styles.sectionLabel}>Severity</Text>
-        <View style={styles.severityRow}>
-          {SEVERITY_OPTIONS.map(opt => (
-            <TouchableOpacity
-              key={opt.key}
-              onPress={() => setSeverity(opt.key)}
-              style={[
-                styles.severityCard,
-                { borderColor: severity === opt.key ? opt.color : colors.border },
-                severity === opt.key && { backgroundColor: opt.bg },
-              ]}
-              activeOpacity={0.7}
-            >
-              <View style={[styles.severityDot, { backgroundColor: opt.color }]} />
-              <Text style={[styles.severityLabel, severity === opt.key && { color: opt.color }]}>
-                {opt.label}
-              </Text>
-              <Text style={styles.severityDesc}>{opt.desc}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        {/* Location */}
-        <Text style={styles.sectionLabel}>Where did it happen?</Text>
-        <View style={styles.chipGrid}>
-          {LOCATIONS.map(loc => (
-            <Chip
-              key={loc.label}
-              label={`${loc.emoji} ${loc.label}`}
-              selected={location === loc.label}
-              onPress={() => setLocation(loc.label)}
+          <View style={styles.timelineCard}>
+            <TimelineRow
+              state="done"
+              title="Submitted by you"
+              subtitle={`${format(new Date(), 'h:mm a')} · witnessed by ${displayName(witness)}`}
             />
-          ))}
-        </View>
-
-        {/* Injury type */}
-        <Text style={styles.sectionLabel}>Type of injury</Text>
-        <View style={styles.chipGrid}>
-          {INJURY_TYPES.map(type => (
-            <Chip
-              key={type.label}
-              label={`${type.emoji} ${type.label}`}
-              selected={injuryType === type.label}
-              onPress={() => setInjuryType(type.label)}
+            <TimelineRow
+              state="pending"
+              title="Director sign-off"
+              subtitle="Pending · available in the admin incident queue"
             />
-          ))}
-        </View>
-
-        {/* Body parts */}
-        <Text style={styles.sectionLabel}>Affected body part(s)</Text>
-        <View style={styles.chipGrid}>
-          {BODY_PARTS.map(part => (
-            <Chip
-              key={part}
-              label={part}
-              selected={bodyParts.includes(part)}
-              onPress={() => toggleBodyPart(part)}
-              color={colors.coral}
-              lightColor={colors.coralLight}
+            <TimelineRow
+              state={isSerious ? 'done' : 'future'}
+              title="Parents notified"
+              subtitle={isSerious ? 'Sent immediately for this serious incident' : 'Family acknowledges in the parent app'}
+              last
             />
-          ))}
-        </View>
+          </View>
 
-        {/* Description */}
-        <Text style={styles.sectionLabel}>What happened?</Text>
-        <TextInput
-          style={styles.textArea}
-          value={description}
-          onChangeText={setDescription}
-          placeholder="Briefly describe what happened..."
-          placeholderTextColor={colors.textMuted}
-          multiline
-          numberOfLines={4}
-          textAlignVertical="top"
-        />
-      </>
+          <View style={styles.submittedSpacer} />
+          <Button label="Back to incidents" onPress={() => navigation.navigate('IncidentHub')} style={styles.fullButton} />
+        </View>
+      </View>
     );
   }
-
-  // ─── STEP 2: FIRST AID & DETAILS ─────────────────────────────────────────
-  function renderStep2() {
-    return (
-      <>
-        {/* First aid checklist */}
-        <Text style={styles.sectionLabel}>First aid provided</Text>
-        <View style={styles.chipGrid}>
-          {FIRST_AID_OPTIONS.map(item => (
-            <Chip
-              key={item}
-              label={item}
-              selected={firstAidChecks.includes(item)}
-              onPress={() => toggleFirstAidCheck(item)}
-              color={colors.success}
-              lightColor={colors.successLight}
-            />
-          ))}
-        </View>
-
-        <TextInput
-          style={styles.textArea}
-          value={firstAid}
-          onChangeText={setFirstAid}
-          placeholder="Additional first aid details (optional)..."
-          placeholderTextColor={colors.textMuted}
-          multiline
-          numberOfLines={3}
-          textAlignVertical="top"
-        />
-
-        {/* Photos */}
-        <Text style={styles.sectionLabel}>Photos (optional)</Text>
-        <Text style={styles.hint}>Adding a photo helps parents understand the situation</Text>
-
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.photoRow}>
-          {photos.map((uri, index) => (
-            <View key={index} style={styles.photoThumb}>
-              <Image source={{ uri }} style={styles.photoImage} />
-              <TouchableOpacity style={styles.photoRemove} onPress={() => removePhoto(index)}>
-                <Text style={styles.photoRemoveText}>✕</Text>
-              </TouchableOpacity>
-            </View>
-          ))}
-          {photos.length < 3 && (
-            <TouchableOpacity style={styles.photoAdd} onPress={handlePickPhoto}>
-              {uploadingPhoto
-                ? <ActivityIndicator color={colors.primary} />
-                : <Text style={styles.photoAddText}>+ Photo</Text>
-              }
-            </TouchableOpacity>
-          )}
-        </ScrollView>
-
-        {/* Witnesses */}
-        <Text style={styles.sectionLabel}>Witnesses</Text>
-        <TextInput
-          style={styles.input}
-          value={witnesses}
-          onChangeText={setWitnesses}
-          placeholder="Names of others who saw it (comma-separated)"
-          placeholderTextColor={colors.textMuted}
-        />
-
-        {/* Notes */}
-        <Text style={styles.sectionLabel}>Additional notes</Text>
-        <TextInput
-          style={styles.textArea}
-          value={notes}
-          onChangeText={setNotes}
-          placeholder="Anything else parents should know..."
-          placeholderTextColor={colors.textMuted}
-          multiline
-          numberOfLines={3}
-          textAlignVertical="top"
-        />
-      </>
-    );
-  }
-
-  // ─── STEP 3: REVIEW ──────────────────────────────────────────────────────
-  function renderStep3() {
-    const sevOption = SEVERITY_OPTIONS.find(s => s.key === severity);
-    const combinedFirstAid = [
-      ...firstAidChecks,
-      ...(firstAid.trim() ? [firstAid.trim()] : []),
-    ].join('. ') || 'None documented';
-
-    return (
-      <>
-        <View style={styles.reviewCard}>
-          <Text style={styles.reviewTitle}>📋 Incident Summary</Text>
-
-          <View style={styles.reviewRow}>
-            <Text style={styles.reviewLabel}>Child</Text>
-            <Text style={styles.reviewValue}>{child.first_name} {child.last_name}</Text>
-          </View>
-          <View style={styles.reviewRow}>
-            <Text style={styles.reviewLabel}>When</Text>
-            <Text style={styles.reviewValue}>{format(occurredAt, 'h:mm a · MMM d, yyyy')}</Text>
-          </View>
-          <View style={styles.reviewRow}>
-            <Text style={styles.reviewLabel}>Severity</Text>
-            <View style={[styles.severityBadge, { backgroundColor: sevOption.bg }]}>
-              <View style={[styles.severityDotSmall, { backgroundColor: sevOption.color }]} />
-              <Text style={[styles.severityBadgeText, { color: sevOption.color }]}>{sevOption.label}</Text>
-            </View>
-          </View>
-          <View style={styles.reviewRow}>
-            <Text style={styles.reviewLabel}>Location</Text>
-            <Text style={styles.reviewValue}>{location}</Text>
-          </View>
-          <View style={styles.reviewRow}>
-            <Text style={styles.reviewLabel}>Injury type</Text>
-            <Text style={styles.reviewValue}>{injuryType}</Text>
-          </View>
-          <View style={styles.reviewRow}>
-            <Text style={styles.reviewLabel}>Body parts</Text>
-            <Text style={styles.reviewValue}>{bodyParts.join(', ')}</Text>
-          </View>
-          {description ? (
-            <View style={styles.reviewRow}>
-              <Text style={styles.reviewLabel}>Description</Text>
-              <Text style={styles.reviewValue}>{description}</Text>
-            </View>
-          ) : null}
-          <View style={styles.reviewRow}>
-            <Text style={styles.reviewLabel}>First aid</Text>
-            <Text style={styles.reviewValue}>{combinedFirstAid}</Text>
-          </View>
-          {witnesses.trim() ? (
-            <View style={styles.reviewRow}>
-              <Text style={styles.reviewLabel}>Witnesses</Text>
-              <Text style={styles.reviewValue}>{witnesses}</Text>
-            </View>
-          ) : null}
-          {photos.length > 0 && (
-            <View style={styles.reviewRow}>
-              <Text style={styles.reviewLabel}>Photos</Text>
-              <Text style={styles.reviewValue}>{photos.length} attached</Text>
-            </View>
-          )}
-          {notes.trim() ? (
-            <View style={styles.reviewRow}>
-              <Text style={styles.reviewLabel}>Notes</Text>
-              <Text style={styles.reviewValue}>{notes}</Text>
-            </View>
-          ) : null}
-        </View>
-
-        <View style={styles.noticeCard}>
-          <Text style={styles.noticeText}>
-            ⚠️ Submitting will immediately notify {child.first_name}'s parents with a push notification. They'll be asked to acknowledge this report.
-          </Text>
-        </View>
-      </>
-    );
-  }
-
-  // ─── MAIN RENDER ──────────────────────────────────────────────────────────
-  const stepTitles = ['What happened', 'First aid & details', 'Review & submit'];
 
   return (
     <View style={styles.container}>
-      {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => {
-          if (step > 1) setStep(step - 1);
-          else navigation.goBack();
-        }}>
-          <Text style={styles.back}>{step > 1 ? '← Back' : '✕ Cancel'}</Text>
+        {stage === 'review' ? (
+          <TouchableOpacity onPress={() => setStage('capture')} style={styles.headerCircle}>
+            <Ionicons name="chevron-back" size={21} color={colors.textPrimary} />
+          </TouchableOpacity>
+        ) : (
+          <View style={styles.headerSpacer} />
+        )}
+        <Text style={styles.headerTitle}>{stage === 'review' ? 'Review report' : 'New incident'}</Text>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerCircle}>
+          <Ionicons name="close" size={20} color={colors.textMuted} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Incident report</Text>
-        <View style={{ width: 60 }} />
       </View>
 
-      {/* Child info bar */}
-      <View style={styles.childBar}>
-        <ChildAvatar child={child} size={36} />
-        <View>
-          <Text style={styles.childName}>{child.first_name} {child.last_name}</Text>
-          <Text style={styles.childDate}>{format(occurredAt, 'EEEE, MMMM d, yyyy')}</Text>
-        </View>
-      </View>
+      {stage === 'review' ? (
+        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+          <View style={styles.reviewCard}>
+            <View style={styles.reviewHead}>
+              <ChildAvatar child={child} size={42} />
+              <View style={styles.reviewHeadCopy}>
+                <Text style={styles.reviewName}>{childName(child)}</Text>
+                <Text style={styles.reviewMeta}>
+                  {format(occurredAt, 'h:mm a')} · {location}
+                </Text>
+              </View>
+              <SeverityBadge severity={severity} />
+            </View>
+            <View style={styles.reviewBody}>
+              <ReviewField label="INJURY" value={`${injuryType} · ${bodyParts.join(', ')} (${injurySide})`} />
+              <ReviewField label="WHAT HAPPENED" value={description} />
+              <ReviewField
+                label="ACTION & FIRST AID"
+                value={`${actionTaken}${firstAidGiven ? ` First aid by ${displayName(firstAidBy)}.` : ''}`}
+              />
+              <View style={styles.reviewPair}>
+                <ReviewField label="WITNESS" value={displayName(witness)} compact />
+                <ReviewField
+                  label="PHOTO"
+                  value={photoUri || existingPhotoPaths.length ? '1 attached' : 'None'}
+                  compact
+                />
+              </View>
+            </View>
+          </View>
 
-      {/* Progress steps */}
-      <View style={styles.progress}>
-        {[1, 2, 3].map(s => (
-          <View key={s} style={styles.progressStep}>
-            <View style={[styles.progressDot, s <= step && styles.progressDotActive]} />
-            <Text style={[styles.progressLabel, s === step && styles.progressLabelActive]}>
-              {stepTitles[s - 1]}
+          <View style={styles.noticeCard}>
+            <Ionicons name="shield-checkmark-outline" size={20} color={colors.primary} />
+            <Text style={styles.noticeText}>
+              By submitting, you confirm this is accurate. It is sent to the director to sign off
+              and locks once signed.
             </Text>
           </View>
-        ))}
+
+          <Button label="Submit for sign-off" onPress={submit} loading={saving} />
+          <TouchableOpacity
+            onPress={() => persistDraft({ close: true })}
+            disabled={saving}
+            style={styles.saveDraftLink}
+          >
+            <Text style={styles.saveDraftText}>Save as draft</Text>
+          </TouchableOpacity>
+        </ScrollView>
+      ) : (
+        <KeyboardAwareScrollView
+          contentContainerStyle={styles.content}
+          showsVerticalScrollIndicator={false}
+          enableOnAndroid
+          extraScrollHeight={36}
+          keyboardShouldPersistTaps="handled"
+        >
+          <FieldLabel>CHILD</FieldLabel>
+          <View style={styles.selectRow}>
+            <ChildAvatar child={child} size={36} />
+            <Text style={styles.selectValue}>{childName(child)}</Text>
+          </View>
+
+          <View style={styles.twoColumns}>
+            <View style={styles.column}>
+              <FieldLabel>TIME</FieldLabel>
+              <View style={styles.compactField}>
+                <Text style={styles.compactText}>Now · {format(occurredAt, 'h:mm a')}</Text>
+              </View>
+            </View>
+            <View style={styles.column}>
+              <FieldLabel>WHERE</FieldLabel>
+              <TouchableOpacity
+                style={styles.compactField}
+                onPress={() => setPicker('location')}
+              >
+                <Text style={[styles.compactText, !location && styles.placeholder]}>
+                  {location || 'Choose'}
+                </Text>
+                <Ionicons name="chevron-down" size={16} color={colors.textFaint} />
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          <FieldLabel>INJURY TYPE</FieldLabel>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.horizontalChips}>
+            {INJURY_TYPES.map(item => (
+              <Chip key={item} label={item} selected={injuryType === item} onPress={() => setInjuryType(item)} />
+            ))}
+          </ScrollView>
+
+          <FieldLabel>INJURY LOCATION</FieldLabel>
+          <View style={styles.bodyMapCard}>
+            <View style={styles.bodyFigure}>
+              <Ionicons name="body-outline" size={62} color={colors.primary} />
+              <Text style={styles.bodyFigureText}>Tap a body area</Text>
+            </View>
+            <View style={styles.bodyControls}>
+              <View style={styles.segmented}>
+                {['front', 'back'].map(side => (
+                  <TouchableOpacity
+                    key={side}
+                    onPress={() => setInjurySide(side)}
+                    style={[styles.segment, injurySide === side && styles.segmentSelected]}
+                  >
+                    <Text style={[styles.segmentText, injurySide === side && styles.segmentTextSelected]}>
+                      {side[0].toUpperCase() + side.slice(1)}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+              <View style={styles.bodyChips}>
+                {BODY_PARTS.map(part => (
+                  <TouchableOpacity
+                    key={part}
+                    onPress={() => toggleBodyPart(part)}
+                    style={[styles.bodyChip, bodyParts.includes(part) && styles.bodyChipSelected]}
+                  >
+                    <Text style={[styles.bodyChipText, bodyParts.includes(part) && styles.bodyChipTextSelected]}>
+                      {part}{bodyParts.includes(part) ? ' ✓' : ''}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+          </View>
+
+          <FieldLabel>SEVERITY</FieldLabel>
+          <View style={styles.severityRow}>
+            {SEVERITIES.map(item => (
+              <TouchableOpacity
+                key={item.key}
+                onPress={() => setSeverity(item.key)}
+                style={[
+                  styles.severityOption,
+                  severity === item.key && { backgroundColor: item.bg, borderColor: item.color },
+                ]}
+              >
+                <Text style={[
+                  styles.severityOptionText,
+                  severity === item.key && { color: item.color },
+                ]}>
+                  {item.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          <FieldLabel>WHAT HAPPENED</FieldLabel>
+          <TextInput
+            value={description}
+            onChangeText={setDescription}
+            placeholder="Describe what happened, including what the child was doing."
+            placeholderTextColor={colors.textFaint}
+            multiline
+            style={styles.textArea}
+          />
+
+          <FieldLabel>ACTION & FIRST AID</FieldLabel>
+          <TextInput
+            value={actionTaken}
+            onChangeText={setActionTaken}
+            placeholder="What care, comfort, or monitoring was provided?"
+            placeholderTextColor={colors.textFaint}
+            multiline
+            style={styles.textArea}
+          />
+          <TouchableOpacity
+            style={styles.toggleRow}
+            onPress={() => setFirstAidGiven(value => !value)}
+            activeOpacity={0.75}
+          >
+            <Text style={styles.toggleLabel}>First aid given</Text>
+            <View style={[styles.toggle, firstAidGiven && styles.toggleOn]}>
+              <View style={[styles.toggleKnob, firstAidGiven && styles.toggleKnobOn]} />
+            </View>
+          </TouchableOpacity>
+
+          {firstAidGiven && (
+            <TouchableOpacity style={styles.selectRow} onPress={() => setPicker('firstAid')}>
+              <Text style={styles.selectLabel}>Administered by</Text>
+              <View style={styles.staffSelected}>
+                <View style={styles.miniAvatar}>
+                  <Text style={styles.miniAvatarText}>{initials(firstAidBy)}</Text>
+                </View>
+                <Text style={styles.staffSelectedText}>{displayName(firstAidBy)}</Text>
+                <Ionicons name="chevron-down" size={15} color={colors.textFaint} />
+              </View>
+            </TouchableOpacity>
+          )}
+
+          <TouchableOpacity style={styles.selectRow} onPress={() => setPicker('witness')}>
+            <Text style={styles.selectLabel}>
+              Witness <Text style={styles.optional}>(required)</Text>
+            </Text>
+            <View style={styles.staffSelected}>
+              {witness && (
+                <View style={styles.miniAvatar}>
+                  <Text style={styles.miniAvatarText}>{initials(witness)}</Text>
+                </View>
+              )}
+              <Text style={[styles.staffSelectedText, !witness && styles.placeholder]}>
+                {displayName(witness)}
+              </Text>
+              <Ionicons name="chevron-down" size={15} color={colors.textFaint} />
+            </View>
+          </TouchableOpacity>
+
+          <FieldLabel optional>PHOTO</FieldLabel>
+          {photoUri ? (
+            <View style={styles.photoWrap}>
+              <Image source={{ uri: photoUri }} style={styles.photo} />
+              <TouchableOpacity style={styles.removePhoto} onPress={() => setPhotoUri(null)}>
+                <Ionicons name="close" size={18} color={colors.white} />
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <TouchableOpacity style={styles.photoButton} onPress={choosePhoto}>
+              <Ionicons name="camera-outline" size={23} color={colors.primary} />
+              <Text style={styles.photoButtonText}>
+                {existingPhotoPaths.length ? 'Photo attached · Replace' : 'Add injury photo'}
+              </Text>
+            </TouchableOpacity>
+          )}
+
+          <FieldLabel optional>INTERNAL NOTES</FieldLabel>
+          <TextInput
+            value={notes}
+            onChangeText={setNotes}
+            placeholder="Notes for the director (not shown in the summary)."
+            placeholderTextColor={colors.textFaint}
+            multiline
+            style={styles.textArea}
+          />
+
+          <View style={[
+            styles.parentNotice,
+            severity === 'serious' && styles.parentNoticeUrgent,
+          ]}>
+            <Ionicons
+              name={severity === 'serious' ? 'alert-circle-outline' : 'information-circle-outline'}
+              size={19}
+              color={severity === 'serious' ? colors.danger : colors.primary}
+            />
+            <Text style={styles.parentNoticeText}>
+              {severity === 'serious'
+                ? `${child.first_name}'s parents and the director are notified immediately on submission.`
+                : `${child.first_name}'s parents are notified once the director signs off. Serious incidents notify them immediately.`}
+            </Text>
+          </View>
+
+          <Button label="Review & submit" onPress={reviewReport} loading={saving} />
+          <TouchableOpacity
+            onPress={() => persistDraft({ close: true })}
+            disabled={saving}
+            style={styles.saveDraftLink}
+          >
+            <Text style={styles.saveDraftText}>Save as draft</Text>
+          </TouchableOpacity>
+        </KeyboardAwareScrollView>
+      )}
+
+      <Modal
+        visible={picker === 'location'}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setPicker(null)}
+      >
+        <View style={styles.sheetOverlay}>
+          <TouchableOpacity style={styles.sheetDismiss} activeOpacity={1} onPress={() => setPicker(null)} />
+          <View style={styles.sheet}>
+            <View style={styles.sheetGrabber} />
+            <View style={styles.sheetHeader}>
+              <Text style={styles.sheetTitle}>Where did it happen?</Text>
+              <TouchableOpacity onPress={() => setPicker(null)} style={styles.closeCircle}>
+                <Ionicons name="close" size={19} color={colors.textMuted} />
+              </TouchableOpacity>
+            </View>
+            <View style={styles.locationGrid}>
+              {LOCATIONS.map(item => (
+                <TouchableOpacity
+                  key={item}
+                  onPress={() => {
+                    setLocation(item);
+                    setPicker(null);
+                  }}
+                  style={[styles.locationOption, location === item && styles.locationOptionSelected]}
+                >
+                  <Text style={[styles.locationText, location === item && styles.locationTextSelected]}>
+                    {item}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <StaffPickerSheet
+        visible={picker === 'witness'}
+        title="Choose a witness"
+        people={witnessOptions}
+        selectedId={witness?.id}
+        onSelect={setWitness}
+        onClose={() => setPicker(null)}
+      />
+      <StaffPickerSheet
+        visible={picker === 'firstAid'}
+        title="Who gave first aid?"
+        people={staff}
+        selectedId={firstAidBy?.id}
+        onSelect={setFirstAidBy}
+        onClose={() => setPicker(null)}
+      />
+    </View>
+  );
+}
+
+function SeverityBadge({ severity }) {
+  const item = SEVERITIES.find(option => option.key === severity) || SEVERITIES[0];
+  return (
+    <View style={[styles.reviewSeverity, { backgroundColor: item.bg }]}>
+      <Text style={[styles.reviewSeverityText, { color: item.color }]}>{item.label}</Text>
+    </View>
+  );
+}
+
+function ReviewField({ label, value, compact }) {
+  return (
+    <View style={compact ? styles.reviewCompact : null}>
+      <Text style={styles.reviewLabel}>{label}</Text>
+      <Text style={styles.reviewValue}>{value}</Text>
+    </View>
+  );
+}
+
+function TimelineRow({ state, title, subtitle, last }) {
+  const done = state === 'done';
+  const pending = state === 'pending';
+  const color = done ? colors.success : pending ? colors.amber : colors.borderStrong;
+  return (
+    <View style={styles.timelineRow}>
+      <View style={styles.timelineRail}>
+        <View style={[
+          styles.timelineDot,
+          done && { backgroundColor: colors.successLight },
+          pending && { backgroundColor: colors.amberLight },
+        ]}>
+          {done
+            ? <Ionicons name="checkmark" size={13} color={color} />
+            : pending
+              ? <View style={[styles.timelineInnerDot, { backgroundColor: color }]} />
+              : null}
+        </View>
+        {!last && <View style={styles.timelineLine} />}
       </View>
-
-      {/* Step content */}
-      <ScrollView style={styles.scrollBody} contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
-        {step === 1 && renderStep1()}
-        {step === 2 && renderStep2()}
-        {step === 3 && renderStep3()}
-
-        <View style={{ height: spacing.xxxl }} />
-      </ScrollView>
-
-      {/* Bottom action */}
-      <View style={styles.footer}>
-        {step < 3 ? (
-          <Button
-            label={saving ? 'Saving...' : 'Next →'}
-            onPress={handleNext}
-            loading={saving}
-          />
-        ) : (
-          <Button
-            label={saving ? 'Submitting...' : '⚠️ Submit & Notify Parents'}
-            onPress={handleSubmit}
-            loading={saving}
-            style={{ backgroundColor: colors.danger }}
-          />
-        )}
+      <View style={styles.timelineCopy}>
+        <Text style={styles.timelineTitle}>{title}</Text>
+        <Text style={[styles.timelineSub, pending && { color: colors.amber }]}>{subtitle}</Text>
       </View>
     </View>
   );
 }
 
-// ─── STYLES ───────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
+  loading: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.bg },
+  loadingText: { fontSize: 14, fontFamily: fonts.bold, color: colors.textMuted },
   header: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: spacing.xl, paddingTop: spacing.xl + spacing.md, paddingBottom: spacing.md,
-    backgroundColor: colors.surface, borderBottomWidth: 1, borderBottomColor: colors.border,
+    minHeight: 58,
+    paddingHorizontal: spacing.xxl,
+    paddingTop: spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
-  back: { fontSize: 15, color: colors.primary, fontWeight: '500', width: 80 },
-  headerTitle: { fontSize: 17, fontWeight: '600', color: colors.textPrimary },
-
-  childBar: {
-    flexDirection: 'row', alignItems: 'center', gap: spacing.md,
-    paddingHorizontal: spacing.xl, paddingVertical: spacing.md,
-    backgroundColor: colors.surface, borderBottomWidth: 1, borderBottomColor: colors.border,
+  headerTitle: { fontSize: 21, fontFamily: fonts.black, color: colors.textPrimary },
+  headerCircle: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: colors.primarySoft,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  childName: { fontSize: 15, fontWeight: '600', color: colors.textPrimary },
-  childDate: { fontSize: 12, color: colors.textSecondary, marginTop: 1 },
-
-  progress: {
-    flexDirection: 'row', justifyContent: 'space-between',
-    paddingHorizontal: spacing.xl, paddingVertical: spacing.md,
-    backgroundColor: colors.surface, borderBottomWidth: 1, borderBottomColor: colors.border,
+  headerSpacer: { width: 34 },
+  content: { paddingHorizontal: spacing.xxl, paddingBottom: 38 },
+  fieldLabel: {
+    fontSize: 11.5,
+    letterSpacing: 0.65,
+    fontFamily: fonts.bold,
+    color: colors.textFaint,
+    marginTop: spacing.md,
+    marginBottom: 7,
   },
-  progressStep: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
-  progressDot: {
-    width: 8, height: 8, borderRadius: 4, backgroundColor: colors.border,
+  optional: {
+    letterSpacing: 0,
+    textTransform: 'none',
+    fontFamily: fonts.regular,
+    color: colors.textFaint,
   },
-  progressDotActive: { backgroundColor: colors.primary },
-  progressLabel: { fontSize: 12, color: colors.textMuted },
-  progressLabelActive: { color: colors.primary, fontWeight: '600' },
-
-  scrollBody: { flex: 1 },
-  scrollContent: { padding: spacing.xl },
-
-  infoRow: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    backgroundColor: colors.surface, borderRadius: radius.md,
-    padding: spacing.lg, marginBottom: spacing.lg,
-    borderWidth: 1, borderColor: colors.border,
+  selectRow: {
+    minHeight: 56,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    backgroundColor: colors.surface,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
   },
-  infoLabel: { fontSize: 13, fontWeight: '500', color: colors.textSecondary },
-  infoValue: { fontSize: 14, fontWeight: '600', color: colors.textPrimary },
-
-  sectionLabel: {
-    fontSize: 14, fontWeight: '600', color: colors.textPrimary,
-    marginBottom: spacing.sm, marginTop: spacing.lg,
+  selectValue: { flex: 1, fontSize: 14.5, fontFamily: fonts.bold, color: colors.textPrimary },
+  selectLabel: { flex: 1, fontSize: 14, fontFamily: fonts.regular, color: colors.textPrimary },
+  twoColumns: { flexDirection: 'row', gap: spacing.md },
+  column: { flex: 1 },
+  compactField: {
+    minHeight: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: colors.surface,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    paddingHorizontal: spacing.md,
   },
-  hint: { fontSize: 12, color: colors.textMuted, marginBottom: spacing.sm },
-
-  severityRow: { flexDirection: 'row', gap: spacing.sm },
-  severityCard: {
-    flex: 1, padding: spacing.md, borderRadius: radius.md,
-    borderWidth: 1.5, borderColor: colors.border, alignItems: 'center', gap: spacing.xs,
+  compactText: { fontSize: 13, fontFamily: fonts.bold, color: colors.textPrimary },
+  placeholder: { color: colors.textFaint },
+  horizontalChips: { marginRight: -spacing.xxl },
+  bodyMapCard: {
+    flexDirection: 'row',
+    gap: spacing.md,
+    backgroundColor: colors.surface,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    padding: spacing.md,
   },
-  severityDot: { width: 10, height: 10, borderRadius: 5 },
-  severityLabel: { fontSize: 13, fontWeight: '600', color: colors.textPrimary },
-  severityDesc: { fontSize: 10, color: colors.textMuted, textAlign: 'center' },
-
-  chipGrid: { flexDirection: 'row', flexWrap: 'wrap' },
-
-  textArea: {
-    backgroundColor: colors.surface, borderRadius: radius.md,
-    borderWidth: 1, borderColor: colors.border,
-    padding: spacing.lg, fontSize: 14, color: colors.textPrimary,
-    minHeight: 100, marginTop: spacing.xs,
+  bodyFigure: {
+    width: 82,
+    minHeight: 142,
+    borderRadius: radius.md,
+    backgroundColor: colors.primarySoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: spacing.sm,
   },
-  input: {
-    backgroundColor: colors.surface, borderRadius: radius.md,
-    borderWidth: 1, borderColor: colors.border,
-    padding: spacing.lg, fontSize: 14, color: colors.textPrimary,
+  bodyFigureText: {
+    marginTop: 4,
+    textAlign: 'center',
+    fontSize: 10.5,
+    lineHeight: 14,
+    fontFamily: fonts.regular,
+    color: colors.textFaint,
   },
-
-  photoRow: { marginTop: spacing.sm, marginBottom: spacing.md },
-  photoThumb: { width: 80, height: 80, borderRadius: radius.md, marginRight: spacing.sm, position: 'relative' },
-  photoImage: { width: 80, height: 80, borderRadius: radius.md },
-  photoRemove: {
-    position: 'absolute', top: -6, right: -6,
-    width: 22, height: 22, borderRadius: 11,
-    backgroundColor: colors.danger, alignItems: 'center', justifyContent: 'center',
-  },
-  photoRemoveText: { color: colors.white, fontSize: 12, fontWeight: '700' },
-  photoAdd: {
-    width: 80, height: 80, borderRadius: radius.md,
-    borderWidth: 1.5, borderColor: colors.border, borderStyle: 'dashed',
-    alignItems: 'center', justifyContent: 'center',
-  },
-  photoAddText: { fontSize: 13, color: colors.primary, fontWeight: '500' },
-
-  reviewCard: {
-    backgroundColor: colors.surface, borderRadius: radius.lg,
-    borderWidth: 1, borderColor: colors.border, padding: spacing.lg,
-  },
-  reviewTitle: { fontSize: 16, fontWeight: '700', color: colors.textPrimary, marginBottom: spacing.lg },
-  reviewRow: {
-    flexDirection: 'row', paddingVertical: spacing.sm,
-    borderBottomWidth: 1, borderBottomColor: colors.border + '66',
-  },
-  reviewLabel: { width: 100, fontSize: 13, fontWeight: '500', color: colors.textSecondary },
-  reviewValue: { flex: 1, fontSize: 14, color: colors.textPrimary },
-  severityBadge: {
-    flexDirection: 'row', alignItems: 'center', gap: spacing.xs,
-    paddingHorizontal: spacing.sm, paddingVertical: 3, borderRadius: radius.full,
+  bodyControls: { flex: 1 },
+  segmented: {
     alignSelf: 'flex-start',
+    flexDirection: 'row',
+    backgroundColor: colors.primarySoft,
+    borderRadius: radius.full,
+    padding: 3,
+    marginBottom: spacing.sm,
   },
-  severityDotSmall: { width: 6, height: 6, borderRadius: 3 },
-  severityBadgeText: { fontSize: 13, fontWeight: '600' },
-
+  segment: { borderRadius: radius.full, paddingHorizontal: spacing.md, paddingVertical: 5 },
+  segmentSelected: { backgroundColor: colors.primary },
+  segmentText: { fontSize: 11.5, fontFamily: fonts.bold, color: colors.textMuted },
+  segmentTextSelected: { color: colors.white },
+  bodyChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 5 },
+  bodyChip: {
+    borderRadius: radius.full,
+    backgroundColor: colors.primarySoft,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 5,
+  },
+  bodyChipSelected: { backgroundColor: colors.primary },
+  bodyChipText: { fontSize: 10.5, fontFamily: fonts.bold, color: colors.textSecondary },
+  bodyChipTextSelected: { color: colors.white },
+  severityRow: { flexDirection: 'row', gap: spacing.sm },
+  severityOption: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 44,
+    backgroundColor: colors.surface,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+  },
+  severityOptionText: { fontSize: 13, fontFamily: fonts.bold, color: colors.textMuted },
+  textArea: {
+    minHeight: 76,
+    borderRadius: radius.lg,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md,
+    textAlignVertical: 'top',
+    fontSize: 13.5,
+    lineHeight: 19,
+    fontFamily: fonts.regular,
+    color: colors.textPrimary,
+  },
+  toggleRow: {
+    minHeight: 50,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: colors.surface,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    paddingHorizontal: spacing.md,
+    marginTop: spacing.sm,
+    marginBottom: spacing.sm,
+  },
+  toggleLabel: { fontSize: 14, fontFamily: fonts.regular, color: colors.textPrimary },
+  toggle: {
+    width: 44,
+    height: 26,
+    borderRadius: radius.full,
+    backgroundColor: colors.border,
+    padding: 3,
+  },
+  toggleOn: { backgroundColor: colors.primary },
+  toggleKnob: { width: 20, height: 20, borderRadius: 10, backgroundColor: colors.white },
+  toggleKnobOn: { alignSelf: 'flex-end' },
+  staffSelected: { flexDirection: 'row', alignItems: 'center', gap: 7 },
+  staffSelectedText: { fontSize: 13, fontFamily: fonts.bold, color: colors.textPrimary },
+  miniAvatar: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: colors.primaryLight,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  miniAvatarText: { fontSize: 10, fontFamily: fonts.bold, color: colors.primary },
+  photoButton: {
+    minHeight: 74,
+    borderRadius: radius.lg,
+    borderWidth: 1.5,
+    borderStyle: 'dashed',
+    borderColor: colors.primary,
+    backgroundColor: colors.primarySoft,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+  },
+  photoButtonText: { fontSize: 13.5, fontFamily: fonts.bold, color: colors.primary },
+  photoWrap: { height: 116, borderRadius: radius.lg, overflow: 'hidden' },
+  photo: { width: '100%', height: '100%', resizeMode: 'cover' },
+  removePhoto: {
+    position: 'absolute',
+    top: spacing.sm,
+    right: spacing.sm,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(20,40,65,0.75)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  parentNotice: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.sm,
+    backgroundColor: colors.primarySoft,
+    borderRadius: radius.lg,
+    padding: spacing.md,
+    marginVertical: spacing.lg,
+  },
+  parentNoticeUrgent: { backgroundColor: colors.dangerLight },
+  parentNoticeText: {
+    flex: 1,
+    fontSize: 12,
+    lineHeight: 18,
+    fontFamily: fonts.regular,
+    color: colors.textSecondary,
+  },
+  saveDraftLink: { alignItems: 'center', paddingVertical: spacing.lg },
+  saveDraftText: { fontSize: 14, fontFamily: fonts.bold, color: colors.textMuted },
+  reviewCard: {
+    backgroundColor: colors.surface,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    borderRadius: radius.xl,
+    overflow: 'hidden',
+    marginTop: spacing.sm,
+  },
+  reviewHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    padding: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.borderSoft,
+  },
+  reviewHeadCopy: { flex: 1 },
+  reviewName: { fontSize: 15, fontFamily: fonts.black, color: colors.textPrimary },
+  reviewMeta: { fontSize: 12, fontFamily: fonts.regular, color: colors.textFaint, marginTop: 2 },
+  reviewSeverity: { borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 5 },
+  reviewSeverityText: { fontSize: 11, fontFamily: fonts.bold },
+  reviewBody: { gap: spacing.md, padding: spacing.lg },
+  reviewLabel: {
+    fontSize: 10.5,
+    letterSpacing: 0.6,
+    fontFamily: fonts.bold,
+    color: colors.textFaint,
+    marginBottom: 4,
+  },
+  reviewValue: { fontSize: 13.5, lineHeight: 20, fontFamily: fonts.regular, color: colors.textPrimary },
+  reviewPair: { flexDirection: 'row', gap: spacing.xxl },
+  reviewCompact: { flex: 1 },
   noticeCard: {
-    backgroundColor: colors.amberLight, borderRadius: radius.md,
-    borderWidth: 1, borderColor: colors.amber + '44',
-    padding: spacing.lg, marginTop: spacing.lg,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.sm,
+    backgroundColor: colors.primarySoft,
+    borderRadius: radius.lg,
+    padding: spacing.md,
+    marginVertical: spacing.lg,
   },
-  noticeText: { fontSize: 13, color: colors.textPrimary, lineHeight: 19 },
-
-  footer: {
-    padding: spacing.xl, paddingBottom: spacing.xxl,
-    backgroundColor: colors.surface, borderTopWidth: 1, borderTopColor: colors.border,
+  noticeText: {
+    flex: 1,
+    fontSize: 12,
+    lineHeight: 18,
+    fontFamily: fonts.regular,
+    color: colors.textSecondary,
   },
+  submittedContent: {
+    flex: 1,
+    alignItems: 'center',
+    paddingHorizontal: 30,
+    paddingTop: 72,
+    paddingBottom: 38,
+  },
+  successCircle: {
+    width: 76,
+    height: 76,
+    borderRadius: 38,
+    backgroundColor: colors.successLight,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  successTitle: { fontSize: 22, fontFamily: fonts.black, color: colors.textPrimary, marginTop: spacing.lg },
+  successSub: {
+    textAlign: 'center',
+    fontSize: 13.5,
+    lineHeight: 21,
+    fontFamily: fonts.regular,
+    color: colors.textMuted,
+    marginTop: spacing.sm,
+  },
+  timelineCard: {
+    alignSelf: 'stretch',
+    backgroundColor: colors.surface,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    borderRadius: radius.xl,
+    padding: spacing.lg,
+    paddingBottom: spacing.xs,
+    marginTop: spacing.xxl,
+  },
+  timelineRow: { flexDirection: 'row', gap: spacing.md, minHeight: 70 },
+  timelineRail: { alignItems: 'center' },
+  timelineDot: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: colors.borderStrong,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  timelineInnerDot: { width: 8, height: 8, borderRadius: 4 },
+  timelineLine: { width: 2, flex: 1, backgroundColor: colors.border, marginVertical: 2 },
+  timelineCopy: { flex: 1, paddingTop: 3 },
+  timelineTitle: { fontSize: 14, fontFamily: fonts.bold, color: colors.textPrimary },
+  timelineSub: {
+    fontSize: 12,
+    lineHeight: 17,
+    fontFamily: fonts.regular,
+    color: colors.textFaint,
+    marginTop: 3,
+  },
+  submittedSpacer: { flex: 1 },
+  fullButton: { alignSelf: 'stretch' },
+  sheetOverlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(18,40,70,0.42)' },
+  sheetDismiss: { flex: 1 },
+  sheet: {
+    maxHeight: '68%',
+    backgroundColor: colors.bg,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingHorizontal: spacing.xxl,
+    paddingTop: spacing.md,
+    paddingBottom: 38,
+  },
+  sheetGrabber: {
+    width: 44,
+    height: 5,
+    borderRadius: radius.full,
+    backgroundColor: colors.border,
+    alignSelf: 'center',
+    marginBottom: spacing.md,
+  },
+  sheetHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.md,
+  },
+  sheetTitle: { fontSize: 20, fontFamily: fonts.black, color: colors.textPrimary },
+  closeCircle: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: colors.primarySoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  staffList: {
+    backgroundColor: colors.surface,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+  },
+  staffRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, padding: spacing.md },
+  staffRowBorder: { borderTopWidth: 1, borderTopColor: colors.borderSoft },
+  staffAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: colors.primaryLight,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  staffAvatarText: { fontSize: 13, fontFamily: fonts.bold, color: colors.primary },
+  staffCopy: { flex: 1 },
+  staffName: { fontSize: 14, fontFamily: fonts.bold, color: colors.textPrimary },
+  staffRole: { fontSize: 12, fontFamily: fonts.regular, color: colors.textMuted, marginTop: 2 },
+  locationGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  locationOption: {
+    width: '48%',
+    minHeight: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.surface,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+  },
+  locationOptionSelected: { borderColor: colors.primary, backgroundColor: colors.primaryLight },
+  locationText: { fontSize: 13.5, fontFamily: fonts.bold, color: colors.textSecondary },
+  locationTextSelected: { color: colors.primary },
 });
-
-

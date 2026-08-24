@@ -54,7 +54,13 @@ export async function listClassrooms(client: Client) {
 
 export async function updateMyDaycare(
   client: Client,
-  values: { name?: string; address?: string | null; phone?: string | null },
+  values: {
+    name?: string;
+    address?: string | null;
+    phone?: string | null;
+    opens_at?: string;
+    closes_at?: string;
+  },
 ) {
   const profile = await getMyProfile(client);
   if (!profile?.daycare_id) throw new Error('No center on your profile');
@@ -107,7 +113,7 @@ export async function createDaycareLocation(
 ): Promise<string> {
   const { data, error } = await client.rpc('create_daycare_location', {
     p_location_label: values.label,
-    p_address: values.address ?? null,
+    ...(values.address != null ? { p_address: values.address } : {}),
     p_color: values.color ?? '#2F7CD8',
   });
   if (error) throw error;

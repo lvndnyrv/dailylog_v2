@@ -46,6 +46,7 @@ interface CertIssue {
   staffName: string;
   item: string;
   expiresOn: string;
+  missing: boolean;
   room: string | null;
 }
 interface Staffing {
@@ -190,8 +191,12 @@ export function DashboardView({
                   <AttentionRow
                     key={`cert-${i}`}
                     dot="warning"
-                    title={`${cert.staffName.split(" ")[0]}'s ${cert.item} ${days < 0 ? "has expired" : `expires in ${days} days`}`}
-                    detail={cert.room ? `Certified staff in ${cert.room}` : "Renewal needed"}
+                    title={cert.missing
+                      ? `${cert.staffName.split(" ")[0]}'s ${cert.item} is missing`
+                      : `${cert.staffName.split(" ")[0]}'s ${cert.item} ${days < 0 ? "has expired" : `expires in ${days} days`}`}
+                    detail={cert.missing
+                      ? (cert.room ? `Required for staff assigned to ${cert.room}` : "Required credential")
+                      : cert.room ? `Certified staff in ${cert.room}` : "Renewal needed"}
                     action={<GhostPill href="/compliance">Send reminder</GhostPill>}
                   />
                 );

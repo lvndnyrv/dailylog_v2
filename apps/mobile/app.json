@@ -7,11 +7,6 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
-    "splash": {
-      "image": "./assets/splash-icon.png",
-      "resizeMode": "cover",
-      "backgroundColor": "#E1F5EE"
-    },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.dailylog.app",
@@ -28,7 +23,7 @@
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png",
-        "backgroundColor": "#1D9E75"
+        "backgroundColor": "#2F7CD8"
       },
       "permissions": [
         "RECEIVE_BOOT_COMPLETED",
@@ -44,7 +39,7 @@
         "expo-notifications",
         {
           "icon": "./assets/icon.png",
-          "color": "#1D9E75",
+          "color": "#2F7CD8",
           "sounds": []
         }
       ],
@@ -55,7 +50,32 @@
           "cameraPermission": "DailyLog needs camera access to take photos for daily logs."
         }
       ],
-      "@react-native-community/datetimepicker"
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "DailyLog uses the camera to scan short-lived family pickup passes at the door.",
+          "recordAudioAndroid": false
+        }
+      ],
+      "@react-native-community/datetimepicker",
+      "expo-secure-store",
+      "expo-sharing",
+      [
+        "expo-calendar",
+        {
+          "calendarPermission": "DailyLog can add center closures to your calendar when you choose Add to my calendar."
+        }
+      ],
+      "expo-font",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/icon.png",
+          "imageWidth": 160,
+          "resizeMode": "contain",
+          "backgroundColor": "#F4F8FD"
+        }
+      ]
     ],
     "experiments": {
       "autolinkingModuleResolution": true

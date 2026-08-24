@@ -14,7 +14,7 @@ major_version = 15
 
 [db.seed]
 enabled = true
-sql_paths = ["./seed.sql", "./seeds/rooms_ratios_demo.sql", "./seeds/enrollment_waitlist_demo.sql", "./seeds/staff_delegations_demo.sql", "./seeds/notifications_group15_demo.sql", "./seeds/children_group20_demo.sql", "./seeds/children_group19_demo.sql", "./seeds/menus_group18_demo.sql"]
+sql_paths = ["./seed.sql", "./seeds/rooms_ratios_demo.sql", "./seeds/enrollment_waitlist_demo.sql", "./seeds/staff_delegations_demo.sql", "./seeds/notifications_group15_demo.sql", "./seeds/children_group20_demo.sql", "./seeds/children_group19_demo.sql", "./seeds/menus_group18_demo.sql", "./seeds/mobile_meal_menu_group11_demo.sql", "./seeds/mobile_staff_visibility_group20_demo.sql", "./seeds/mobile_staff_invite_group21_demo.sql", "./seeds/mobile_time_off_group22_demo.sql", "./seeds/mobile_attendance_group23_demo.sql", "./seeds/mobile_credentials_group24_demo.sql", "./seeds/mobile_parent_group24_demo.sql", "./seeds/mobile_parent_billing_group21_25_demo.sql", "./seeds/mobile_parent_account_group22_demo.sql", "./seeds/mobile_parent_documents_group28_demo.sql", "./seeds/mobile_parent_schedule_group27_demo.sql", "./seeds/mobile_parent_inquiry_group26_demo.sql", "./seeds/mobile_parent_medication_group23_demo.sql", "./seeds/mobile_parent_notifications_demo.sql", "./seeds/mobile_parent_absence_group19_demo.sql", "./seeds/mobile_parent_incidents_group20_demo.sql"]
 
 [studio]
 enabled = true

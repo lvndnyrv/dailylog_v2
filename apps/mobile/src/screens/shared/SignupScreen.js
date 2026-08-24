@@ -1,42 +1,54 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 import { useAuth } from '../../hooks/useAuth';
 import { supabase } from '../../lib/supabase';
 import { Input, Button, PasswordStrength } from '../../components/ui';
-import { colors, spacing, radius } from '../../theme';
+import { AuthBackButton, BrandMark } from '../../components/AuthVisuals';
+import { colors, fonts, spacing, radius } from '../../theme';
 
-export default function SignupScreen({ navigation }) {
+export default function SignupScreen({ navigation, route }) {
   const { signUp } = useAuth();
   const [fullName, setFullName] = useState('');
-  const [email, setEmail]       = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [phone, setPhone]       = useState('');
-  const [directorMode, setDirectorMode] = useState(false); // admin signup path
-  const [activationCode, setActivationCode] = useState('');
+  const [phone, setPhone] = useState('');
+  const [directorMode, setDirectorMode] = useState(Boolean(route?.params?.centerSetup));
+  const [registrationCode, setRegistrationCode] = useState('');
   const [agreedTos, setAgreedTos] = useState(false);
-  const [loading, setLoading]   = useState(false);
-  const [errors, setErrors]     = useState({});
+  const [loading, setLoading] = useState(false);
+  const [errors, setErrors] = useState({});
   const [verifyEmailSent, setVerifyEmailSent] = useState(false);
 
   const isParent = !directorMode;
 
+  useEffect(() => {
+    if (route?.params?.centerSetup) setDirectorMode(true);
+  }, [route?.params?.centerSetup]);
+
   function validate() {
-    const errs = {};
-    if (!fullName.trim()) errs.fullName = 'Full name is required';
-    if (!email.trim()) errs.email = 'Email is required';
-    else if (!/\S+@\S+\.\S+/.test(email.trim())) errs.email = 'Enter a valid email address';
-    if (!password) errs.password = 'Password is required';
-    else if (password.length < 6) errs.password = 'Password must be at least 6 characters';
-    if (isParent && !phone.trim()) errs.phone = 'Phone number is required for parents';
-    if (directorMode && !activationCode.trim()) errs.activationCode = 'Activation code is required';
-    if (!agreedTos) errs.tos = 'You must accept the Privacy Policy to continue';
-    setErrors(errs);
-    return Object.keys(errs).length === 0;
+    const nextErrors = {};
+    if (!fullName.trim()) nextErrors.fullName = 'Full name is required';
+    if (!email.trim()) nextErrors.email = 'Email is required';
+    else if (!/\S+@\S+\.\S+/.test(email.trim())) {
+      nextErrors.email = 'Enter a valid email address';
+    }
+    if (!password) nextErrors.password = 'Password is required';
+    else if (password.length < 6) {
+      nextErrors.password = 'Password must be at least 6 characters';
+    }
+    if (isParent && !phone.trim()) nextErrors.phone = 'Phone number is required for parents';
+    if (directorMode && !registrationCode.trim()) {
+      nextErrors.registrationCode = 'Your DailyLog registration code is required';
+    }
+    if (!agreedTos) nextErrors.tos = 'You must accept the Privacy Policy to continue';
+    setErrors(nextErrors);
+    return Object.keys(nextErrors).length === 0;
   }
 
   function clearError(field) {
-    if (errors[field]) setErrors(e => ({ ...e, [field]: null }));
+    if (errors[field]) setErrors((current) => ({ ...current, [field]: null }));
   }
 
   async function handleSignup() {
@@ -44,15 +56,22 @@ export default function SignupScreen({ navigation }) {
     setLoading(true);
     setErrors({});
 
-    // Director path: pre-validate the activation code for inline feedback.
-    // (The DB trigger re-validates and consumes it — this check is UX only.)
     if (directorMode) {
-      const { data: valid, error: checkError } = await supabase.rpc('check_daycare_signup_code', {
-        p_code: activationCode.trim(),
-      });
-      if (checkError || !valid) {
+      const { data: approvals, error: approvalError } = await supabase.rpc(
+        'check_center_registration_code',
+        {
+          p_code: registrationCode.trim(),
+          p_email: email.trim().toLowerCase(),
+        }
+      );
+      const approval = approvals?.[0];
+      if (approvalError || !approval) {
         setLoading(false);
-        setErrors({ activationCode: 'Invalid or already-used activation code. Check your subscription email or contact sales.' });
+        setErrors({
+          registrationCode: approvalError?.message?.includes('Too many attempts')
+            ? approvalError.message
+            : 'This code is invalid, expired, already used, or was issued for another email.',
+        });
         return;
       }
     }
@@ -61,284 +80,537 @@ export default function SignupScreen({ navigation }) {
       email.trim().toLowerCase(),
       password,
       fullName.trim(),
-      directorMode ? 'admin' : 'parent', // educators are invite-only — never from public signup
+      directorMode ? 'admin' : 'parent',
       phone.trim(),
-      directorMode ? activationCode.trim() : ''
+      {
+        setupCenter: directorMode,
+        registrationCode: directorMode ? registrationCode.trim().toUpperCase() : '',
+      }
     );
     setLoading(false);
-    if (error) { setErrors({ general: error.message }); return; }
+
+    if (error) {
+      setErrors({ general: error.message });
+      return;
+    }
     if (needsEmailConfirm) setVerifyEmailSent(true);
-    // else: session exists → RootNavigator takes over automatically
   }
 
-
-  // ─── Email verification success state ───
   if (verifyEmailSent) {
     return (
       <View style={styles.verifyContainer}>
-        <Text style={styles.verifyIcon}>📬</Text>
-        <Text style={styles.verifyTitle}>Check your inbox</Text>
-        <Text style={styles.verifyBody}>
-          We sent a confirmation link to{'\n'}
-          <Text style={{ fontWeight: '700' }}>{email.trim()}</Text>
-        </Text>
-        <Text style={styles.verifyHint}>
-          Open the link on this device to activate your account, then come back and sign in. Check your spam folder if you don't see it.
-        </Text>
-        <Button
-          label="Back to sign in"
-          onPress={() => navigation.navigate('Login')}
-          style={{ alignSelf: 'stretch', marginTop: spacing.xl }}
-        />
+        <View style={styles.verifyContent}>
+          <BrandMark style={styles.verifyBrand} />
+          <View style={styles.verifyIcon}>
+            <Ionicons name="mail-outline" size={36} color={colors.primary} />
+          </View>
+          <Text style={styles.verifyTitle}>Check your inbox</Text>
+          <Text style={styles.verifyBody}>
+            We sent a confirmation link to{'\n'}
+            <Text style={styles.verifyEmail}>{email.trim()}</Text>
+          </Text>
+          <Text style={styles.verifyHint}>
+            Open the link on this device to activate your account, then come back and sign in.
+            Check your spam folder if you don't see it.
+          </Text>
+          <Button
+            label="Back to sign in"
+            onPress={() => navigation.navigate('Login')}
+            style={styles.verifyButton}
+          />
+        </View>
       </View>
     );
   }
 
   return (
     <KeyboardAwareScrollView
+      style={styles.scroll}
       contentContainerStyle={styles.container}
       keyboardShouldPersistTaps="handled"
       enableOnAndroid
-      extraScrollHeight={20}
+      extraScrollHeight={24}
+      showsVerticalScrollIndicator={false}
     >
-      <TouchableOpacity onPress={() => navigation.goBack()} style={styles.back}>
-        <Text style={styles.backText}>← Back</Text>
-      </TouchableOpacity>
+      <View style={styles.content}>
+        <View style={styles.topRow}>
+          <AuthBackButton onPress={() => navigation.goBack()} />
+          <TouchableOpacity
+            onPress={() => navigation.navigate('Login')}
+            accessibilityRole="button"
+          >
+            <Text style={styles.topLink}>Sign in</Text>
+          </TouchableOpacity>
+        </View>
 
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>
-          {directorMode ? 'Set up your center' : 'Create account'}
-        </Text>
+        <BrandMark style={styles.brand} />
 
-        {errors.general && (
+        <View style={styles.heading}>
+          <Text style={styles.title}>
+            {directorMode ? 'Set up your center' : 'Create account'}
+          </Text>
+          <Text style={styles.subtitle}>
+            {directorMode
+              ? 'Create the owner account for your childcare center.'
+              : "Follow your child's day, step by step."}
+          </Text>
+        </View>
+
+        {errors.general ? (
           <View style={styles.errorBanner}>
+            <Ionicons name="alert-circle-outline" size={19} color={colors.danger} />
             <Text style={styles.errorBannerText}>{errors.general}</Text>
           </View>
-        )}
+        ) : null}
 
-        {directorMode ? (
-          <View style={styles.directorBanner}>
-            <Text style={styles.directorBannerIcon}>👑</Text>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.directorBannerTitle}>Director account</Text>
-              <Text style={styles.directorBannerText}>
-                Requires an active DailyLog subscription. Enter the activation code
-                from your welcome email — then create your daycare and invite educators.
-              </Text>
-            </View>
-          </View>
-        ) : (
-          <View style={styles.parentBanner}>
-            <Text style={styles.parentBannerIcon}>👨‍👩‍👧</Text>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.parentBannerTitle}>Parent account</Text>
-              <Text style={styles.parentBannerText}>
-                See your child's meals, naps, photos and updates in real time.
-              </Text>
-            </View>
-          </View>
-        )}
-
-        <Input
-          label="Full name (required)"
-          value={fullName}
-          onChangeText={(v) => { setFullName(v); clearError('fullName'); }}
-          placeholder="Jane Smith"
-          error={errors.fullName}
-        />
-        <Input
-          label="Email (required)"
-          value={email}
-          onChangeText={(v) => { setEmail(v); clearError('email'); }}
-          placeholder="jane@email.com"
-          keyboardType="email-address"
-          error={errors.email}
-        />
-        <Input
-          label="Password (required)"
-          value={password}
-          onChangeText={(v) => { setPassword(v); clearError('password'); }}
-          placeholder="Min. 6 characters"
-          secureTextEntry
-          error={errors.password}
-        />
-        <PasswordStrength password={password} />
-
-        {/* Phone — required for parents, optional for educators */}
-        <Input
-          label={isParent ? 'Phone number (required)' : 'Phone number (optional)'}
-          value={phone}
-          onChangeText={(v) => { setPhone(v); clearError('phone'); }}
-          placeholder="e.g. 905-555-0100"
-          keyboardType="phone-pad"
-          error={errors.phone}
-        />
-        {isParent && !errors.phone && (
-          <Text style={styles.phoneHint}>
-            📞 Required so educators can reach you for emergencies or early pickups.
-          </Text>
-        )}
-
-        {/* Activation code — director mode only (paid subscription) */}
-        {directorMode && (
-          <>
-            <Input
-              label="Activation code (required)"
-              value={activationCode}
-              onChangeText={(v) => { setActivationCode(v.toUpperCase()); clearError('activationCode'); }}
-              placeholder="e.g. K7PM3QW2"
-              autoCapitalize="characters"
-              error={errors.activationCode}
+        <View style={[styles.roleBanner, directorMode && styles.directorBanner]}>
+          <View style={[styles.roleIcon, directorMode && styles.directorIcon]}>
+            <Ionicons
+              name={directorMode ? 'business-outline' : 'person-outline'}
+              size={20}
+              color={directorMode ? colors.purple : colors.primary}
             />
-            {!errors.activationCode && (
-              <Text style={styles.phoneHint}>
-                🔑 Sent with your DailyLog subscription. Don't have one? Contact sales to get started.
-              </Text>
-            )}
-          </>
-        )}
+          </View>
+          <View style={styles.roleCopy}>
+            <Text style={styles.roleTitle}>
+              {directorMode ? 'Owner or director account' : 'Parent account'}
+            </Text>
+            <Text style={styles.roleText}>
+              {directorMode
+                ? 'Create your owner account, then add your center details, rooms and team.'
+                : "See your child's meals, naps, photos and updates in real time."}
+            </Text>
+          </View>
+        </View>
 
-        {/* Terms & privacy acceptance */}
+        <View style={styles.form}>
+          <Input
+            label="Full name (required)"
+            value={fullName}
+            onChangeText={(value) => {
+              setFullName(value);
+              clearError('fullName');
+            }}
+            placeholder="Jane Smith"
+            textContentType="name"
+            autoComplete="name"
+            error={errors.fullName}
+          />
+          <Input
+            label="Email (required)"
+            value={email}
+            onChangeText={(value) => {
+              setEmail(value);
+              clearError('email');
+            }}
+            placeholder="jane@email.com"
+            keyboardType="email-address"
+            autoCapitalize="none"
+            autoCorrect={false}
+            textContentType="emailAddress"
+            autoComplete="email"
+            error={errors.email}
+          />
+          <Input
+            label="Password (required)"
+            value={password}
+            onChangeText={(value) => {
+              setPassword(value);
+              clearError('password');
+            }}
+            placeholder="Min. 6 characters"
+            secureTextEntry
+            textContentType="newPassword"
+            autoComplete="new-password"
+            error={errors.password}
+          />
+          <PasswordStrength password={password} />
+
+          <Input
+            label={isParent ? 'Phone number' : 'Phone number (optional)'}
+            value={phone}
+            onChangeText={(value) => {
+              setPhone(value);
+              clearError('phone');
+            }}
+            placeholder="e.g. 905-555-0100"
+            keyboardType="phone-pad"
+            textContentType="telephoneNumber"
+            autoComplete="tel"
+            error={errors.phone}
+          />
+          {isParent && !errors.phone ? (
+            <View style={styles.hintRow}>
+              <Ionicons name="call-outline" size={15} color={colors.textFaint} />
+              <Text style={styles.hintText}>
+                Required so educators can reach you for emergencies or early pickups.
+              </Text>
+            </View>
+          ) : null}
+
+          {directorMode ? (
+            <>
+              <Input
+                label="Daycare registration code (required)"
+                value={registrationCode}
+                onChangeText={(value) => {
+                  setRegistrationCode(value.toUpperCase());
+                  clearError('registrationCode');
+                }}
+                placeholder="e.g. DL-A1B2-C3D4-E5F6-7890"
+                autoCapitalize="characters"
+                autoCorrect={false}
+                error={errors.registrationCode}
+              />
+              {!errors.registrationCode ? (
+                <View style={styles.hintRow}>
+                  <Ionicons name="key-outline" size={15} color={colors.textFaint} />
+                  <Text style={styles.hintText}>
+                    Provided by DailyLog after your daycare registration is approved.
+                    The code only works with the administrator email it was issued for.
+                  </Text>
+                </View>
+              ) : null}
+            </>
+          ) : null}
+
+        </View>
+
         <TouchableOpacity
           style={styles.tosRow}
-          onPress={() => { setAgreedTos(a => !a); clearError('tos'); }}
+          onPress={() => {
+            setAgreedTos((current) => !current);
+            clearError('tos');
+          }}
           activeOpacity={0.7}
+          accessibilityRole="checkbox"
+          accessibilityState={{ checked: agreedTos }}
         >
-          <View style={[styles.tosCheckbox, agreedTos && styles.tosCheckboxChecked, errors.tos && styles.tosCheckboxError]}>
-            {agreedTos && <Text style={styles.tosCheckmark}>✓</Text>}
+          <View
+            style={[
+              styles.tosCheckbox,
+              agreedTos && styles.tosCheckboxChecked,
+              errors.tos && styles.tosCheckboxError,
+            ]}
+          >
+            {agreedTos ? (
+              <Ionicons name="checkmark" size={15} color={colors.white} />
+            ) : null}
           </View>
           <Text style={styles.tosLabel}>
             I agree to the{' '}
-            <Text style={styles.tosLink} onPress={() => navigation.navigate('Privacy')}>
+            <Text
+              style={styles.link}
+              onPress={() => navigation.navigate('Privacy')}
+            >
               Privacy Policy
             </Text>
             {' '}and consent to my information being used to provide childcare updates.
           </Text>
         </TouchableOpacity>
-        {errors.tos && <Text style={styles.tosError}>{errors.tos}</Text>}
+        {errors.tos ? <Text style={styles.tosError}>{errors.tos}</Text> : null}
 
         <Button
           label={directorMode ? 'Create director account' : 'Create account'}
           onPress={handleSignup}
           loading={loading}
-          style={{ marginTop: spacing.md }}
+          style={styles.submitButton}
         />
 
-        <TouchableOpacity onPress={() => navigation.navigate('Login')} style={styles.loginLink}>
-          <Text style={styles.loginText}>
-            Already have an account?{' '}
-            <Text style={{ color: colors.primary, fontWeight: '600' }}>Sign in</Text>
-          </Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Alternate paths */}
-      <View style={styles.altPaths}>
-        {directorMode ? (
-          <TouchableOpacity onPress={() => { setDirectorMode(false); setErrors({}); }}>
-            <Text style={styles.altPathText}>
-              ← Back to <Text style={styles.altPathLink}>parent sign-up</Text>
-            </Text>
-          </TouchableOpacity>
-        ) : (
-          <>
-            <TouchableOpacity onPress={() => { setDirectorMode(true); setErrors({}); }}>
-              <Text style={styles.altPathText}>
-                Daycare owner or director?{' '}
-                <Text style={styles.altPathLink}>Set up your center →</Text>
+        <View style={styles.altPaths}>
+          {directorMode ? (
+            <TouchableOpacity
+              onPress={() => {
+                setDirectorMode(false);
+                setRegistrationCode('');
+                setErrors({});
+                navigation.setParams({ centerSetup: false });
+              }}
+              accessibilityRole="button"
+            >
+              <Text style={styles.altText}>
+                Back to <Text style={styles.link}>parent sign-up</Text>
               </Text>
             </TouchableOpacity>
-            <Text style={styles.educatorHint}>
-              👩‍🏫 Educators: your daycare admin will send you an email invite — no sign-up needed here.
-            </Text>
-          </>
-        )}
+          ) : (
+            <>
+              <TouchableOpacity
+                onPress={() => {
+                  navigation.navigate('CenterSetupIntro');
+                }}
+                accessibilityRole="button"
+              >
+                <Text style={styles.altText}>
+                  Daycare owner or director?{' '}
+                  <Text style={styles.link}>Set up your center →</Text>
+                </Text>
+              </TouchableOpacity>
+              <View style={styles.educatorRow}>
+                <Ionicons name="mail-outline" size={16} color={colors.textFaint} />
+                <Text style={styles.educatorHint}>
+                  Educators: your daycare admin will send you an email invite — no sign-up
+                  needed here.
+                </Text>
+              </View>
+            </>
+          )}
+        </View>
       </View>
     </KeyboardAwareScrollView>
   );
 }
 
 const styles = StyleSheet.create({
+  scroll: {
+    flex: 1,
+    backgroundColor: colors.bg,
+  },
   container: {
-    flexGrow: 1, backgroundColor: colors.bg,
-    padding: spacing.xl, paddingTop: 60,
+    flexGrow: 1,
+    paddingHorizontal: spacing.xxl,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.xxl,
   },
-  back: { marginBottom: spacing.xl },
-  backText: { fontSize: 15, color: colors.primary, fontWeight: '500' },
-  card: {
-    backgroundColor: colors.surface, borderRadius: radius.xl,
-    padding: spacing.xl, borderWidth: 1, borderColor: colors.border,
+  content: {
+    width: '100%',
+    maxWidth: 440,
+    alignSelf: 'center',
   },
-  cardTitle: { fontSize: 20, fontWeight: '600', color: colors.textPrimary, marginBottom: spacing.xl },
+  topRow: {
+    minHeight: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  topLink: {
+    color: colors.primary,
+    fontFamily: fonts.bold,
+    fontSize: 13.5,
+  },
+  brand: {
+    marginTop: spacing.sm,
+    marginBottom: spacing.xl,
+  },
+  heading: {
+    marginBottom: spacing.lg,
+  },
+  title: {
+    color: colors.textPrimary,
+    fontFamily: fonts.black,
+    fontSize: 26,
+    lineHeight: 32,
+    letterSpacing: -0.35,
+  },
+  subtitle: {
+    color: colors.textMuted,
+    fontFamily: fonts.regular,
+    fontSize: 14,
+    lineHeight: 21,
+    marginTop: spacing.xs,
+  },
   errorBanner: {
-    backgroundColor: '#FEF2F2',
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.sm,
+    backgroundColor: colors.dangerLight,
     borderWidth: 1,
-    borderColor: '#FECACA',
+    borderColor: '#EDBABA',
     borderRadius: radius.md,
     padding: spacing.md,
     marginBottom: spacing.lg,
   },
   errorBannerText: {
+    flex: 1,
+    color: colors.danger,
+    fontFamily: fonts.regular,
     fontSize: 13,
-    color: '#DC2626',
     lineHeight: 18,
   },
-  roleLabel: { fontSize: 13, fontWeight: '500', color: colors.textSecondary, marginBottom: spacing.sm },
+  roleBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.md,
+    backgroundColor: colors.primaryLight,
+    borderRadius: radius.lg,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    marginBottom: spacing.lg,
+  },
   directorBanner: {
-    flexDirection: 'row', alignItems: 'center', gap: spacing.md,
-    backgroundColor: '#F5F3FF', borderRadius: radius.lg,
-    borderWidth: 1, borderColor: '#DDD6FE',
-    padding: spacing.md, marginBottom: spacing.lg,
+    backgroundColor: colors.purpleLight,
   },
-  directorBannerIcon: { fontSize: 24 },
-  directorBannerTitle: { fontSize: 14, fontWeight: '700', color: '#6D28D9' },
-  directorBannerText: { fontSize: 12, color: colors.textSecondary, marginTop: 2, lineHeight: 17 },
-  parentBanner: {
-    flexDirection: 'row', alignItems: 'center', gap: spacing.md,
-    backgroundColor: colors.primaryLight, borderRadius: radius.lg,
-    borderWidth: 1, borderColor: colors.primary + '33',
-    padding: spacing.md, marginBottom: spacing.lg,
+  roleIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.white,
   },
-  parentBannerIcon: { fontSize: 24 },
-  parentBannerTitle: { fontSize: 14, fontWeight: '700', color: colors.primary },
-  parentBannerText: { fontSize: 12, color: colors.textSecondary, marginTop: 2, lineHeight: 17 },
-  altPaths: { alignItems: 'center', marginTop: spacing.xl, gap: spacing.md },
-  altPathText: { fontSize: 14, color: colors.textSecondary },
-  altPathLink: { color: colors.primary, fontWeight: '600' },
-  educatorHint: {
-    fontSize: 12, color: colors.textMuted, textAlign: 'center',
-    lineHeight: 17, paddingHorizontal: spacing.lg,
+  directorIcon: {
+    borderWidth: 1,
+    borderColor: '#DCD2F1',
   },
-  phoneHint: {
-    fontSize: 12, color: colors.textSecondary,
-    marginTop: -spacing.xs, marginBottom: spacing.sm, lineHeight: 17,
+  roleCopy: {
+    flex: 1,
+  },
+  roleTitle: {
+    color: colors.textPrimary,
+    fontFamily: fonts.bold,
+    fontSize: 14.5,
+    marginBottom: 2,
+  },
+  roleText: {
+    color: colors.textSecondary,
+    fontFamily: fonts.regular,
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  form: {
+    marginTop: spacing.xs,
+  },
+  hintRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.sm,
+    marginTop: -spacing.xs,
+    marginBottom: spacing.md,
+  },
+  hintText: {
+    flex: 1,
+    color: colors.textFaint,
+    fontFamily: fonts.regular,
+    fontSize: 12.5,
+    lineHeight: 18,
   },
   tosRow: {
-    flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md,
-    marginTop: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.md,
+    marginTop: spacing.xs,
   },
   tosCheckbox: {
-    width: 22, height: 22, borderRadius: radius.sm, borderWidth: 2,
-    borderColor: colors.border, alignItems: 'center', justifyContent: 'center',
-    flexShrink: 0, marginTop: 1,
+    width: 20,
+    height: 20,
+    borderRadius: 5,
+    borderWidth: 1.8,
+    borderColor: colors.borderStrong,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+    marginTop: 1,
   },
-  tosCheckboxChecked: { backgroundColor: colors.primary, borderColor: colors.primary },
-  tosCheckboxError: { borderColor: colors.danger },
-  tosCheckmark: { color: colors.white, fontSize: 13, fontWeight: '700' },
-  tosLabel: { flex: 1, fontSize: 13, color: colors.textSecondary, lineHeight: 19 },
-  tosLink: { color: colors.primary, fontWeight: '600' },
-  tosError: { fontSize: 12, color: colors.danger, fontWeight: '500', marginTop: spacing.xs, marginLeft: 34 },
+  tosCheckboxChecked: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  tosCheckboxError: {
+    borderColor: colors.danger,
+  },
+  tosLabel: {
+    flex: 1,
+    color: colors.textSecondary,
+    fontFamily: fonts.regular,
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  link: {
+    color: colors.primary,
+    fontFamily: fonts.bold,
+  },
+  tosError: {
+    color: colors.danger,
+    fontFamily: fonts.bold,
+    fontSize: 12,
+    marginLeft: 32,
+    marginTop: spacing.xs,
+  },
+  submitButton: {
+    marginTop: spacing.lg,
+  },
+  altPaths: {
+    alignItems: 'center',
+    gap: spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    marginTop: spacing.lg,
+    paddingTop: spacing.lg,
+  },
+  altText: {
+    color: colors.textSecondary,
+    fontFamily: fonts.regular,
+    fontSize: 13.5,
+    textAlign: 'center',
+  },
+  educatorRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+  },
+  educatorHint: {
+    flex: 1,
+    maxWidth: 335,
+    color: colors.textFaint,
+    fontFamily: fonts.regular,
+    fontSize: 12.5,
+    lineHeight: 18,
+    textAlign: 'center',
+  },
   verifyContainer: {
-    flex: 1, backgroundColor: colors.bg,
-    alignItems: 'center', justifyContent: 'center', padding: spacing.xxl,
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.bg,
+    paddingHorizontal: spacing.xxl,
   },
-  verifyIcon: { fontSize: 56, marginBottom: spacing.lg },
-  verifyTitle: { fontSize: 24, fontWeight: '700', color: colors.textPrimary, marginBottom: spacing.md },
-  verifyBody: { fontSize: 16, color: colors.textPrimary, textAlign: 'center', lineHeight: 24 },
+  verifyContent: {
+    width: '100%',
+    maxWidth: 440,
+    alignItems: 'center',
+  },
+  verifyBrand: {
+    alignSelf: 'flex-start',
+    marginBottom: spacing.xxxl,
+  },
+  verifyIcon: {
+    width: 76,
+    height: 76,
+    borderRadius: 38,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.primaryLight,
+    marginBottom: spacing.lg,
+  },
+  verifyTitle: {
+    color: colors.textPrimary,
+    fontFamily: fonts.black,
+    fontSize: 24,
+    textAlign: 'center',
+  },
+  verifyBody: {
+    color: colors.textSecondary,
+    fontFamily: fonts.regular,
+    fontSize: 15,
+    lineHeight: 23,
+    textAlign: 'center',
+    marginTop: spacing.md,
+  },
+  verifyEmail: {
+    color: colors.textPrimary,
+    fontFamily: fonts.bold,
+  },
   verifyHint: {
-    fontSize: 13, color: colors.textSecondary, textAlign: 'center',
-    lineHeight: 19, marginTop: spacing.lg,
+    color: colors.textMuted,
+    fontFamily: fonts.regular,
+    fontSize: 13,
+    lineHeight: 20,
+    textAlign: 'center',
+    marginTop: spacing.lg,
   },
-  loginLink: { alignItems: 'center', marginTop: spacing.lg },
-  loginText: { fontSize: 14, color: colors.textSecondary },
+  verifyButton: {
+    alignSelf: 'stretch',
+    marginTop: spacing.xl,
+  },
 });

@@ -28,6 +28,19 @@ export function InviteForm({ code, email }: { code: string; email: string }) {
       />
       <RuleHint />
 
+      <label className="flex cursor-pointer items-start gap-2.5 text-[12.5px] leading-normal text-muted">
+        <input
+          type="checkbox"
+          name="terms_accepted"
+          required
+          className="mt-0.5 size-4 accent-primary"
+        />
+        <span>
+          I agree to the <b className="text-ink">Staff Terms</b> and confidentiality
+          policy.
+        </span>
+      </label>
+
       {state.error && <Notice tone="error">{state.error}</Notice>}
 
       <Button type="submit" disabled={pending}>

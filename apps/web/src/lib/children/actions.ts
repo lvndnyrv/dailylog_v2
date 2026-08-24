@@ -26,6 +26,16 @@ export interface ChildActionState {
   pin?: string;
 }
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const PARENT_DOCUMENT_KINDS: Record<string, string> = {
+  immunization: "Updated immunization record",
+  allergy_medical: "Allergy & medical form",
+  birth_certificate: "Birth certificate",
+  custody: "Custody document",
+  emergency_contact: "Emergency contact form",
+  other: "Requested family document",
+};
+
 function str(formData: FormData, key: string): string {
   return String(formData.get(key) ?? "").trim();
 }
@@ -352,6 +362,82 @@ export async function uploadChildDocumentAction(
 
   revalidatePath(`/children/${childId}`);
   return { ok: true };
+}
+
+export async function createParentDocumentRequestAction(
+  _prev: ChildActionState,
+  formData: FormData,
+): Promise<ChildActionState> {
+  const childId = str(formData, "child_id");
+  const kind = str(formData, "kind");
+  const message = str(formData, "message");
+  const dueOn = str(formData, "due_on");
+  const customTitle = str(formData, "title");
+
+  if (!UUID.test(childId)) return { error: "Choose a valid child." };
+  if (!PARENT_DOCUMENT_KINDS[kind]) return { error: "Choose a document type." };
+  if (kind === "other" && customTitle.length < 2) {
+    return { error: "Add a title for the requested document." };
+  }
+  if (dueOn && !/^\d{4}-\d{2}-\d{2}$/.test(dueOn)) {
+    return { error: "Choose a valid due date." };
+  }
+
+  try {
+    const supabase = await getServerSupabase();
+    const { error } = await supabase.rpc("create_parent_document_request", {
+      p_child_id: childId,
+      p_kind: kind,
+      p_title: kind === "other" ? customTitle : PARENT_DOCUMENT_KINDS[kind],
+      ...(message ? { p_message: message } : {}),
+      ...(dueOn ? { p_due_on: dueOn } : {}),
+    });
+    if (error) throw error;
+    revalidatePath(`/children/${childId}`);
+    revalidatePath("/dashboard");
+    return { ok: true };
+  } catch (error) {
+    return {
+      error: error instanceof Error ? error.message : "Could not request the document.",
+    };
+  }
+}
+
+export async function reviewParentDocumentSubmissionAction(
+  _prev: ChildActionState,
+  formData: FormData,
+): Promise<ChildActionState> {
+  const childId = str(formData, "child_id");
+  const submissionId = str(formData, "submission_id");
+  const decision = str(formData, "decision");
+  const reason = str(formData, "reason");
+
+  if (!UUID.test(childId) || !UUID.test(submissionId)) {
+    return { error: "This document submission is no longer available." };
+  }
+  if (decision !== "accepted" && decision !== "rejected") {
+    return { error: "Choose accept or request another copy." };
+  }
+  if (decision === "rejected" && !reason) {
+    return { error: "Explain what the family needs to correct." };
+  }
+
+  try {
+    const supabase = await getServerSupabase();
+    const { error } = await supabase.rpc("review_parent_document_submission", {
+      p_submission_id: submissionId,
+      p_decision: decision,
+      ...(reason ? { p_reason: reason } : {}),
+    });
+    if (error) throw error;
+    revalidatePath(`/children/${childId}`);
+    revalidatePath("/dashboard");
+    return { ok: true };
+  } catch (error) {
+    return {
+      error: error instanceof Error ? error.message : "Could not review the document.",
+    };
+  }
 }
 
 export async function resendParentInviteAction(formData: FormData): Promise<void> {

@@ -136,7 +136,7 @@ export async function enrollFromPipeline(
   const { data, error } = await client.rpc('enroll_from_pipeline', {
     p_enrollment_id: enrollmentId,
     p_classroom_id: classroomId,
-    p_last_name: lastName ?? null,
+    ...(lastName != null ? { p_last_name: lastName } : {}),
   });
   if (error) throw error;
   return data;
@@ -144,12 +144,20 @@ export async function enrollFromPipeline(
 
 // ── Public inquiry form (2g) — anon-callable ────────────────────────────────
 
-export async function getPublicCenterInfo(client: Client, daycareId: string) {
+export interface PublicCenterInfo {
+  name: string;
+  programs: { id: string; name: string }[];
+}
+
+export async function getPublicCenterInfo(
+  client: Client,
+  daycareId: string,
+): Promise<PublicCenterInfo | null> {
   const { data, error } = await client.rpc('get_public_center_info', {
     p_daycare_id: daycareId,
   });
   if (error) throw error;
-  return data?.[0] ?? null;
+  return (data?.[0] as unknown as PublicCenterInfo | undefined) ?? null;
 }
 
 export async function submitEnrollmentInquiry(
@@ -159,25 +167,30 @@ export async function submitEnrollmentInquiry(
     guardianName: string;
     guardianEmail: string;
     guardianPhone?: string;
-    childFirstName: string;
+    childFullName: string;
     childDateOfBirth?: string;
     classroomId?: string;
     desiredStart?: string;
     daysPerWeek: number;
   },
-): Promise<void> {
-  const { error } = await client.rpc('submit_enrollment_inquiry_v2', {
+): Promise<{ enrollmentId: string; journeyCode: string }> {
+  const { data, error } = await client.rpc('submit_parent_enrollment_inquiry', {
     p_daycare_id: values.daycareId,
     p_guardian_name: values.guardianName,
     p_guardian_email: values.guardianEmail,
     p_guardian_phone: values.guardianPhone ?? null,
-    p_child_first_name: values.childFirstName ?? null,
+    p_child_full_name: values.childFullName,
     p_child_date_of_birth: values.childDateOfBirth ?? null,
     p_classroom_id: values.classroomId ?? null,
     p_desired_start: values.desiredStart ?? null,
     p_days_per_week: values.daysPerWeek,
   });
   if (error) throw error;
+  const result = data as { enrollment_id?: string; journey_code?: string } | null;
+  if (!result?.enrollment_id || !result.journey_code) {
+    throw new Error('The inquiry was saved, but its family link could not be created.');
+  }
+  return { enrollmentId: result.enrollment_id, journeyCode: result.journey_code };
 }
 
 // ── Closures (11c) ──────────────────────────────────────────────────────────
@@ -191,6 +204,22 @@ export async function listClosures(client: Client): Promise<Closure[]> {
     .order('starts_on');
   if (error) throw error;
   return data ?? [];
+}
+
+export async function getClosureForDate(
+  client: Client,
+  date: string,
+): Promise<Closure | null> {
+  const { data, error } = await client
+    .from('center_closures')
+    .select('*')
+    .lte('starts_on', date)
+    .gte('ends_on', date)
+    .order('starts_on')
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  return data;
 }
 
 export async function createClosure(

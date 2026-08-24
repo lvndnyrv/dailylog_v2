@@ -111,6 +111,10 @@ export async function acceptInviteAction(
   const code = String(formData.get("code") ?? "").trim();
   const email = String(formData.get("email") ?? "").trim();
   const password = String(formData.get("password") ?? "");
+  const termsAccepted = formData.get("terms_accepted") === "on";
+  if (!termsAccepted) {
+    return { error: "Accept the Staff Terms and confidentiality policy to continue." };
+  }
   if (password.length < 12) {
     return { error: "12+ characters — that's the only rule." };
   }
@@ -152,7 +156,7 @@ export async function acceptInviteAction(
   }
 
   try {
-    await acceptStaffInvite(supabase, code);
+    await acceptStaffInvite(supabase, code, termsAccepted);
   } catch (err) {
     return { error: err instanceof Error ? err.message : "Invite could not be accepted." };
   }

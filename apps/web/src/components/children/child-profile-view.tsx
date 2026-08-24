@@ -1,6 +1,12 @@
 "use client";
 
-import type { ChildDocument, ChildPickup, PendingParentInvite, Tables } from "@dailylog/db";
+import type {
+  ChildDocument,
+  ChildPickup,
+  ParentDocumentRequestReviewRow,
+  PendingParentInvite,
+  Tables,
+} from "@dailylog/db";
 import { childSetupChecklist, CONSENT_KINDS, formatAge } from "@dailylog/shared";
 import Link from "next/link";
 import { useState } from "react";
@@ -11,6 +17,7 @@ import { InviteParentModal } from "./invite-parent-modal";
 import { SetupPanel } from "./setup-panel";
 import { RowMenu } from "./row-menu";
 import { removePickupAction } from "@/lib/children/actions";
+import { ParentDocumentWorkflowCard } from "./parent-document-workflow-card";
 
 type Guardian = {
   relationship: string | null;
@@ -96,6 +103,7 @@ export function ChildProfileView({
   medications,
   consents,
   documents,
+  documentRequests,
   pendingInvites,
   classrooms,
   photoUrl,
@@ -106,6 +114,7 @@ export function ChildProfileView({
   medications: Medication[];
   consents: Consent[];
   documents: ChildDocument[];
+  documentRequests: ParentDocumentRequestReviewRow[];
   pendingInvites: PendingParentInvite[];
   classrooms: { id: string; name: string }[];
   photoUrl: string | null;
@@ -501,6 +510,12 @@ export function ChildProfileView({
               This recurring booking drives attendance expectations and billing.
             </p>
           </section>
+
+          <ParentDocumentWorkflowCard
+            childId={child.id}
+            childName={child.first_name}
+            requests={documentRequests}
+          />
 
           <section className={card} aria-labelledby="consents-h">
             <h2 id="consents-h" className={`${cardTitle} mb-3`}>

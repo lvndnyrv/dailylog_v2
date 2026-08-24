@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect } from 'react';
+import { isAdminRole } from '@dailylog/shared';
 import { supabase } from '../lib/supabase';
 import { useAuth } from './useAuth';
 
@@ -13,7 +14,7 @@ export function ClassroomProvider({ children }) {
   useEffect(() => {
     if (profile?.role === 'educator' && profile?.daycare_id) {
       loadClassrooms();
-    } else if (profile?.role === 'admin' && profile?.daycare_id) {
+    } else if (isAdminRole(profile?.role) && profile?.daycare_id) {
       loadAllClassrooms();
     } else {
       setLoading(false);
@@ -75,8 +76,10 @@ export function ClassroomProvider({ children }) {
       .update({ classroom_id: classroomId })
       .eq('id', profile.id);
 
-    // Refresh profile in auth context
-    if (user) await fetchProfile(user.id);
+    // Keep profile.classroom_id in sync without showing the app-level auth
+    // loading gate. A full refresh unmounts the navigator and would send the
+    // user back to their role's initial tab after every classroom switch.
+    if (user) await fetchProfile(user.id, { silent: true });
   }
 
   async function joinClassroom(classroomId) {
@@ -136,7 +139,7 @@ export function ClassroomProvider({ children }) {
       joinClassroom,
       createAndJoinClassroom,
       leaveClassroom,
-      reload: profile?.role === 'admin' ? loadAllClassrooms : loadClassrooms,
+      reload: isAdminRole(profile?.role) ? loadAllClassrooms : loadClassrooms,
     }}>
       {children}
     </ClassroomContext.Provider>

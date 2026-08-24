@@ -6,6 +6,7 @@ import { useActionState, useState } from "react";
 import {
   addClosureAction,
   deleteClosureAction,
+  updateParentDataRequestAction,
   updateCenterAction,
   type SettingsActionState,
 } from "@/lib/settings/actions";
@@ -25,6 +26,15 @@ export interface AuditEntry {
   actor: { full_name: string } | null;
 }
 
+export interface ParentDataRequest {
+  id: string;
+  request_type: "export" | "deletion";
+  status: "requested" | "processing";
+  requested_at: string;
+  updated_at: string;
+  profile: { full_name: string; email: string } | null;
+}
+
 const AUDIT_LABELS: Record<string, string> = {
   attendance_records: "attendance record",
   invoices: "invoice",
@@ -37,10 +47,12 @@ export function SettingsView({
   daycare,
   closures,
   audit = [],
+  dataRequests = [],
 }: {
   daycare: Tables<"daycares"> | null;
   closures: Closure[];
   audit?: AuditEntry[];
+  dataRequests?: ParentDataRequest[];
 }) {
   const [modal, setModal] = useState<"none" | "center" | "closure">("none");
 
@@ -71,6 +83,9 @@ export function SettingsView({
             <Row label="Name">{daycare?.name ?? "—"}</Row>
             <Row label="Address">{daycare?.address ?? "—"}</Row>
             <Row label="Phone">{daycare?.phone ?? "—"}</Row>
+            <Row label="Normal hours">
+              {daycare ? `${shortTime(daycare.opens_at)} – ${shortTime(daycare.closes_at)}` : "—"}
+            </Row>
           </dl>
           <p className="mt-2.5 text-[11.5px] text-faint">
             This is what families see on invoices and the inquiry form.
@@ -85,6 +100,73 @@ export function SettingsView({
             <Link href="/rooms" className="font-bold text-primary hover:text-primary-hover">
               edit them there →
             </Link>
+          </p>
+        </section>
+
+        {/* Parent privacy/data request handoff */}
+        <section className={card}>
+          <div className="mb-2 flex items-center gap-2">
+            <h2 className={cardTitle}>Privacy & data requests</h2>
+            {dataRequests.length > 0 && (
+              <span className="rounded-full bg-[#FBF3E4] px-2 py-0.5 text-[10.5px] font-bold text-[#B0782B]">
+                {dataRequests.length} open
+              </span>
+            )}
+          </div>
+          {dataRequests.length === 0 ? (
+            <p className="text-[12.5px] leading-relaxed text-faint">
+              Parent export and account-deletion requests will appear here for a tracked review.
+            </p>
+          ) : (
+            <div className="flex flex-col">
+              {dataRequests.map((request) => (
+                <div key={request.id} className="border-b border-[#EDF3FB] py-2.5 last:border-b-0">
+                  <div className="flex items-start gap-3">
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[13px] font-bold text-ink">
+                        {request.profile?.full_name ?? "Parent account"}
+                      </span>
+                      <span className="block truncate text-[11.5px] text-muted">
+                        {request.request_type === "export" ? "Family data export" : "Account deletion review"}
+                        {request.profile?.email ? ` · ${request.profile.email}` : ""}
+                      </span>
+                      <span className="mt-1 block text-[10.5px] text-faint">
+                        Requested {new Date(request.requested_at).toLocaleString("en-CA", {
+                          month: "short",
+                          day: "numeric",
+                          hour: "numeric",
+                          minute: "2-digit",
+                        })}
+                      </span>
+                    </span>
+                    <span className={`rounded-full px-2 py-0.5 text-[10.5px] font-bold ${
+                      request.status === "processing"
+                        ? "bg-[#E3EDFA] text-primary"
+                        : "bg-[#FBF3E4] text-[#B0782B]"
+                    }`}>
+                      {request.status === "processing" ? "In review" : "New"}
+                    </span>
+                  </div>
+                  <form action={updateParentDataRequestAction} className="mt-2 flex justify-end">
+                    <input type="hidden" name="request_id" value={request.id} />
+                    <input
+                      type="hidden"
+                      name="status"
+                      value={request.status === "requested" ? "processing" : "completed"}
+                    />
+                    <button
+                      type="submit"
+                      className="rounded-btn border border-[#D6E1F0] bg-white px-3 py-1.5 text-[11.5px] font-bold text-primary hover:bg-[#F4F8FD]"
+                    >
+                      {request.status === "requested" ? "Start review" : "Mark handled"}
+                    </button>
+                  </form>
+                </div>
+              ))}
+            </div>
+          )}
+          <p className="mt-2.5 text-[11.5px] leading-relaxed text-faint">
+            Mark handled only after the export is delivered or the deletion and legal-retention review is complete.
           </p>
         </section>
 
@@ -156,6 +238,9 @@ export function SettingsView({
                       ? fmt(closure.starts_on)
                       : `${fmt(closure.starts_on)} – ${fmt(closure.ends_on)}`}
                   </span>
+                  <span className="mt-1 inline-flex rounded-full bg-[#E4F3EC] px-2 py-0.5 text-[10.5px] font-bold text-success">
+                    {closure.billing_treatment === "no_charge" ? "No charge · families notified" : "Families notified"}
+                  </span>
                 </span>
                 <form action={deleteClosureAction}>
                   <input type="hidden" name="closure_id" value={closure.id} />
@@ -172,7 +257,7 @@ export function SettingsView({
           </div>
         )}
         <p className="mt-2.5 text-[11.5px] text-faint">
-          Closures show in the family app calendar once notifications ship.
+          Families see these on Today and in their calendar. Changes and cancellations notify them automatically.
         </p>
       </section>
 
@@ -217,6 +302,10 @@ function CenterModal({
         <Field label="Center name" name="name" defaultValue={daycare.name} required />
         <Field label="Address" name="address" defaultValue={daycare.address ?? ""} />
         <Field label="Phone" name="phone" defaultValue={daycare.phone ?? ""} />
+        <div className="grid grid-cols-2 gap-2.5">
+          <Field label="Opens" name="opens_at" type="time" defaultValue={daycare.opens_at.slice(0, 5)} required />
+          <Field label="Closes" name="closes_at" type="time" defaultValue={daycare.closes_at.slice(0, 5)} required />
+        </div>
         {state.ok && (
           <Notice tone="success">
             <b>Saved.</b>
@@ -256,6 +345,23 @@ function ClosureModal({ onClose }: { onClose: () => void }) {
           <Field label="Starts" name="starts_on" type="date" required />
           <Field label="Ends (optional)" name="ends_on" type="date" />
         </div>
+        <Field
+          label="Message to families (optional)"
+          name="family_message"
+          placeholder="The whole center is closed for staff training."
+        />
+        <Field
+          label="Reminder days before"
+          name="reminder_days_before"
+          type="number"
+          min={0}
+          max={30}
+          defaultValue={3}
+          required
+        />
+        <div className="rounded-[13px] bg-[#E4F3EC] px-3.5 py-3 text-[12px] leading-relaxed text-[#1B6B45]">
+          <b>No-charge day.</b> Families are notified now, reminded before the closure, and see it in their app calendar.
+        </div>
         {state.ok && (
           <Notice tone="success">
             <b>Added.</b>
@@ -273,4 +379,10 @@ function ClosureModal({ onClose }: { onClose: () => void }) {
       </form>
     </Modal>
   );
+}
+
+function shortTime(value: string): string {
+  const [hourValue, minute] = value.slice(0, 5).split(":").map(Number);
+  const suffix = hourValue >= 12 ? "PM" : "AM";
+  return `${hourValue % 12 || 12}:${String(minute).padStart(2, "0")} ${suffix}`;
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import type { AttendanceDayRow } from "@dailylog/db/queries";
+import type { AttendanceDayRow, Closure } from "@dailylog/db/queries";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -27,6 +27,7 @@ export function AttendanceView({
   isToday,
   openCheckIn = false,
   timeZone,
+  closure,
 }: {
   rows: AttendanceDayRow[];
   week: WeekDay[];
@@ -34,6 +35,7 @@ export function AttendanceView({
   isToday: boolean;
   openCheckIn?: boolean;
   timeZone: string;
+  closure: Closure | null;
 }) {
   const router = useRouter();
   const [modal, setModal] = useState<
@@ -41,7 +43,7 @@ export function AttendanceView({
     | "checkin"
     | { kind: "fix"; child: AttendanceDayRow }
     | { kind: "status"; child: AttendanceDayRow }
-  >(openCheckIn && isToday ? "checkin" : "none");
+  >(openCheckIn && isToday && !closure ? "checkin" : "none");
   const [showAllMissing, setShowAllMissing] = useState(false);
 
   const closeModal = () => {
@@ -80,6 +82,25 @@ export function AttendanceView({
     <div className="flex flex-1 flex-col px-7 pb-7 pt-[22px]">
       <div className="grid grid-cols-1 items-start gap-5 xl:grid-cols-[minmax(0,1fr)_298px]">
         <div className="flex min-w-0 flex-col gap-[18px]">
+          {closure ? (
+            <section
+              className={`${card} border-[#D6E1F0] bg-[#F5F8FC] px-[18px] py-[17px]`}
+              aria-labelledby="closed-h"
+            >
+              <div className="flex items-start gap-3">
+                <span className="grid size-9 shrink-0 place-items-center rounded-full bg-white text-[16px]" aria-hidden>
+                  ◷
+                </span>
+                <span className="min-w-0">
+                  <h2 id="closed-h" className={cardTitle}>Center closed — {closure.reason}</h2>
+                  <p className="mt-1 text-[12px] leading-relaxed text-muted">
+                    Attendance is not expected and check-in is disabled for this day.
+                    {closure.family_message ? ` ${closure.family_message}` : " Families can see this closure in their app."}
+                  </p>
+                </span>
+              </div>
+            </section>
+          ) : (
           <section
             className={`${card} border-[#EED39F] px-[18px] py-[17px]`}
             aria-labelledby="expected-h"
@@ -180,6 +201,7 @@ export function AttendanceView({
               </p>
             )}
           </section>
+          )}
 
           <section className={`${card} overflow-hidden`} aria-labelledby="log-h">
             <div className="flex items-center gap-2 px-[18px] py-[15px]">
@@ -257,7 +279,7 @@ export function AttendanceView({
                 return (
                   <div key={item.day} className="flex h-full flex-1 flex-col justify-end gap-1.5">
                     <div
-                      className={`w-full rounded-t-md ${current ? "bg-primary" : "bg-[#78A8DF]"}`}
+                      className={`w-full rounded-t-md ${current && closure ? "border border-dashed border-[#AAB8CA] bg-[#E9EFF7]" : current ? "bg-primary" : "bg-[#78A8DF]"}`}
                       style={{ height: `${Math.max(4, (count / maxWeek) * 64)}px` }}
                       title={`${count} checked in`}
                     />

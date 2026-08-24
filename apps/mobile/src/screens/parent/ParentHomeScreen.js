@@ -1,11 +1,14 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, RefreshControl, TextInput } from 'react-native';
-import { useAuth } from '../../hooks/useAuth';
+import React, { useCallback, useState, useEffect } from 'react';
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, RefreshControl } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
+import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../../lib/supabase';
 import { useDailyLog } from '../../hooks/useDailyLog';
+import { useParentFamily } from '../../hooks/useParentFamily';
+import { useParentNotifications } from '../../hooks/useParentNotifications';
+import { useParentSchedule } from '../../hooks/useParentSchedule';
 import { LoadingScreen, Badge, EmptyState, Divider } from '../../components/ui';
 import { PhotoSection } from '../../components/PhotoSection';
-import ConsentScreen from '../shared/ConsentScreen';
 import { colors, spacing, radius } from '../../theme';
 import { format, subDays, addDays, isToday } from 'date-fns';
 
@@ -15,59 +18,51 @@ const AMOUNT_STYLE = {
   some: { color: colors.amber, bg: colors.amberLight },
   none: { color: colors.danger, bg: colors.dangerLight },
 };
+const INCIDENT_TONE = {
+  minor: { color: colors.amber, backgroundColor: colors.amberLight },
+  moderate: { color: colors.coral, backgroundColor: colors.coralLight },
+  serious: { color: colors.danger, backgroundColor: colors.dangerLight },
+};
 
 // ─── EMPTY STATE with child invite code entry ────────────────────────────────
-function LinkChildEmptyState({ onLinked }) {
-  const [code, setCode] = useState('');
+function LinkChildEmptyState({ onOpen, onLinked }) {
   const [error, setError] = useState(null);
-  const [linking, setLinking] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-
-  async function handleLink() {
-    if (!code.trim()) { setError('Enter the code from your daycare.'); return; }
-    setLinking(true);
-    setError(null);
-    const { data, error: rpcError } = await supabase.rpc('link_child_with_code', { p_code: code.trim() });
-    setLinking(false);
-    if (rpcError) { setError(rpcError.message); return; }
-    const linked = data?.[0];
-    if (linked) onLinked();
-  }
 
   async function handleRefresh() {
     setRefreshing(true);
-    await onLinked();
-    setRefreshing(false);
+    setError(null);
+    try {
+      await onLinked();
+    } catch (refreshError) {
+      setError(refreshError.message || 'We could not refresh your linked children.');
+    } finally {
+      setRefreshing(false);
+    }
   }
 
   return (
     <ScrollView style={emptyStyles.container} contentContainerStyle={emptyStyles.content} keyboardShouldPersistTaps="handled">
-      <Text style={emptyStyles.icon}>👶</Text>
+      <View style={emptyStyles.iconCircle}>
+        <Ionicons name="people-outline" size={31} color={colors.primary} />
+      </View>
       <Text style={emptyStyles.title}>Link your child</Text>
       <Text style={emptyStyles.body}>
-        Your daycare educator can give you a 6-character child code, or they can
-        link you directly by email — in that case just refresh below.
+        Your daycare or co-guardian will send a secure family invitation. You’ll confirm the child before anything is linked.
       </Text>
 
       <View style={emptyStyles.card}>
-        <Text style={emptyStyles.cardLabel}>Child code</Text>
-        <TextInput
-          style={[emptyStyles.input, error && emptyStyles.inputError]}
-          value={code}
-          onChangeText={(v) => { setCode(v.toUpperCase()); setError(null); }}
-          placeholder="e.g. K7PM3Q"
-          placeholderTextColor={colors.textMuted}
-          autoCapitalize="characters"
-          autoCorrect={false}
-          maxLength={6}
-        />
+        <View style={emptyStyles.cardIcon}>
+          <Ionicons name="key-outline" size={21} color={colors.primary} />
+        </View>
+        <Text style={emptyStyles.cardTitle}>Have an invitation code?</Text>
+        <Text style={emptyStyles.cardBody}>Enter it securely, review the child and choose your relationship.</Text>
         {error && <Text style={emptyStyles.errorText}>{error}</Text>}
         <TouchableOpacity
-          style={[emptyStyles.linkBtn, linking && { opacity: 0.6 }]}
-          onPress={handleLink}
-          disabled={linking}
+          style={emptyStyles.linkBtn}
+          onPress={onOpen}
         >
-          <Text style={emptyStyles.linkBtnText}>{linking ? 'Linking...' : 'Link my child'}</Text>
+          <Text style={emptyStyles.linkBtnText}>Enter invitation code</Text>
         </TouchableOpacity>
       </View>
 
@@ -83,7 +78,7 @@ function LinkChildEmptyState({ onLinked }) {
 const emptyStyles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
   content: { padding: spacing.xl, paddingTop: 80, alignItems: 'center' },
-  icon: { fontSize: 56, marginBottom: spacing.lg },
+  iconCircle: { width: 70, height: 70, borderRadius: 35, backgroundColor: colors.primaryLight, alignItems: 'center', justifyContent: 'center', marginBottom: spacing.lg },
   title: { fontSize: 24, fontWeight: '700', color: colors.textPrimary, marginBottom: spacing.md },
   body: {
     fontSize: 14, color: colors.textSecondary, textAlign: 'center',
@@ -94,13 +89,9 @@ const emptyStyles = StyleSheet.create({
     borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border,
     padding: spacing.lg,
   },
-  cardLabel: { fontSize: 13, fontWeight: '500', color: colors.textSecondary, marginBottom: spacing.sm },
-  input: {
-    borderWidth: 1.5, borderColor: colors.border, borderRadius: radius.md,
-    padding: spacing.md, fontSize: 18, letterSpacing: 4, textAlign: 'center',
-    color: colors.textPrimary, backgroundColor: colors.bg, fontWeight: '700',
-  },
-  inputError: { borderColor: colors.danger },
+  cardIcon: { width: 42, height: 42, borderRadius: 21, backgroundColor: colors.primaryLight, alignItems: 'center', justifyContent: 'center', marginBottom: spacing.md },
+  cardTitle: { fontSize: 16, fontWeight: '700', color: colors.textPrimary, marginBottom: spacing.xs },
+  cardBody: { fontSize: 13, lineHeight: 19, color: colors.textSecondary },
   errorText: { fontSize: 12, color: colors.danger, fontWeight: '500', marginTop: spacing.xs },
   linkBtn: {
     backgroundColor: colors.primary, borderRadius: radius.md,
@@ -111,56 +102,97 @@ const emptyStyles = StyleSheet.create({
   refreshText: { fontSize: 14, color: colors.primary, fontWeight: '500' },
 });
 
-export default function ParentHomeScreen({ navigation }) {
-  const { profile } = useAuth();
-  const [children, setChildren] = useState([]);
-  const [selectedChild, setSelectedChild] = useState(null);
+export default function ParentHomeScreen({ navigation, route }) {
+  const family = useParentFamily();
+  const notifications = useParentNotifications();
+  const familySchedule = useParentSchedule();
+  const { children, selectedChild } = family;
   const [selectedDate, setSelectedDate] = useState(new Date());
-  const [loadingChildren, setLoadingChildren] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [pendingIncidents, setPendingIncidents] = useState([]);
-  const [pendingConsentChild, setPendingConsentChild] = useState(null); // COPPA/PIPEDA consent gate
   const [attendanceRec, setAttendanceRec] = useState(null);
   const [announcements, setAnnouncements] = useState([]);
 
   const {
     log, meals, diapers, sleeps, activities, supplies, loading,
+    error: logError, refresh: refreshLog,
   } = useDailyLog(selectedChild?.id, selectedDate); // read-only: parents never create logs
 
-  async function fetchChildren() {
-    const { data } = await supabase
-      .from('parent_children')
-      .select('consent_given_at, child:children(*)')
-      .eq('parent_id', profile.id);
-
-    const links = data || [];
-    const kids = links.map(r => r.child).filter(Boolean);
-    setChildren(kids);
-    if (kids.length > 0) setSelectedChild(prev => prev && kids.find(k => k.id === prev.id) ? prev : kids[0]);
-
-    // First child lacking consent → show the consent flow before anything else
-    const needsConsent = links.find(r => r.child && !r.consent_given_at)?.child || null;
-    setPendingConsentChild(needsConsent);
-
-    setLoadingChildren(false);
-  }
-
   useEffect(() => {
-    if (profile) fetchChildren();
-  }, [profile]);
+    const requestedChildId = route.params?.childId;
+    if (requestedChildId && children.some((child) => child.id === requestedChildId)) {
+      family.selectChild(requestedChildId);
+    }
+    const requestedDate = route.params?.logDate;
+    if (requestedDate && /^\d{4}-\d{2}-\d{2}$/.test(requestedDate)) {
+      const parsed = new Date(`${requestedDate}T12:00:00`);
+      if (!Number.isNaN(parsed.getTime()) && parsed <= new Date()) setSelectedDate(parsed);
+    }
+  }, [children, family.selectChild, route.params?.childId, route.params?.logDate]);
+
+  const fetchIncidents = useCallback(async () => {
+    if (!selectedChild?.id) { setPendingIncidents([]); return; }
+    const { data, error } = await supabase
+      .from('incident_reports')
+      .select('*')
+      .eq('child_id', selectedChild.id)
+      .in('status', ['submitted', 'signed_off'])
+      .not('parent_notified_at', 'is', null)
+      .order('occurred_at', { ascending: false });
+    if (error) throw error;
+    setPendingIncidents(data || []);
+  }, [selectedChild?.id]);
+
+  const fetchAttendance = useCallback(async () => {
+    if (!selectedChild?.id) { setAttendanceRec(null); return; }
+    const { data, error } = await supabase
+      .from('attendance_records')
+      .select('checked_in_at, checked_out_at, status, absence_reason, notes, method, absence_report_id')
+      .eq('child_id', selectedChild.id)
+      .eq('date', format(selectedDate, 'yyyy-MM-dd'))
+      .maybeSingle();
+    if (error) throw error;
+    setAttendanceRec(data || null);
+  }, [selectedChild?.id, selectedDate]);
+
+  const fetchAnnouncements = useCallback(async () => {
+    const { data, error } = await supabase
+      .from('announcements')
+      .select('id, title, body, pinned, created_at, classroom_id')
+      .order('pinned', { ascending: false })
+      .order('created_at', { ascending: false })
+      .limit(5);
+    if (error) throw error;
+    setAnnouncements(data || []);
+  }, []);
+
+  const refreshAll = useCallback(async () => {
+    setRefreshing(true);
+    await Promise.allSettled([
+      family.refresh({ silent: true }),
+      familySchedule.refresh(),
+      refreshLog(),
+      fetchIncidents(),
+      fetchAttendance(),
+      fetchAnnouncements(),
+    ]);
+    setRefreshing(false);
+  }, [
+    family.refresh,
+    familySchedule.refresh,
+    fetchAnnouncements,
+    fetchAttendance,
+    fetchIncidents,
+    refreshLog,
+  ]);
+
+  useFocusEffect(useCallback(() => {
+    refreshAll();
+  }, [refreshAll]));
 
   // Fetch unacknowledged incidents for the selected child
   useEffect(() => {
-    async function fetchIncidents() {
-      if (!selectedChild?.id) return;
-      const { data } = await supabase
-        .from('incident_reports')
-        .select('*')
-        .eq('child_id', selectedChild.id)
-        .eq('status', 'submitted')
-        .order('occurred_at', { ascending: false });
-      setPendingIncidents(data || []);
-    }
-    fetchIncidents();
+    fetchIncidents().catch(() => {});
 
     // Real-time for incidents
     if (!selectedChild?.id) return;
@@ -173,52 +205,59 @@ export default function ParentHomeScreen({ navigation }) {
       .subscribe();
 
     return () => supabase.removeChannel(channel);
-  }, [selectedChild?.id]);
+  }, [fetchIncidents, selectedChild?.id]);
 
   // Attendance record for the selected child + date
   useEffect(() => {
-    async function fetchAttendance() {
-      if (!selectedChild?.id) { setAttendanceRec(null); return; }
-      const { data } = await supabase
-        .from('attendance_records')
-        .select('checked_in_at, checked_out_at')
-        .eq('child_id', selectedChild.id)
-        .eq('date', format(selectedDate, 'yyyy-MM-dd'))
-        .maybeSingle();
-      setAttendanceRec(data || null);
-    }
-    fetchAttendance();
-  }, [selectedChild?.id, selectedDate]);
+    fetchAttendance().catch(() => {});
+    if (!selectedChild?.id) return undefined;
+    const selectedDateString = format(selectedDate, 'yyyy-MM-dd');
+    const channel = supabase
+      .channel(`parent-attendance:${selectedChild.id}:${selectedDateString}`)
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'attendance_records',
+        filter: `child_id=eq.${selectedChild.id}`,
+      }, (payload) => {
+        const row = payload.new?.id ? payload.new : payload.old;
+        if (row?.date === selectedDateString) fetchAttendance().catch(() => {});
+      })
+      .subscribe();
+    return () => supabase.removeChannel(channel);
+  }, [fetchAttendance, selectedChild?.id, selectedDate]);
 
   // Recent announcements (last 5, newest first — pinned first)
   useEffect(() => {
-    async function fetchAnnouncements() {
-      const { data } = await supabase
-        .from('announcements')
-        .select('id, title, body, pinned, created_at, classroom_id')
-        .order('pinned', { ascending: false })
-        .order('created_at', { ascending: false })
-        .limit(5);
-      setAnnouncements(data || []);
-    }
-    if (profile) fetchAnnouncements();
-  }, [profile]);
+    fetchAnnouncements().catch(() => {});
+    const channel = supabase
+      .channel('parent-home-announcements')
+      .on('postgres_changes', {
+        event: '*', schema: 'public', table: 'announcements',
+      }, () => fetchAnnouncements().catch(() => {}))
+      .subscribe();
+    return () => supabase.removeChannel(channel);
+  }, [fetchAnnouncements]);
 
-  if (loadingChildren || loading) return <LoadingScreen />;
+  if (family.loading || (selectedChild && loading)) return <LoadingScreen />;
 
-  if (!children.length) {
+  if (family.error && !children.length) {
     return (
-      <LinkChildEmptyState onLinked={fetchChildren} />
+      <View style={styles.loadErrorWrap}>
+        <Text style={styles.loadErrorTitle}>We couldn't load your family</Text>
+        <Text style={styles.loadErrorText}>{family.error}</Text>
+        <TouchableOpacity style={styles.retryButton} onPress={() => family.refresh().catch(() => {})}>
+          <Text style={styles.retryButtonText}>Try again</Text>
+        </TouchableOpacity>
+      </View>
     );
   }
 
-  // COPPA/PIPEDA: require consent per child before showing their data
-  if (pendingConsentChild) {
+  if (!children.length) {
     return (
-      <ConsentScreen
-        childId={pendingConsentChild.id}
-        childName={pendingConsentChild.first_name}
-        onDone={fetchChildren}
+      <LinkChildEmptyState
+        onOpen={() => navigation.navigate('ParentChildInvite')}
+        onLinked={() => family.refresh({ silent: true })}
       />
     );
   }
@@ -226,10 +265,48 @@ export default function ParentHomeScreen({ navigation }) {
   const today = isToday(selectedDate);
   const hasMoods = log?.moods?.length > 0;
   const hasContent = meals.length || diapers.length || sleeps.length || activities.length;
+  const upcomingClosure = (familySchedule.hub?.closures || [])
+    .find((closure) => closure.ends_on >= familySchedule.hub?.today);
+  const roomMove = (familySchedule.hub?.room_moves || [])
+    .find((plan) => plan.child_id === selectedChild?.id
+      && plan.status === 'planned'
+      && plan.move_on >= familySchedule.hub?.today);
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}
-      refreshControl={<RefreshControl refreshing={loading} tintColor={colors.primary} />}>
+      refreshControl={(
+        <RefreshControl
+          refreshing={refreshing || family.refreshing}
+          onRefresh={refreshAll}
+          tintColor={colors.primary}
+        />
+      )}>
+
+      <View style={styles.pageHeader}>
+        <View>
+          <Text style={styles.pageEyebrow}>FAMILY DAILY LOG</Text>
+          <Text style={styles.pageTitle}>Today</Text>
+        </View>
+        <TouchableOpacity
+          style={styles.notificationButton}
+          onPress={() => navigation.navigate('ParentNotifications')}
+          accessibilityRole="button"
+          accessibilityLabel={`Notifications${notifications.unreadCount ? `, ${notifications.unreadCount} unread` : ''}`}
+        >
+          <Ionicons name="notifications-outline" size={21} color={colors.textPrimary} />
+          {notifications.unreadCount ? (
+            <View style={styles.notificationBadge}>
+              <Text style={styles.notificationBadgeText}>{notifications.unreadCount > 99 ? '99+' : notifications.unreadCount}</Text>
+            </View>
+          ) : null}
+        </TouchableOpacity>
+      </View>
+
+      {(family.error || logError) ? (
+        <TouchableOpacity style={styles.inlineError} onPress={refreshAll}>
+          <Text style={styles.inlineErrorText}>{family.error || logError} Tap to retry.</Text>
+        </TouchableOpacity>
+      ) : null}
 
       {/* Child tabs */}
       {children.length > 1 && (
@@ -237,7 +314,7 @@ export default function ParentHomeScreen({ navigation }) {
           {children.map(child => (
             <TouchableOpacity
               key={child.id}
-              onPress={() => setSelectedChild(child)}
+              onPress={() => family.selectChild(child)}
               style={[styles.childTab, selectedChild?.id === child.id && styles.childTabSelected]}
             >
               <Text style={[styles.childTabText, selectedChild?.id === child.id && { color: colors.primary }]}>
@@ -251,32 +328,76 @@ export default function ParentHomeScreen({ navigation }) {
       {/* Incident alert banner */}
       {pendingIncidents.length > 0 && (
         <View style={styles.incidentBanner}>
-          {pendingIncidents.map(incident => (
-            <TouchableOpacity
-              key={incident.id}
-              style={[
-                styles.incidentAlert,
-                { borderColor: incident.severity === 'serious' ? colors.danger : colors.amber },
-              ]}
-              onPress={() => navigation.navigate('IncidentDetail', { incident, child: selectedChild })}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.incidentAlertEmoji}>
-                {incident.severity === 'serious' ? '🚨' : incident.severity === 'moderate' ? '⚠️' : '🟡'}
-              </Text>
-              <View style={styles.incidentAlertContent}>
-                <Text style={styles.incidentAlertTitle}>
-                  {incident.severity === 'serious' ? 'Serious' : incident.severity === 'moderate' ? 'Moderate' : 'Minor'} incident reported
+          {pendingIncidents.map((incident) => {
+            const incidentTone = INCIDENT_TONE[incident.severity] || INCIDENT_TONE.minor;
+            return (
+              <TouchableOpacity
+                key={incident.id}
+                style={[styles.incidentAlert, { borderColor: incidentTone.color, backgroundColor: incidentTone.backgroundColor }]}
+                onPress={() => navigation.navigate('IncidentDetail', { incident, child: selectedChild })}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.incidentAlertEmoji}>
+                  {incident.severity === 'serious' ? '🚨' : incident.severity === 'moderate' ? '⚠️' : '🟡'}
                 </Text>
-                <Text style={styles.incidentAlertSub}>
-                  {incident.injury_type} · {format(new Date(incident.occurred_at), 'h:mm a')} — Tap to review
-                </Text>
-              </View>
-              <Text style={styles.incidentAlertChevron}>›</Text>
-            </TouchableOpacity>
-          ))}
+                <View style={styles.incidentAlertContent}>
+                  <Text style={[styles.incidentAlertTitle, { color: incidentTone.color }]}>
+                    {incident.severity === 'serious' ? 'Serious' : incident.severity === 'moderate' ? 'Moderate' : 'Minor'} incident reported
+                  </Text>
+                  <Text style={styles.incidentAlertSub}>
+                    {incident.injury_type} · {format(new Date(incident.occurred_at), 'h:mm a')} — Tap to review
+                  </Text>
+                </View>
+                <Text style={[styles.incidentAlertChevron, { color: incidentTone.color }]}>›</Text>
+              </TouchableOpacity>
+            );
+          })}
         </View>
       )}
+
+      {/* Family schedule notices — Admin Groups 11c and 7e */}
+      {upcomingClosure ? (
+        <TouchableOpacity
+          style={[styles.scheduleBanner, styles.closureBanner]}
+          onPress={() => navigation.navigate('ParentClosureNotice', { closureId: upcomingClosure.id })}
+          activeOpacity={0.75}
+          accessibilityRole="button"
+        >
+          <Text style={styles.scheduleIcon}>🗓️</Text>
+          <View style={styles.scheduleCopy}>
+            <Text style={styles.scheduleEyebrow}>CENTER CLOSURE</Text>
+            <Text style={styles.scheduleTitle}>{upcomingClosure.reason}</Text>
+            <Text style={styles.scheduleBody}>
+              {format(new Date(`${upcomingClosure.starts_on}T12:00:00`), 'EEEE, MMMM d')} · See closure details
+            </Text>
+          </View>
+          <Text style={styles.scheduleChevron}>›</Text>
+        </TouchableOpacity>
+      ) : null}
+
+      {roomMove ? (
+        <TouchableOpacity
+          style={[styles.scheduleBanner, styles.moveBanner]}
+          onPress={() => navigation.navigate('ParentRoomMove', {
+            transitionId: roomMove.id,
+            childId: roomMove.child_id,
+          })}
+          activeOpacity={0.75}
+          accessibilityRole="button"
+        >
+          <Text style={styles.scheduleIcon}>🎒</Text>
+          <View style={styles.scheduleCopy}>
+            <Text style={styles.scheduleEyebrow}>ROOM MOVE PLAN</Text>
+            <Text style={styles.scheduleTitle}>
+              {selectedChild.first_name} is moving to {roomMove.to_room_name}
+            </Text>
+            <Text style={styles.scheduleBody}>
+              Move day {format(new Date(`${roomMove.move_on}T12:00:00`), 'MMM d')} · See the transition plan
+            </Text>
+          </View>
+          <Text style={styles.scheduleChevron}>›</Text>
+        </TouchableOpacity>
+      ) : null}
 
       {/* Date navigation */}
       <View style={styles.dateNav}>
@@ -339,6 +460,13 @@ export default function ParentHomeScreen({ navigation }) {
               {attendanceRec.checked_out_at && ` · Left ${format(new Date(attendanceRec.checked_out_at), 'h:mm a')}`}
             </Text>
           )}
+          {attendanceRec?.status === 'absent' && (
+            <Text style={styles.absenceText}>
+              🗓️ Absent · {attendanceRec.absence_reason
+                ? attendanceRec.absence_reason.charAt(0).toUpperCase() + attendanceRec.absence_reason.slice(1)
+                : 'Reported'}
+            </Text>
+          )}
         </View>
         {hasMoods && (
           <Text style={styles.moodDisplay}>
@@ -349,6 +477,26 @@ export default function ParentHomeScreen({ navigation }) {
 
       {/* Quick actions */}
       <View style={styles.actionRow}>
+        <TouchableOpacity
+          style={[styles.actionBtn, attendanceRec?.status === 'absent' && styles.actionBtnHighlighted]}
+          onPress={() => navigation.navigate('ReportAbsence', { child: selectedChild })}
+          activeOpacity={0.7}
+        >
+          <Text style={styles.actionIcon}>🗓️</Text>
+          <Text style={styles.actionText}>
+            {attendanceRec?.absence_report_id ? 'Manage absence' : 'Report absence'}
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.actionBtn, pendingIncidents.length > 0 && styles.incidentActionHighlighted]}
+          onPress={() => navigation.navigate('ParentIncidents', { child: selectedChild, childId: selectedChild?.id })}
+          activeOpacity={0.7}
+        >
+          <Text style={styles.actionIcon}>🩹</Text>
+          <Text style={styles.actionText}>
+            {pendingIncidents.length ? `Review incident${pendingIncidents.length > 1 ? 's' : ''}` : 'Incident reports'}
+          </Text>
+        </TouchableOpacity>
         <TouchableOpacity
           style={styles.actionBtn}
           onPress={() => navigation.navigate('WeeklySummary', {
@@ -370,6 +518,16 @@ export default function ParentHomeScreen({ navigation }) {
         >
           <Text style={styles.actionIcon}>💬</Text>
           <Text style={styles.actionText}>Message educator</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.actionBtn}
+          onPress={() => navigation.navigate('PickupPass', {
+            child: selectedChild,
+          })}
+          activeOpacity={0.7}
+        >
+          <Text style={styles.actionIcon}>🔐</Text>
+          <Text style={styles.actionText}>Pickup pass</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.actionBtn}
@@ -510,7 +668,10 @@ function calcDuration(start, end) {
   if (!start || !end) return '';
   const [sh, sm] = start.split(':').map(Number);
   const [eh, em] = end.split(':').map(Number);
-  const mins = (eh * 60 + em) - (sh * 60 + sm);
+  const startMins = sh * 60 + sm;
+  let endMins = eh * 60 + em;
+  if (endMins < startMins) endMins += 24 * 60;
+  const mins = endMins - startMins;
   if (mins < 60) return `${mins}m`;
   return `${Math.floor(mins / 60)}h ${mins % 60}m`;
 }
@@ -518,6 +679,54 @@ function calcDuration(start, end) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
   content: { padding: spacing.lg },
+  pageHeader: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    marginBottom: spacing.lg,
+  },
+  pageEyebrow: { color: colors.textFaint, fontSize: 10.5, fontWeight: '700', letterSpacing: 0.8 },
+  pageTitle: { marginTop: 2, color: colors.textPrimary, fontSize: 24, fontWeight: '700' },
+  notificationButton: {
+    width: 46, height: 46, borderRadius: 23, alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1.5, borderColor: colors.border, backgroundColor: colors.surface,
+  },
+  notificationBadge: {
+    position: 'absolute', top: -3, right: -3, minWidth: 19, height: 19,
+    borderRadius: 10, alignItems: 'center', justifyContent: 'center',
+    paddingHorizontal: 4, borderWidth: 2, borderColor: colors.bg, backgroundColor: colors.danger,
+  },
+  notificationBadgeText: { color: colors.white, fontSize: 9, fontWeight: '700' },
+  loadErrorWrap: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.bg,
+    padding: spacing.xxl,
+  },
+  loadErrorTitle: { fontSize: 20, fontWeight: '700', color: colors.textPrimary, textAlign: 'center' },
+  loadErrorText: {
+    marginTop: spacing.sm,
+    color: colors.textMuted,
+    fontSize: 14,
+    lineHeight: 20,
+    textAlign: 'center',
+  },
+  retryButton: {
+    marginTop: spacing.lg,
+    borderRadius: radius.full,
+    backgroundColor: colors.primary,
+    paddingHorizontal: spacing.xl,
+    paddingVertical: spacing.md,
+  },
+  retryButtonText: { color: colors.white, fontSize: 14, fontWeight: '700' },
+  inlineError: {
+    marginBottom: spacing.md,
+    borderWidth: 1,
+    borderColor: `${colors.danger}44`,
+    borderRadius: radius.md,
+    backgroundColor: colors.dangerLight,
+    padding: spacing.md,
+  },
+  inlineErrorText: { color: colors.danger, fontSize: 12.5, lineHeight: 18, fontWeight: '500' },
   childTabs: { marginBottom: spacing.md },
   childTab: {
     paddingHorizontal: spacing.lg,
@@ -555,12 +764,14 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.primary + '33',
   },
-  actionRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.md },
+  actionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.md },
   actionBtn: {
-    flex: 1, backgroundColor: colors.surface,
+    flexGrow: 1, flexBasis: '46%', backgroundColor: colors.surface,
     borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border,
     padding: spacing.md, alignItems: 'center', gap: spacing.xs,
   },
+  actionBtnHighlighted: { borderColor: colors.amber, backgroundColor: colors.amberLight },
+  incidentActionHighlighted: { borderColor: colors.danger, backgroundColor: colors.dangerLight },
   actionIcon: { fontSize: 22 },
   actionText: { fontSize: 12, color: colors.textSecondary, fontWeight: '500', textAlign: 'center' },
   heroName: { fontSize: 20, fontWeight: '700', color: colors.primaryDark, marginBottom: spacing.xs },
@@ -640,4 +851,22 @@ const styles = StyleSheet.create({
 
   // Attendance
   attendanceText: { fontSize: 12, color: colors.primaryDark, marginTop: spacing.sm, fontWeight: '500' },
+  absenceText: { fontSize: 12, color: colors.amber, marginTop: spacing.sm, fontWeight: '700' },
+  scheduleBanner: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.md,
+    borderRadius: radius.lg, borderWidth: 1.5,
+    padding: spacing.md, marginBottom: spacing.md,
+  },
+  closureBanner: { backgroundColor: '#FFFDF8', borderColor: '#EFD9B5' },
+  moveBanner: { backgroundColor: colors.primaryLight, borderColor: `${colors.primary}33` },
+  scheduleIcon: { fontSize: 25 },
+  scheduleCopy: { flex: 1, minWidth: 0 },
+  scheduleEyebrow: {
+    color: colors.textFaint, fontSize: 10, fontWeight: '700', letterSpacing: 0.6,
+  },
+  scheduleTitle: {
+    color: colors.textPrimary, fontSize: 14.5, fontWeight: '700', marginTop: 2,
+  },
+  scheduleBody: { color: colors.textMuted, fontSize: 12, lineHeight: 17, marginTop: 2 },
+  scheduleChevron: { color: colors.textFaint, fontSize: 24 },
 });

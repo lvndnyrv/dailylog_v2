@@ -31,6 +31,11 @@ export interface DelegationActionState {
   ok?: boolean;
 }
 
+export interface CredentialReviewActionState {
+  error?: string;
+  ok?: boolean;
+}
+
 function str(formData: FormData, key: string): string {
   return String(formData.get(key) ?? "").trim();
 }
@@ -193,8 +198,12 @@ export async function updateStaffAction(
       job_title: str(formData, "job_title") || null,
       employment_type: str(formData, "employment_type") || null,
       started_on: str(formData, "started_on") || null,
-      certifications,
     });
+    const { error: credentialError } = await supabase.rpc(
+      "replace_admin_staff_credentials",
+      { p_staff_member_id: staffId, p_credentials: certifications },
+    );
+    if (credentialError) throw credentialError;
   } catch (err) {
     return { error: err instanceof Error ? err.message : "Could not save changes." };
   }
@@ -202,6 +211,41 @@ export async function updateStaffAction(
   revalidatePath(`/staff/${staffId}`);
   revalidatePath("/staff");
   return { ok: true };
+}
+
+export async function reviewCredentialSubmissionAction(
+  _prev: CredentialReviewActionState,
+  formData: FormData,
+): Promise<CredentialReviewActionState> {
+  const submissionId = str(formData, "submission_id");
+  const decision = str(formData, "decision");
+  const reviewNotes = str(formData, "review_notes");
+
+  if (!UUID.test(submissionId)) return { error: "Invalid credential submission." };
+  if (!['approved', 'rejected'].includes(decision)) {
+    return { error: "Choose approve or request changes." };
+  }
+  if (decision === 'rejected' && !reviewNotes) {
+    return { error: "Add a note explaining what the educator needs to correct." };
+  }
+
+  try {
+    const { supabase } = await requireStaffPermission("approve");
+    const { error } = await supabase.rpc("review_staff_credential_submission", {
+      p_submission_id: submissionId,
+      p_decision: decision,
+      ...(reviewNotes ? { p_review_notes: reviewNotes } : {}),
+    });
+    if (error) throw error;
+    revalidatePath("/staff");
+    revalidatePath("/compliance");
+    revalidatePath("/dashboard");
+    return { ok: true };
+  } catch (error) {
+    return {
+      error: error instanceof Error ? error.message : "Could not review the renewal.",
+    };
+  }
 }
 
 export async function deactivateStaffAction(formData: FormData): Promise<void> {
@@ -224,7 +268,6 @@ export async function approveTimeEntriesAction(
       const { error } = await supabase.rpc("approve_time_entry", {
         p_entry_id: entryId,
         p_approved: true,
-        p_notes: null,
       });
       if (error) throw error;
     }

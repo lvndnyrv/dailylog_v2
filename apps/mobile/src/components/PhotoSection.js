@@ -7,6 +7,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
+import { getPhotoConsentStatuses } from '../hooks/useStaffVisibility';
 import { colors, spacing, radius } from '../theme';
 
 export function PhotoSection({ logId, childId, readOnly = false }) {
@@ -15,6 +16,8 @@ export function PhotoSection({ logId, childId, readOnly = false }) {
   const [uploading, setUploading] = useState(false);
   const [preview, setPreview] = useState(null); // full-screen preview URL
   const [failedIds, setFailedIds] = useState(new Set());
+  const [photoAllowed, setPhotoAllowed] = useState(readOnly);
+  const [checkingConsent, setCheckingConsent] = useState(!readOnly);
 
   useEffect(() => {
     if (!logId) return;
@@ -31,6 +34,30 @@ export function PhotoSection({ logId, childId, readOnly = false }) {
 
     return () => supabase.removeChannel(channel);
   }, [logId]);
+
+  useEffect(() => {
+    let active = true;
+    async function checkConsent() {
+      if (readOnly || !childId) {
+        if (active) {
+          setPhotoAllowed(Boolean(readOnly));
+          setCheckingConsent(false);
+        }
+        return;
+      }
+      setCheckingConsent(true);
+      try {
+        const rows = await getPhotoConsentStatuses([childId]);
+        if (active) setPhotoAllowed(Boolean(rows?.find((row) => row.child_id === childId)?.allowed));
+      } catch {
+        if (active) setPhotoAllowed(false);
+      } finally {
+        if (active) setCheckingConsent(false);
+      }
+    }
+    checkConsent();
+    return () => { active = false; };
+  }, [childId, readOnly]);
 
   async function loadPhotos() {
     const { data } = await supabase
@@ -55,6 +82,13 @@ export function PhotoSection({ logId, childId, readOnly = false }) {
   }
 
   async function handlePickPhoto() {
+    if (!photoAllowed) {
+      Alert.alert(
+        'Photo permission required',
+        'This family has declined photo sharing or has not answered yet. New photos are blocked until the parent allows them.',
+      );
+      return;
+    }
     // Request permission
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
@@ -104,6 +138,7 @@ export function PhotoSection({ logId, childId, readOnly = false }) {
     let failCount = 0;
 
     for (const uri of uris) {
+      let uploadedPath = null;
       try {
         const manipResult = await ImageManipulator.manipulateAsync(
           uri,
@@ -120,6 +155,7 @@ export function PhotoSection({ logId, childId, readOnly = false }) {
           .upload(path, arrayBuffer, { contentType: 'image/jpeg', upsert: false });
 
         if (uploadError) throw uploadError;
+        uploadedPath = path;
 
         const { error: dbError } = await supabase.from('photos').insert({
           daily_log_id: logId,
@@ -130,6 +166,9 @@ export function PhotoSection({ logId, childId, readOnly = false }) {
         if (dbError) throw dbError;
         successCount++;
       } catch (err) {
+        if (uploadedPath) {
+          await supabase.storage.from('daily-log-photos').remove([uploadedPath]);
+        }
         failCount++;
       }
     }
@@ -146,6 +185,7 @@ export function PhotoSection({ logId, childId, readOnly = false }) {
 
   async function uploadPhoto(uri) {
     setUploading(true);
+    let uploadedPath = null;
     try {
       // Resize to max 1200px wide to keep storage lean
       const manipResult = await ImageManipulator.manipulateAsync(
@@ -165,6 +205,7 @@ export function PhotoSection({ logId, childId, readOnly = false }) {
         .upload(path, arrayBuffer, { contentType: 'image/jpeg', upsert: false });
 
       if (uploadError) throw uploadError;
+      uploadedPath = path;
 
       // Save metadata
       const { error: dbError } = await supabase.from('photos').insert({
@@ -177,6 +218,9 @@ export function PhotoSection({ logId, childId, readOnly = false }) {
 
       await loadPhotos();
     } catch (err) {
+      if (uploadedPath) {
+        await supabase.storage.from('daily-log-photos').remove([uploadedPath]);
+      }
       Alert.alert('Upload failed', err.message);
     }
     setUploading(false);
@@ -193,7 +237,7 @@ export function PhotoSection({ logId, childId, readOnly = false }) {
     <View style={styles.section}>
       <View style={styles.sectionHeader}>
         <Text style={styles.sectionTitle}>📷  Photos</Text>
-        {!readOnly && (
+        {!readOnly && photoAllowed && (
           <TouchableOpacity
             onPress={handlePickPhoto}
             disabled={uploading}
@@ -208,7 +252,24 @@ export function PhotoSection({ logId, childId, readOnly = false }) {
         )}
       </View>
 
-      {photos.length === 0 && !readOnly && (
+      {!readOnly && checkingConsent && (
+        <View style={styles.consentChecking}>
+          <ActivityIndicator color={colors.primary} size="small" />
+          <Text style={styles.consentCheckingText}>Checking photo permission…</Text>
+        </View>
+      )}
+
+      {!readOnly && !checkingConsent && !photoAllowed && (
+        <View style={styles.consentBlocked}>
+          <Text style={styles.consentBlockedIcon}>🛡️</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.consentBlockedTitle}>Photo uploads restricted</Text>
+            <Text style={styles.consentBlockedText}>The family declined photo consent or has not answered yet.</Text>
+          </View>
+        </View>
+      )}
+
+      {photos.length === 0 && !readOnly && photoAllowed && !checkingConsent && (
         <TouchableOpacity onPress={handlePickPhoto} style={styles.emptyBtn} disabled={uploading}>
           <Text style={styles.emptyIcon}>📷</Text>
           <Text style={styles.emptyText}>Tap to add a photo</Text>
@@ -250,7 +311,7 @@ export function PhotoSection({ logId, childId, readOnly = false }) {
             </View>
           ))}
 
-          {!readOnly && (
+          {!readOnly && photoAllowed && !checkingConsent && (
             <TouchableOpacity onPress={handlePickPhoto} style={styles.addThumb} disabled={uploading}>
               {uploading
                 ? <ActivityIndicator color={colors.primary} />
@@ -289,6 +350,18 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: colors.primary + '44',
   },
   addPhotoBtnText: { fontSize: 13, color: colors.primary, fontWeight: '600' },
+  consentChecking: {
+    minHeight: 58, flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
+    paddingHorizontal: spacing.md, borderRadius: radius.md, backgroundColor: colors.primarySoft,
+  },
+  consentCheckingText: { flex: 1, fontSize: 12.5, color: colors.textMuted },
+  consentBlocked: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.md,
+    padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.dangerLight,
+  },
+  consentBlockedIcon: { fontSize: 22 },
+  consentBlockedTitle: { fontSize: 13.5, color: colors.danger, fontWeight: '700' },
+  consentBlockedText: { marginTop: 2, fontSize: 11.5, lineHeight: 17, color: colors.textMuted },
   emptyBtn: {
     borderWidth: 1.5, borderStyle: 'dashed', borderColor: colors.border,
     borderRadius: radius.md, padding: spacing.xl,

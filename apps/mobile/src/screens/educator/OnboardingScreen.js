@@ -1,259 +1,751 @@
 import React, { useState } from 'react';
+import { isAdminRole } from '@dailylog/shared';
 import {
-  View, Text, StyleSheet, TouchableOpacity, Alert
+  Alert,
+  Modal,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 import { useAuth } from '../../hooks/useAuth';
 import { supabase } from '../../lib/supabase';
-import { Input, Button } from '../../components/ui';
-import { DatePickerField } from '../../components/DatePickerField';
-import { colors, spacing, radius } from '../../theme';
+import { Button, Input } from '../../components/ui';
+import { colors, fonts, radius, spacing } from '../../theme';
 
-const STEPS = ['Daycare', 'Classroom', 'Children'];
+const ROOM_AGE_GROUPS = [
+  'Infant · 0–18 months',
+  'Toddler · 18 months–3 years',
+  'Preschool · 3–4 years',
+  'Kindergarten · 4–6 years',
+  'Mixed ages',
+];
 
-function StepIndicator({ current }) {
+const DEFAULT_ROOMS = [
+  { id: 'setup-preschool', name: 'Preschool', age_group: '3–4 years' },
+  { id: 'setup-toddler', name: 'Toddler', age_group: '18 months–3 years' },
+];
+
+function ProgressHeader({ step, onBack }) {
   return (
-    <View style={styles.stepRow}>
-      {STEPS.map((label, i) => (
-        <React.Fragment key={label}>
-          <View style={styles.stepItem}>
-            <View style={[styles.stepDot, i <= current && styles.stepDotActive]}>
-              {i < current
-                ? <Text style={styles.stepCheck}>✓</Text>
-                : <Text style={[styles.stepNum, i === current && styles.stepNumActive]}>{i + 1}</Text>
-              }
-            </View>
-            <Text style={[styles.stepLabel, i === current && styles.stepLabelActive]}>{label}</Text>
-          </View>
-          {i < STEPS.length - 1 && (
-            <View style={[styles.stepLine, i < current && styles.stepLineActive]} />
-          )}
-        </React.Fragment>
-      ))}
+    <View style={styles.progressHeader}>
+      <TouchableOpacity
+        onPress={onBack}
+        style={styles.backButton}
+        accessibilityRole="button"
+        accessibilityLabel={step === 0 ? 'Exit setup' : 'Previous step'}
+      >
+        <Ionicons name="chevron-back" size={22} color={colors.textPrimary} />
+      </TouchableOpacity>
+      <View style={styles.progressTrack}>
+        <View style={[styles.progressFill, { width: `${(step + 1) * 25}%` }]} />
+      </View>
+      <Text style={styles.progressLabel}>{step + 1}/4</Text>
     </View>
   );
 }
 
-// ─── STEP 1: DAYCARE ─────────────────────────────────────────────────────────
-function StepDaycare({ onNext }) {
-  const [name, setName]       = useState('');
-  const [address, setAddress] = useState('');
-  const [phone, setPhone]     = useState('');
-  const [saving, setSaving]   = useState(false);
-
-  async function handleNext() {
-    if (!name.trim()) {
-      Alert.alert('Required', 'Please enter the daycare name.');
-      return;
-    }
-    setSaving(true);
-    const { data, error } = await supabase
-      .from('daycares')
-      .insert({ name: name.trim(), address: address.trim(), phone: phone.trim() })
-      .select()
-      .single();
-    setSaving(false);
-    if (error) { Alert.alert('Error', error.message); return; }
-    onNext({ daycareId: data.id, daycareName: data.name });
-  }
-
+function WizardFrame({ step, onBack, children }) {
   return (
-    <View style={styles.stepCard}>
-      <Text style={styles.stepEmoji}>🏫</Text>
-      <Text style={styles.stepTitle}>Your daycare</Text>
-      <Text style={styles.stepDesc}>Tell us about the daycare centre you work at.</Text>
-      <Input label="Daycare name *" value={name} onChangeText={setName} placeholder="e.g. Smart Kid South Newmarket" />
-      <Input label="Address" value={address} onChangeText={setAddress} placeholder="e.g. 123 Main St, Newmarket, ON" />
-      <Input label="Phone" value={phone} onChangeText={setPhone} placeholder="e.g. 905-555-0100" keyboardType="phone-pad" />
-      <Button label="Next →" onPress={handleNext} loading={saving} style={{ marginTop: spacing.sm }} />
+    <SafeAreaView style={styles.screen} edges={['top', 'left', 'right']}>
+      <ProgressHeader step={step} onBack={onBack} />
+      <KeyboardAwareScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.wizardContent}
+        keyboardShouldPersistTaps="handled"
+        enableOnAndroid
+        extraScrollHeight={24}
+        showsVerticalScrollIndicator={false}
+      >
+        {children}
+      </KeyboardAwareScrollView>
+    </SafeAreaView>
+  );
+}
+
+function WizardTitle({ title, description }) {
+  return (
+    <View style={styles.titleBlock}>
+      <Text style={styles.wizardTitle}>{title}</Text>
+      <Text style={styles.wizardDescription}>{description}</Text>
     </View>
   );
 }
 
-// ─── STEP 2: CLASSROOM ────────────────────────────────────────────────────────
-function StepClassroom({ daycareId, onNext, onBack }) {
-  const { profile, user, fetchProfile } = useAuth();
-  const [name, setName]         = useState('Room 1');
+function BottomActions({ hint, primaryLabel, onPrimary, loading, skipLabel, onSkip }) {
+  return (
+    <View style={styles.bottomActions}>
+      <Text style={styles.nextHint}>{hint}</Text>
+      <Button label={primaryLabel} onPress={onPrimary} loading={loading} />
+      {skipLabel ? (
+        <TouchableOpacity
+          onPress={onSkip}
+          style={styles.skipButton}
+          accessibilityRole="button"
+        >
+          <Text style={styles.skipText}>{skipLabel}</Text>
+        </TouchableOpacity>
+      ) : null}
+    </View>
+  );
+}
+
+function InlineError({ children }) {
+  if (!children) return null;
+  return (
+    <View style={styles.inlineError}>
+      <Ionicons name="warning-outline" size={15} color={colors.danger} />
+      <Text style={styles.inlineErrorText}>{children}</Text>
+    </View>
+  );
+}
+
+function CenterNameStep({ value, onChange, onContinue, error, onBack }) {
+  return (
+    <WizardFrame step={0} onBack={onBack}>
+      <WizardTitle
+        title="What's your daycare called?"
+        description="This is what parents and educators will see everywhere in the app."
+      />
+      <Input
+        value={value}
+        onChangeText={onChange}
+        placeholder="e.g. Smart Kid South Newmarket"
+        autoCapitalize="words"
+        autoCorrect={false}
+        error={error}
+        returnKeyType="next"
+        onSubmitEditing={onContinue}
+      />
+      <BottomActions
+        hint="Next: address · classrooms · invite educators"
+        primaryLabel="Continue"
+        onPrimary={onContinue}
+      />
+    </WizardFrame>
+  );
+}
+
+function CenterAddressStep({
+  address,
+  phone,
+  onAddressChange,
+  onPhoneChange,
+  errors,
+  onContinue,
+  onBack,
+}) {
+  return (
+    <WizardFrame step={1} onBack={onBack}>
+      <WizardTitle
+        title="Where can families find you?"
+        description="Your center address and a phone number parents can call."
+      />
+      <Input
+        label="Address  (required)"
+        value={address}
+        onChangeText={onAddressChange}
+        placeholder="Street, city, province"
+        textContentType="fullStreetAddress"
+        autoComplete="street-address"
+        error={errors.address}
+      />
+      <Input
+        label="Center phone  (required)"
+        value={phone}
+        onChangeText={onPhoneChange}
+        placeholder="e.g. 905-555-0100"
+        keyboardType="phone-pad"
+        textContentType="telephoneNumber"
+        autoComplete="tel"
+        error={errors.phone}
+        returnKeyType="done"
+        onSubmitEditing={onContinue}
+      />
+      <BottomActions
+        hint="Next: classrooms · invite educators"
+        primaryLabel="Continue"
+        onPrimary={onContinue}
+      />
+    </WizardFrame>
+  );
+}
+
+function ClassroomCard({ room, onEdit }) {
+  return (
+    <TouchableOpacity
+      style={styles.roomCard}
+      onPress={onEdit}
+      activeOpacity={0.72}
+      accessibilityRole="button"
+      accessibilityLabel={`Edit ${room.name} classroom`}
+    >
+      <View style={styles.roomIcon}>
+        <Ionicons name="business-outline" size={19} color={colors.primary} />
+      </View>
+      <View style={styles.roomCopy}>
+        <Text style={styles.roomName}>{room.name}</Text>
+        <Text style={styles.roomAge}>{room.age_group || 'Age group not set'}</Text>
+      </View>
+      <Ionicons name="pencil-outline" size={18} color={colors.textFaint} />
+    </TouchableOpacity>
+  );
+}
+
+function ClassroomEditor({ visible, room, onClose, onSave, onRemove }) {
+  const [name, setName] = useState('');
   const [ageGroup, setAgeGroup] = useState('');
-  const [saving, setSaving]     = useState(false);
+  const [error, setError] = useState(null);
 
-  const AGE_GROUPS = ['Infant', 'Toddler', 'Preschool', 'Junior kindergarten', 'Senior kindergarten'];
+  React.useEffect(() => {
+    if (!visible) return;
+    setName(room?.name || '');
+    setAgeGroup(room?.age_group || '');
+    setError(null);
+  }, [room, visible]);
 
-  async function handleNext() {
+  function save() {
     if (!name.trim()) {
-      Alert.alert('Required', 'Please enter a classroom name.');
+      setError('Please enter a classroom name.');
       return;
     }
-    setSaving(true);
-
-    const { data: classroom, error } = await supabase
-      .from('classrooms')
-      .insert({ daycare_id: daycareId, name: name.trim(), age_group: ageGroup || null })
-      .select()
-      .single();
-
-    if (error) { setSaving(false); Alert.alert('Error', error.message); return; }
-
-    // Link educator profile to this daycare and classroom
-    const { error: profileError } = await supabase
-      .from('profiles')
-      .update({ daycare_id: daycareId, classroom_id: classroom.id })
-      .eq('id', profile.id);
-
-    if (profileError) { setSaving(false); Alert.alert('Error', profileError.message); return; }
-
-    await fetchProfile(user.id);
-    setSaving(false);
-    onNext({ classroomId: classroom.id });
+    onSave({
+      id: room?.id || `setup-${Date.now()}`,
+      name: name.trim(),
+      age_group: ageGroup,
+    });
   }
 
   return (
-    <View style={styles.stepCard}>
-      <Text style={styles.stepEmoji}>🚪</Text>
-      <Text style={styles.stepTitle}>Your classroom</Text>
-      <Text style={styles.stepDesc}>Name your classroom and select the age group you work with.</Text>
-
-      <Input label="Classroom name *" value={name} onChangeText={setName} placeholder="e.g. Room 1, Butterflies, Blue Room" />
-
-      <Text style={styles.fieldLabel}>Age group</Text>
-      <View style={styles.chipRow}>
-        {AGE_GROUPS.map(g => (
-          <TouchableOpacity
-            key={g}
-            onPress={() => setAgeGroup(g === ageGroup ? '' : g)}
-            style={[styles.chip, ageGroup === g && styles.chipSelected]}
-          >
-            <Text style={[styles.chipText, ageGroup === g && styles.chipTextSelected]}>{g}</Text>
+    <Modal
+      visible={visible}
+      animationType="slide"
+      presentationStyle="pageSheet"
+      onRequestClose={onClose}
+    >
+      <SafeAreaView style={styles.editorScreen}>
+        <View style={styles.editorHeader}>
+          <TouchableOpacity onPress={onClose} style={styles.editorHeaderAction}>
+            <Text style={styles.editorCancel}>Cancel</Text>
           </TouchableOpacity>
+          <Text style={styles.editorTitle}>
+            {room ? 'Edit classroom' : 'Add classroom'}
+          </Text>
+          <TouchableOpacity onPress={save} style={styles.editorHeaderAction}>
+            <Text style={styles.editorSave}>Save</Text>
+          </TouchableOpacity>
+        </View>
+        <KeyboardAwareScrollView
+          contentContainerStyle={styles.editorContent}
+          keyboardShouldPersistTaps="handled"
+        >
+          <Input
+            label="Classroom name"
+            value={name}
+            onChangeText={(next) => {
+              setName(next);
+              setError(null);
+            }}
+            placeholder="e.g. Preschool"
+            autoCapitalize="words"
+            error={error}
+          />
+          <Text style={styles.fieldLabel}>Age group</Text>
+          <View style={styles.ageOptions}>
+            {ROOM_AGE_GROUPS.map((option) => {
+              const [, label = option] = option.split(' · ');
+              const selected = ageGroup === label;
+              return (
+                <TouchableOpacity
+                  key={option}
+                  onPress={() => setAgeGroup(label)}
+                  style={[styles.ageOption, selected && styles.ageOptionSelected]}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected }}
+                >
+                  <Text style={[styles.ageOptionText, selected && styles.ageOptionTextSelected]}>
+                    {option}
+                  </Text>
+                  {selected ? (
+                    <Ionicons name="checkmark-circle" size={20} color={colors.primary} />
+                  ) : null}
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+          {room ? (
+            <TouchableOpacity onPress={onRemove} style={styles.removeRoomButton}>
+              <Text style={styles.removeRoomText}>Remove classroom</Text>
+            </TouchableOpacity>
+          ) : null}
+        </KeyboardAwareScrollView>
+      </SafeAreaView>
+    </Modal>
+  );
+}
+
+function ClassroomsStep({
+  rooms,
+  onAdd,
+  onEdit,
+  onContinue,
+  onSkip,
+  onBack,
+  error,
+}) {
+  return (
+    <WizardFrame step={2} onBack={onBack}>
+      <WizardTitle
+        title="Add your classrooms"
+        description="Group children by room or age. You can add or rename these anytime."
+      />
+      <View style={styles.roomList}>
+        {rooms.map((room) => (
+          <ClassroomCard key={room.id} room={room} onEdit={() => onEdit(room)} />
+        ))}
+        <TouchableOpacity
+          style={styles.addRoomCard}
+          onPress={onAdd}
+          accessibilityRole="button"
+        >
+          <View style={styles.addRoomIcon}>
+            <Ionicons name="add" size={17} color={colors.primary} />
+          </View>
+          <Text style={styles.addRoomText}>Add classroom</Text>
+        </TouchableOpacity>
+      </View>
+      <InlineError>{error}</InlineError>
+      <BottomActions
+        hint="Next: invite educators"
+        primaryLabel="Continue"
+        onPrimary={onContinue}
+        skipLabel="Skip — add classrooms later"
+        onSkip={onSkip}
+      />
+    </WizardFrame>
+  );
+}
+
+function initialsFromEmail(email) {
+  return email
+    .split('@')[0]
+    .split(/[._-]+/)
+    .slice(0, 2)
+    .map((part) => part.charAt(0))
+    .join('')
+    .toUpperCase() || '?';
+}
+
+function EducatorInvitesStep({
+  email,
+  emails,
+  onEmailChange,
+  onAdd,
+  onRemove,
+  onFinish,
+  onSkip,
+  onBack,
+  emailError,
+  finishError,
+  loading,
+}) {
+  return (
+    <WizardFrame step={3} onBack={onBack}>
+      <WizardTitle
+        title="Invite your educators"
+        description="They'll get an email to join and set their own password. You can invite more later."
+      />
+      <Text style={styles.fieldLabel}>Educator email</Text>
+      <View style={styles.inviteComposer}>
+        <View style={styles.inviteInputWrap}>
+          <Input
+            value={email}
+            onChangeText={onEmailChange}
+            placeholder="educator@email.com"
+            keyboardType="email-address"
+            autoCapitalize="none"
+            autoCorrect={false}
+            textContentType="emailAddress"
+            autoComplete="email"
+            returnKeyType="done"
+            onSubmitEditing={onAdd}
+            style={styles.inviteInput}
+          />
+        </View>
+        <TouchableOpacity
+          onPress={onAdd}
+          style={styles.addInviteButton}
+          accessibilityRole="button"
+        >
+          <Text style={styles.addInviteText}>Add</Text>
+        </TouchableOpacity>
+      </View>
+      <InlineError>{emailError}</InlineError>
+
+      <View style={styles.inviteList}>
+        {emails.map((inviteEmail) => (
+          <View key={inviteEmail} style={styles.inviteCard}>
+            <View style={styles.inviteAvatar}>
+              <Text style={styles.inviteAvatarText}>{initialsFromEmail(inviteEmail)}</Text>
+            </View>
+            <View style={styles.inviteCopy}>
+              <Text style={styles.inviteEmail} numberOfLines={1}>{inviteEmail}</Text>
+              <Text style={styles.inviteMeta}>Educator · invite ready</Text>
+            </View>
+            <TouchableOpacity onPress={() => onRemove(inviteEmail)}>
+              <Text style={styles.removeInviteText}>Remove</Text>
+            </TouchableOpacity>
+          </View>
         ))}
       </View>
+      <InlineError>{finishError}</InlineError>
 
-      <View style={styles.btnRow}>
-        <Button label="← Back" onPress={onBack} variant="ghost" style={{ flex: 1 }} />
-        <Button label="Next →" onPress={handleNext} loading={saving} style={{ flex: 2 }} />
-      </View>
-    </View>
+      <BottomActions
+        hint="You can skip and invite educators from Settings later."
+        primaryLabel="Finish setup"
+        onPrimary={onFinish}
+        loading={loading}
+        skipLabel="Skip — invite later"
+        onSkip={onSkip}
+      />
+    </WizardFrame>
   );
 }
 
-// ─── STEP 3: CHILDREN ────────────────────────────────────────────────────────
-function ChildRow({ child, index, onChange, onRemove }) {
+function SetupComplete({ summary, onDashboard, loading }) {
   return (
-    <View style={styles.childRow}>
-      <View style={styles.childRowHeader}>
-        <Text style={styles.childRowNum}>Child {index + 1}</Text>
-        {index > 0 && (
-          <TouchableOpacity onPress={onRemove}>
-            <Text style={styles.childRowRemove}>Remove</Text>
-          </TouchableOpacity>
-        )}
+    <SafeAreaView style={styles.successScreen}>
+      <View style={styles.successContent}>
+        <View style={styles.successIcon}>
+          <Ionicons name="checkmark" size={44} color={colors.success} />
+        </View>
+        <Text style={styles.successTitle}>You're all set!</Text>
+        <Text style={styles.successDescription}>
+          {summary.daycare_name} is ready.
+          {summary.invite_count
+            ? ' Educators you invited will get an email to join.'
+            : ' You can invite educators anytime from Settings.'}
+        </Text>
+
+        <View style={styles.summaryCard}>
+          <View style={styles.summaryRow}>
+            <View style={styles.summaryIcon}>
+              <Ionicons name="business-outline" size={18} color={colors.primary} />
+            </View>
+            <Text style={styles.summaryText}>
+              {summary.classroom_count} {summary.classroom_count === 1 ? 'classroom' : 'classrooms'}
+            </Text>
+          </View>
+          <View style={styles.summaryDivider} />
+          <View style={styles.summaryRow}>
+            <View style={styles.summaryIcon}>
+              <Ionicons name="person-outline" size={18} color={colors.primary} />
+            </View>
+            <Text style={styles.summaryText}>
+              {summary.invite_count} {summary.invite_count === 1 ? 'educator invited' : 'educators invited'}
+            </Text>
+          </View>
+        </View>
+
+        <Button
+          label="Go to dashboard"
+          onPress={onDashboard}
+          loading={loading}
+          style={styles.dashboardButton}
+        />
       </View>
-      <Input
-        label="First name *"
-        value={child.firstName}
-        onChangeText={v => onChange({ ...child, firstName: v })}
-        placeholder="e.g. Emma"
-      />
-      <Input
-        label="Last name"
-        value={child.lastName}
-        onChangeText={v => onChange({ ...child, lastName: v })}
-        placeholder="e.g. Smith"
-      />
-      <DatePickerField
-        label="Date of birth (optional)"
-        value={child.dob}
-        onChange={v => onChange({ ...child, dob: v })}
-      />
-    </View>
+    </SafeAreaView>
   );
 }
 
-function StepChildren({ classroomId, onFinish, onBack }) {
-  const [children, setChildren] = useState([{ firstName: '', lastName: '', dob: '' }]);
-  const [saving, setSaving]     = useState(false);
+function CenterSetupWizard() {
+  const { user, fetchProfile, signOut } = useAuth();
+  const registrationCode = user?.user_metadata?.center_registration_code || '';
+  const [step, setStep] = useState(0);
+  const [name, setName] = useState('');
+  const [address, setAddress] = useState('');
+  const [phone, setPhone] = useState('');
+  const [rooms, setRooms] = useState(DEFAULT_ROOMS);
+  const [educatorEmail, setEducatorEmail] = useState('');
+  const [educatorEmails, setEducatorEmails] = useState([]);
+  const [errors, setErrors] = useState({});
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [editingRoom, setEditingRoom] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [openingDashboard, setOpeningDashboard] = useState(false);
+  const [summary, setSummary] = useState(null);
 
-  function addChild() {
-    setChildren(prev => [...prev, { firstName: '', lastName: '', dob: '' }]);
+  function back() {
+    if (step > 0) {
+      setErrors({});
+      setStep((current) => current - 1);
+      return;
+    }
+    Alert.alert(
+      'Exit center setup?',
+      'Your setup details are not saved yet.',
+      [
+        { text: 'Keep setting up', style: 'cancel' },
+        { text: 'Exit', style: 'destructive', onPress: signOut },
+      ]
+    );
   }
 
-  function updateChild(index, updated) {
-    setChildren(prev => prev.map((c, i) => i === index ? updated : c));
+  function continueName() {
+    if (name.trim().length < 2) {
+      setErrors({ name: 'Please enter your daycare name.' });
+      return;
+    }
+    setErrors({});
+    setStep(1);
   }
 
-  function removeChild(index) {
-    setChildren(prev => prev.filter((_, i) => i !== index));
+  function continueAddress() {
+    const nextErrors = {};
+    if (!address.trim()) nextErrors.address = 'Please enter your center address.';
+    const phoneDigits = phone.replace(/\D/g, '');
+    if (phoneDigits.length < 7) nextErrors.phone = 'Please enter a valid center phone.';
+    if (Object.keys(nextErrors).length) {
+      setErrors(nextErrors);
+      return;
+    }
+    setErrors({});
+    setStep(2);
   }
 
-  async function handleFinish() {
-    const valid = children.filter(c => c.firstName.trim());
-    if (!valid.length) {
-      Alert.alert('Required', 'Please add at least one child.');
+  function continueRooms() {
+    const names = rooms.map((room) => room.name.trim().toLowerCase());
+    if (new Set(names).size !== names.length) {
+      setErrors({ rooms: 'Each classroom needs a unique name.' });
+      return;
+    }
+    setErrors({});
+    setStep(3);
+  }
+
+  function openRoomEditor(room = null) {
+    setEditingRoom(room);
+    setEditorOpen(true);
+  }
+
+  function saveRoom(room) {
+    const duplicate = rooms.some(
+      (candidate) => candidate.id !== room.id
+        && candidate.name.trim().toLowerCase() === room.name.trim().toLowerCase()
+    );
+    if (duplicate) {
+      setErrors({ rooms: 'Each classroom needs a unique name.' });
+      setEditorOpen(false);
+      return;
+    }
+    setRooms((current) => (
+      current.some((candidate) => candidate.id === room.id)
+        ? current.map((candidate) => candidate.id === room.id ? room : candidate)
+        : [...current, room]
+    ));
+    setErrors({});
+    setEditorOpen(false);
+  }
+
+  function removeEditingRoom() {
+    setRooms((current) => current.filter((room) => room.id !== editingRoom?.id));
+    setErrors({});
+    setEditorOpen(false);
+  }
+
+  function addEducatorEmail() {
+    const normalized = educatorEmail.trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)) {
+      setErrors((current) => ({
+        ...current,
+        educatorEmail: 'Please enter a valid educator email.',
+      }));
+      return;
+    }
+    if (educatorEmails.includes(normalized)) {
+      setErrors((current) => ({
+        ...current,
+        educatorEmail: 'That educator is already on your invite list.',
+      }));
+      return;
+    }
+    setEducatorEmails((current) => [...current, normalized]);
+    setEducatorEmail('');
+    setErrors((current) => ({ ...current, educatorEmail: null, finish: null }));
+  }
+
+  async function finishSetup(invites = educatorEmails) {
+    if (!registrationCode) {
+      setErrors((current) => ({
+        ...current,
+        finish: 'Your DailyLog center registration code is missing. Sign out and restart registration with the approved code.',
+      }));
       return;
     }
     setSaving(true);
-
-    const rows = valid.map(c => ({
-      classroom_id: classroomId,
-      first_name: c.firstName.trim(),
-      last_name: c.lastName.trim(),
-      date_of_birth: c.dob || null,
-    }));
-
-    const { error } = await supabase.from('children').insert(rows);
+    setErrors((current) => ({ ...current, finish: null }));
+    const { data, error } = await supabase.rpc('complete_center_setup', {
+      p_center_name: name.trim(),
+      p_address: address.trim(),
+      p_phone: phone.trim(),
+      p_classrooms: rooms.map(({ name: roomName, age_group }) => ({
+        name: roomName.trim(),
+        age_group: age_group || null,
+      })),
+      p_educator_emails: invites,
+      p_registration_code: registrationCode,
+    });
     setSaving(false);
 
-    if (error) { Alert.alert('Error', error.message); return; }
-    onFinish();
+    if (error) {
+      setErrors((current) => ({
+        ...current,
+        finish: error.message || 'Center setup could not be completed.',
+      }));
+      return;
+    }
+    setSummary(data);
   }
 
-  return (
-    <View style={styles.stepCard}>
-      <Text style={styles.stepEmoji}>👧</Text>
-      <Text style={styles.stepTitle}>Add children</Text>
-      <Text style={styles.stepDesc}>Add the children in your classroom. You can always add more later from the Manage screen.</Text>
+  async function goToDashboard() {
+    setOpeningDashboard(true);
+    const { error } = await supabase.auth.updateUser({
+      data: {
+        setup_center_pending: false,
+        center_registration_code: null,
+      },
+    });
+    if (error) {
+      setOpeningDashboard(false);
+      Alert.alert('Could not open dashboard', error.message);
+      return;
+    }
+    await fetchProfile(user.id);
+  }
 
-      {children.map((child, i) => (
-        <ChildRow
-          key={i}
-          index={i}
-          child={child}
-          onChange={updated => updateChild(i, updated)}
-          onRemove={() => removeChild(i)}
+  if (summary) {
+    return (
+      <SetupComplete
+        summary={summary}
+        onDashboard={goToDashboard}
+        loading={openingDashboard}
+      />
+    );
+  }
+
+  if (step === 0) {
+    return (
+      <CenterNameStep
+        value={name}
+        onChange={(next) => {
+          setName(next);
+          setErrors({});
+        }}
+        onContinue={continueName}
+        error={errors.name}
+        onBack={back}
+      />
+    );
+  }
+  if (step === 1) {
+    return (
+      <CenterAddressStep
+        address={address}
+        phone={phone}
+        onAddressChange={(next) => {
+          setAddress(next);
+          setErrors((current) => ({ ...current, address: null }));
+        }}
+        onPhoneChange={(next) => {
+          setPhone(next);
+          setErrors((current) => ({ ...current, phone: null }));
+        }}
+        errors={errors}
+        onContinue={continueAddress}
+        onBack={back}
+      />
+    );
+  }
+  if (step === 2) {
+    return (
+      <>
+        <ClassroomsStep
+          rooms={rooms}
+          onAdd={() => openRoomEditor()}
+          onEdit={openRoomEditor}
+          onContinue={continueRooms}
+          onSkip={() => {
+            setRooms([]);
+            setErrors({});
+            setStep(3);
+          }}
+          onBack={back}
+          error={errors.rooms}
         />
-      ))}
-
-      <TouchableOpacity style={styles.addChildBtn} onPress={addChild}>
-        <Text style={styles.addChildBtnText}>+ Add another child</Text>
-      </TouchableOpacity>
-
-      <View style={styles.btnRow}>
-        <Button label="← Back" onPress={onBack} variant="ghost" style={{ flex: 1 }} />
-        <Button label="All done 🎉" onPress={handleFinish} loading={saving} style={{ flex: 2 }} />
-      </View>
-    </View>
+        <ClassroomEditor
+          visible={editorOpen}
+          room={editingRoom}
+          onClose={() => setEditorOpen(false)}
+          onSave={saveRoom}
+          onRemove={removeEditingRoom}
+        />
+      </>
+    );
+  }
+  return (
+    <EducatorInvitesStep
+      email={educatorEmail}
+      emails={educatorEmails}
+      onEmailChange={(next) => {
+        setEducatorEmail(next);
+        setErrors((current) => ({ ...current, educatorEmail: null, finish: null }));
+      }}
+      onAdd={addEducatorEmail}
+      onRemove={(inviteEmail) => (
+        setEducatorEmails((current) => current.filter((value) => value !== inviteEmail))
+      )}
+      onFinish={() => finishSetup()}
+      onSkip={() => {
+        setEducatorEmails([]);
+        finishSetup([]);
+      }}
+      onBack={back}
+      emailError={errors.educatorEmail}
+      finishError={errors.finish}
+      loading={saving}
+    />
   );
 }
 
-// ─── EDUCATOR: PICK OR CREATE CLASSROOM (invited flow) ───────────────────────
-// Invited educators already have daycare_id set by the staff-invite trigger.
-// They only need to pick their room (or create the first one).
-function StepPickClassroom({ daycareId, onCreateNew }) {
+function EducatorRoomPicker({ daycareId, onCreateNew }) {
   const { profile, user, fetchProfile } = useAuth();
-  const [rooms, setRooms]         = useState(null); // null = loading
-  const [error, setError]         = useState(null);
+  const [rooms, setRooms] = useState(null);
+  const [error, setError] = useState(null);
   const [selecting, setSelecting] = useState(false);
 
   React.useEffect(() => {
+    let active = true;
     async function load() {
-      const { data } = await supabase.rpc('get_daycare_classrooms', { p_daycare_id: daycareId });
+      const { data, error: roomError } = await supabase
+        .from('classrooms')
+        .select('id, name, age_group')
+        .eq('daycare_id', daycareId)
+        .is('archived_at', null)
+        .order('name');
+      if (!active) return;
+      setError(roomError?.message || null);
       setRooms(data || []);
     }
     load();
+    return () => { active = false; };
   }, [daycareId]);
 
   async function pickRoom(room) {
     setSelecting(true);
+    setError(null);
     const { error: updateError } = await supabase
       .from('profiles')
       .update({ classroom_id: room.id })
@@ -263,7 +755,7 @@ function StepPickClassroom({ daycareId, onCreateNew }) {
         { educator_id: profile.id, classroom_id: room.id },
         { onConflict: 'educator_id,classroom_id', ignoreDuplicates: true }
       );
-      await fetchProfile(user.id); // routes away from onboarding
+      await fetchProfile(user.id);
     } else {
       setError(updateError.message);
     }
@@ -271,252 +763,640 @@ function StepPickClassroom({ daycareId, onCreateNew }) {
   }
 
   return (
-    <View style={styles.stepCard}>
-      <Text style={styles.stepEmoji}>🚪</Text>
-      <Text style={styles.stepTitle}>Pick your classroom</Text>
-      <Text style={styles.stepDesc}>
-        {rooms === null
-          ? 'Loading your daycare\'s rooms...'
-          : rooms.length
-            ? 'Choose the room you work in — you can switch or add rooms later.'
-            : 'No classrooms exist yet — create the first one.'}
-      </Text>
-
-      {(rooms || []).map(room => (
-        <TouchableOpacity
-          key={room.id}
-          style={styles.choiceCard}
-          onPress={() => pickRoom(room)}
-          disabled={selecting}
-          activeOpacity={0.7}
-        >
-          <Text style={styles.choiceIcon}>🚪</Text>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.choiceTitle}>{room.name}</Text>
-            {room.age_group ? <Text style={styles.choiceDesc}>{room.age_group}</Text> : null}
-          </View>
-          <Text style={styles.choiceChevron}>›</Text>
-        </TouchableOpacity>
-      ))}
-
-      {error && <Text style={styles.joinError}>{error}</Text>}
-
-      <Button
-        label="+ Create a new classroom"
-        variant="ghost"
-        onPress={onCreateNew}
-        style={{ marginTop: spacing.md }}
-      />
-    </View>
+    <SafeAreaView style={styles.educatorScreen}>
+      <KeyboardAwareScrollView contentContainerStyle={styles.educatorContent}>
+        <Text style={styles.educatorEmoji}>🚪</Text>
+        <Text style={styles.educatorTitle}>Pick your classroom</Text>
+        <Text style={styles.educatorDescription}>
+          {rooms === null
+            ? "Loading your daycare's rooms…"
+            : rooms.length
+              ? 'Choose the room you work in. You can switch rooms later.'
+              : 'No classrooms exist yet. Ask your director to add one, or create it here if you have permission.'}
+        </Text>
+        {(rooms || []).map((room) => (
+          <TouchableOpacity
+            key={room.id}
+            style={styles.educatorChoice}
+            onPress={() => pickRoom(room)}
+            disabled={selecting}
+          >
+            <View style={styles.roomIcon}>
+              <Ionicons name="business-outline" size={19} color={colors.primary} />
+            </View>
+            <View style={styles.roomCopy}>
+              <Text style={styles.roomName}>{room.name}</Text>
+              {room.age_group ? <Text style={styles.roomAge}>{room.age_group}</Text> : null}
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={colors.textFaint} />
+          </TouchableOpacity>
+        ))}
+        <InlineError>{error}</InlineError>
+        {!rooms?.length ? (
+          <Button
+            label="Create a classroom"
+            variant="ghost"
+            onPress={onCreateNew}
+            style={styles.educatorAction}
+          />
+        ) : null}
+      </KeyboardAwareScrollView>
+    </SafeAreaView>
   );
 }
 
-// ─── EDUCATOR FALLBACK: legacy account with no daycare link ──────────────────
-// Educators can no longer self-register; this only appears for accounts
-// created before invite-gating. join_daycare_with_code is staff-only.
-function StepJoinFallback({ onJoined }) {
-  const [code, setCode]       = useState('');
-  const [error, setError]     = useState(null);
+function EducatorRoomCreator({ daycareId, onBack }) {
+  const { profile, user, fetchProfile } = useAuth();
+  const [name, setName] = useState('');
+  const [ageGroup, setAgeGroup] = useState('');
+  const [error, setError] = useState(null);
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    if (!name.trim()) {
+      setError('Enter a classroom name.');
+      return;
+    }
+    setSaving(true);
+    const { data: room, error: roomError } = await supabase
+      .from('classrooms')
+      .insert({
+        daycare_id: daycareId,
+        name: name.trim(),
+        age_group: ageGroup || null,
+      })
+      .select('id')
+      .single();
+    if (roomError) {
+      setSaving(false);
+      setError(roomError.message);
+      return;
+    }
+    const { error: profileError } = await supabase
+      .from('profiles')
+      .update({ classroom_id: room.id })
+      .eq('id', profile.id);
+    if (!profileError) {
+      await supabase.from('educator_classrooms').upsert(
+        { educator_id: profile.id, classroom_id: room.id },
+        { onConflict: 'educator_id,classroom_id', ignoreDuplicates: true }
+      );
+      await fetchProfile(user.id);
+    } else {
+      setError(profileError.message);
+    }
+    setSaving(false);
+  }
+
+  return (
+    <SafeAreaView style={styles.educatorScreen}>
+      <KeyboardAwareScrollView contentContainerStyle={styles.educatorContent}>
+        <TouchableOpacity onPress={onBack} style={styles.backButton}>
+          <Ionicons name="chevron-back" size={22} color={colors.textPrimary} />
+        </TouchableOpacity>
+        <Text style={styles.educatorTitle}>Create a classroom</Text>
+        <Text style={styles.educatorDescription}>
+          Add the first room for your center.
+        </Text>
+        <Input
+          label="Classroom name"
+          value={name}
+          onChangeText={(next) => {
+            setName(next);
+            setError(null);
+          }}
+          placeholder="e.g. Preschool"
+          error={error}
+        />
+        <Input
+          label="Age group (optional)"
+          value={ageGroup}
+          onChangeText={setAgeGroup}
+          placeholder="e.g. 3–4 years"
+        />
+        <Button label="Create classroom" onPress={save} loading={saving} />
+      </KeyboardAwareScrollView>
+    </SafeAreaView>
+  );
+}
+
+function LegacyEducatorJoin({ onJoined }) {
+  const [code, setCode] = useState('');
+  const [error, setError] = useState(null);
   const [joining, setJoining] = useState(false);
 
-  async function handleJoin() {
-    if (!code.trim()) { setError('Enter the code from your daycare admin.'); return; }
+  async function join() {
+    if (!code.trim()) {
+      setError('Enter the code from your daycare admin.');
+      return;
+    }
     setJoining(true);
     setError(null);
-    const { data, error: rpcError } = await supabase.rpc('join_daycare_with_code', { p_code: code.trim() });
+    const { data, error: joinError } = await supabase.rpc('join_daycare_with_code', {
+      p_code: code.trim(),
+    });
     setJoining(false);
-    if (rpcError) { setError(rpcError.message); return; }
-    const joined = data?.[0];
-    if (!joined) { setError('Invalid invite code.'); return; }
-    onJoined(joined.daycare_id);
+    if (joinError) {
+      setError(joinError.message);
+      return;
+    }
+    if (!data) {
+      setError('Invalid invite code.');
+      return;
+    }
+    onJoined(data);
   }
 
   return (
-    <View style={styles.stepCard}>
-      <Text style={styles.stepEmoji}>🔑</Text>
-      <Text style={styles.stepTitle}>Connect to your daycare</Text>
-      <Text style={styles.stepDesc}>
-        Your account isn't linked to a daycare yet. Ask your daycare admin for
-        the 6-character daycare code (they can find it in the admin panel).
-      </Text>
-
-      <Input
-        label="Daycare code"
-        value={code}
-        onChangeText={(v) => { setCode(v.toUpperCase()); setError(null); }}
-        placeholder="e.g. K7PM3Q"
-        error={error}
-      />
-
-      <Button label="Connect" onPress={handleJoin} loading={joining} style={{ marginTop: spacing.sm }} />
-    </View>
+    <SafeAreaView style={styles.educatorScreen}>
+      <KeyboardAwareScrollView contentContainerStyle={styles.educatorContent}>
+        <Text style={styles.educatorEmoji}>🔑</Text>
+        <Text style={styles.educatorTitle}>Connect to your daycare</Text>
+        <Text style={styles.educatorDescription}>
+          Ask your daycare admin for its code, then choose your classroom.
+        </Text>
+        <Input
+          label="Daycare code"
+          value={code}
+          onChangeText={(next) => {
+            setCode(next.toUpperCase());
+            setError(null);
+          }}
+          placeholder="e.g. K7PM3Q"
+          error={error}
+          autoCapitalize="characters"
+          autoCorrect={false}
+        />
+        <Button label="Connect" onPress={join} loading={joining} />
+      </KeyboardAwareScrollView>
+    </SafeAreaView>
   );
 }
 
-// ─── MAIN ONBOARDING SCREEN ───────────────────────────────────────────────────
-// Routing (from App.js):
-//   admin without daycare_id      → create daycare → first classroom → children
-//   educator without classroom_id → pick/create classroom in their daycare
 export default function OnboardingScreen() {
-  const { profile } = useAuth();
-  const isAdmin = profile?.role === 'admin';
-
-  const [step, setStep]   = useState(0);
-  const [data, setData]   = useState({});
-  // Educator with a daycare (invited) starts at the room picker;
-  // 'create-room' switches to the classroom-creation step.
-  const [educatorView, setEducatorView] = useState('pick'); // pick | create-room
+  const { profile, user } = useAuth();
+  const centerSetupPending = user?.user_metadata?.setup_center_pending === true;
+  const isCenterSetup = isAdminRole(profile?.role) || centerSetupPending;
   const [educatorDaycareId, setEducatorDaycareId] = useState(profile?.daycare_id || null);
+  const [educatorView, setEducatorView] = useState('pick');
 
-  function handleStep1Done({ daycareId, daycareName }) {
-    setData(prev => ({ ...prev, daycareId, daycareName }));
-    setStep(1);
+  if (isCenterSetup) return <CenterSetupWizard />;
+  if (!educatorDaycareId) {
+    return <LegacyEducatorJoin onJoined={setEducatorDaycareId} />;
   }
-
-  function handleStep2Done({ classroomId }) {
-    setData(prev => ({ ...prev, classroomId }));
-    setStep(2);
+  if (educatorView === 'create') {
+    return (
+      <EducatorRoomCreator
+        daycareId={educatorDaycareId}
+        onBack={() => setEducatorView('pick')}
+      />
+    );
   }
-
-  function handleFinish() {
-    // Auth context will re-fetch profile and detect classroom_id is now set
-    // which will route away from onboarding automatically
-  }
-
   return (
-    <KeyboardAwareScrollView
-      style={styles.container}
-      contentContainerStyle={styles.content}
-      enableOnAndroid
-      extraScrollHeight={20}
-      keyboardShouldPersistTaps="handled"
-    >
-      {/* Header */}
-      <View style={styles.header}>
-        <Text style={styles.logo}>📋</Text>
-        <Text style={styles.appName}>DailyLog</Text>
-        <Text style={styles.headerSub}>
-          {isAdmin ? "Let's set up your daycare" : "Let's get you set up"}
-        </Text>
-      </View>
-
-      {isAdmin ? (
-        // ── Admin: create daycare → first classroom → children ──
-        <>
-          <StepIndicator current={step} />
-          {step === 0 && <StepDaycare onNext={handleStep1Done} />}
-          {step === 1 && (
-            <StepClassroom
-              daycareId={data.daycareId}
-              onNext={handleStep2Done}
-              onBack={() => setStep(0)}
-            />
-          )}
-          {step === 2 && (
-            <StepChildren
-              classroomId={data.classroomId}
-              onFinish={handleFinish}
-              onBack={() => setStep(1)}
-            />
-          )}
-        </>
-      ) : !educatorDaycareId ? (
-        // ── Legacy educator with no daycare link: code fallback ──
-        <StepJoinFallback onJoined={(id) => setEducatorDaycareId(id)} />
-      ) : educatorView === 'pick' ? (
-        // ── Invited educator: pick a room in their daycare ──
-        <StepPickClassroom
-          daycareId={educatorDaycareId}
-          onCreateNew={() => setEducatorView('create-room')}
-        />
-      ) : (
-        // ── Invited educator: create the room ──
-        <StepClassroom
-          daycareId={educatorDaycareId}
-          onNext={handleFinish}
-          onBack={() => setEducatorView('pick')}
-        />
-      )}
-
-      <View style={{ height: spacing.xxxl }} />
-    </KeyboardAwareScrollView>
+    <EducatorRoomPicker
+      daycareId={educatorDaycareId}
+      onCreateNew={() => setEducatorView('create')}
+    />
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.bg },
-  content: { padding: spacing.xl, paddingTop: 60 },
-
-  header: { alignItems: 'center', marginBottom: spacing.xxxl },
-  logo: { fontSize: 48, marginBottom: spacing.sm },
-  appName: { fontSize: 28, fontWeight: '700', color: colors.textPrimary, letterSpacing: -0.5 },
-  headerSub: { fontSize: 15, color: colors.textSecondary, marginTop: spacing.xs },
-
-  // Step indicator
-  stepRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginBottom: spacing.xxl },
-  stepItem: { alignItems: 'center', gap: spacing.xs },
-  stepDot: {
-    width: 32, height: 32, borderRadius: 16,
-    backgroundColor: colors.border, alignItems: 'center', justifyContent: 'center',
+  screen: {
+    flex: 1,
+    backgroundColor: colors.bg,
   },
-  stepDotActive: { backgroundColor: colors.primary },
-  stepNum: { fontSize: 14, fontWeight: '600', color: colors.textMuted },
-  stepNumActive: { color: colors.white },
-  stepCheck: { fontSize: 14, color: colors.white, fontWeight: '700' },
-  stepLabel: { fontSize: 11, color: colors.textMuted, fontWeight: '500' },
-  stepLabelActive: { color: colors.primary, fontWeight: '600' },
-  stepLine: { flex: 1, height: 2, backgroundColor: colors.border, marginBottom: spacing.lg, marginHorizontal: spacing.xs },
-  stepLineActive: { backgroundColor: colors.primary },
-
-  // Step card
-  stepCard: {
-    backgroundColor: colors.surface, borderRadius: radius.xl,
-    borderWidth: 1, borderColor: colors.border,
-    padding: spacing.xl, marginBottom: spacing.lg,
+  scroll: {
+    flex: 1,
   },
-  stepEmoji: { fontSize: 40, marginBottom: spacing.md, textAlign: 'center' },
-  stepTitle: { fontSize: 22, fontWeight: '700', color: colors.textPrimary, textAlign: 'center', marginBottom: spacing.sm },
-  stepDesc: { fontSize: 14, color: colors.textSecondary, textAlign: 'center', lineHeight: 20, marginBottom: spacing.xl },
-
-  fieldLabel: { fontSize: 13, fontWeight: '500', color: colors.textSecondary, marginBottom: spacing.sm },
-  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.lg },
-  chip: {
-    paddingHorizontal: spacing.md, paddingVertical: spacing.sm,
-    borderRadius: radius.full, borderWidth: 1.5, borderColor: colors.border,
+  progressHeader: {
+    minHeight: 56,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    paddingHorizontal: 24,
+    paddingVertical: spacing.sm,
+  },
+  backButton: {
+    width: 34,
+    height: 40,
+    alignItems: 'flex-start',
+    justifyContent: 'center',
+  },
+  progressTrack: {
+    flex: 1,
+    height: 6,
+    borderRadius: radius.full,
+    overflow: 'hidden',
+    backgroundColor: '#E3EDFA',
+  },
+  progressFill: {
+    height: '100%',
+    borderRadius: radius.full,
+    backgroundColor: colors.primary,
+  },
+  progressLabel: {
+    width: 28,
+    color: colors.textFaint,
+    fontFamily: fonts.bold,
+    fontSize: 13,
+    textAlign: 'right',
+  },
+  wizardContent: {
+    flexGrow: 1,
+    paddingHorizontal: 28,
+    paddingTop: 24,
+    paddingBottom: 28,
+  },
+  titleBlock: {
+    marginBottom: 22,
+  },
+  wizardTitle: {
+    color: colors.textPrimary,
+    fontFamily: fonts.black,
+    fontSize: 26,
+    lineHeight: 33,
+    letterSpacing: -0.4,
+  },
+  wizardDescription: {
+    color: colors.textMuted,
+    fontFamily: fonts.regular,
+    fontSize: 14,
+    lineHeight: 22,
+    marginTop: spacing.sm,
+  },
+  bottomActions: {
+    gap: 14,
+    marginTop: 'auto',
+    paddingTop: spacing.xl,
+  },
+  nextHint: {
+    color: colors.textFaint,
+    fontFamily: fonts.regular,
+    fontSize: 12.5,
+    lineHeight: 19,
+    textAlign: 'center',
+  },
+  skipButton: {
+    minHeight: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  skipText: {
+    color: colors.textMuted,
+    fontFamily: fonts.bold,
+    fontSize: 14,
+  },
+  inlineError: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.sm,
+    marginTop: spacing.xs,
+  },
+  inlineErrorText: {
+    flex: 1,
+    color: colors.danger,
+    fontFamily: fonts.regular,
+    fontSize: 12.5,
+    lineHeight: 18,
+  },
+  roomList: {
+    gap: 10,
+  },
+  roomCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    minHeight: 68,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    borderRadius: 16,
     backgroundColor: colors.surface,
   },
-  chipSelected: { borderColor: colors.primary, backgroundColor: colors.primaryLight },
-  chipText: { fontSize: 13, color: colors.textSecondary, fontWeight: '500' },
-  chipTextSelected: { color: colors.primary, fontWeight: '600' },
-
-  btnRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm },
-
-  // Choice cards (create vs join)
-  choiceCard: {
-    flexDirection: 'row', alignItems: 'center', gap: spacing.md,
-    backgroundColor: colors.bg, borderRadius: radius.lg,
-    borderWidth: 1.5, borderColor: colors.border,
-    padding: spacing.lg, marginBottom: spacing.md,
+  roomIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.primarySoft,
   },
-  choiceIcon: { fontSize: 28 },
-  choiceTitle: { fontSize: 15, fontWeight: '600', color: colors.textPrimary },
-  choiceDesc: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
-  choiceChevron: { fontSize: 22, color: colors.textMuted },
-  joinError: { fontSize: 13, color: colors.danger, fontWeight: '500', textAlign: 'center', marginTop: spacing.sm },
-
-  // Children step
-  childRow: {
-    backgroundColor: colors.bg, borderRadius: radius.md,
-    borderWidth: 1, borderColor: colors.border,
-    padding: spacing.md, marginBottom: spacing.md,
+  roomCopy: {
+    flex: 1,
+    minWidth: 0,
   },
-  childRowHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.sm },
-  childRowNum: { fontSize: 13, fontWeight: '600', color: colors.textSecondary },
-  childRowRemove: { fontSize: 13, color: colors.danger, fontWeight: '500' },
-  addChildBtn: {
-    borderWidth: 1.5, borderStyle: 'dashed', borderColor: colors.border,
-    borderRadius: radius.md, padding: spacing.md,
-    alignItems: 'center', marginBottom: spacing.lg,
+  roomName: {
+    color: colors.textPrimary,
+    fontFamily: fonts.bold,
+    fontSize: 15,
   },
-  addChildBtnText: { fontSize: 14, color: colors.textSecondary, fontWeight: '500' },
+  roomAge: {
+    color: colors.textMuted,
+    fontFamily: fonts.regular,
+    fontSize: 12.5,
+    marginTop: 2,
+  },
+  addRoomCard: {
+    minHeight: 58,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: spacing.lg,
+    borderWidth: 1.5,
+    borderStyle: 'dashed',
+    borderColor: colors.borderStrong,
+    borderRadius: 16,
+  },
+  addRoomIcon: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 1.8,
+    borderColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  addRoomText: {
+    color: colors.primary,
+    fontFamily: fonts.bold,
+    fontSize: 14.5,
+  },
+  editorScreen: {
+    flex: 1,
+    backgroundColor: colors.bg,
+  },
+  editorHeader: {
+    minHeight: 58,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.borderSoft,
+    backgroundColor: colors.surface,
+  },
+  editorHeaderAction: {
+    minWidth: 64,
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  editorCancel: {
+    color: colors.textMuted,
+    fontFamily: fonts.regular,
+    fontSize: 15,
+  },
+  editorTitle: {
+    color: colors.textPrimary,
+    fontFamily: fonts.bold,
+    fontSize: 16,
+  },
+  editorSave: {
+    color: colors.primary,
+    fontFamily: fonts.bold,
+    fontSize: 15,
+  },
+  editorContent: {
+    padding: spacing.xxl,
+  },
+  fieldLabel: {
+    color: colors.textPrimary,
+    fontFamily: fonts.bold,
+    fontSize: 13.5,
+    marginBottom: spacing.sm,
+  },
+  ageOptions: {
+    gap: spacing.sm,
+  },
+  ageOption: {
+    minHeight: 50,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.lg,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    backgroundColor: colors.surface,
+  },
+  ageOptionSelected: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primarySoft,
+  },
+  ageOptionText: {
+    color: colors.textSecondary,
+    fontFamily: fonts.regular,
+    fontSize: 14,
+  },
+  ageOptionTextSelected: {
+    color: colors.primary,
+    fontFamily: fonts.bold,
+  },
+  removeRoomButton: {
+    minHeight: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: spacing.xxl,
+    borderWidth: 1.5,
+    borderColor: colors.danger,
+    borderRadius: radius.md,
+  },
+  removeRoomText: {
+    color: colors.danger,
+    fontFamily: fonts.bold,
+    fontSize: 14,
+  },
+  inviteComposer: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.sm,
+  },
+  inviteInputWrap: {
+    flex: 1,
+    minWidth: 0,
+  },
+  inviteInput: {
+    marginBottom: 0,
+  },
+  addInviteButton: {
+    minWidth: 72,
+    height: 50,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radius.md,
+    backgroundColor: colors.primarySoft,
+  },
+  addInviteText: {
+    color: colors.primary,
+    fontFamily: fonts.bold,
+    fontSize: 14,
+  },
+  inviteList: {
+    gap: spacing.sm,
+    marginTop: spacing.md,
+  },
+  inviteCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    minHeight: 60,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    backgroundColor: colors.surface,
+  },
+  inviteAvatar: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.primaryLight,
+  },
+  inviteAvatarText: {
+    color: colors.primary,
+    fontFamily: fonts.bold,
+    fontSize: 12.5,
+  },
+  inviteCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  inviteEmail: {
+    color: colors.textPrimary,
+    fontFamily: fonts.bold,
+    fontSize: 13.5,
+  },
+  inviteMeta: {
+    color: colors.textMuted,
+    fontFamily: fonts.regular,
+    fontSize: 12,
+    marginTop: 2,
+  },
+  removeInviteText: {
+    color: colors.textFaint,
+    fontFamily: fonts.bold,
+    fontSize: 12,
+  },
+  successScreen: {
+    flex: 1,
+    backgroundColor: colors.bg,
+  },
+  successContent: {
+    flex: 1,
+    alignItems: 'center',
+    paddingHorizontal: 32,
+    paddingTop: 54,
+    paddingBottom: 30,
+  },
+  successIcon: {
+    width: 88,
+    height: 88,
+    borderRadius: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.successLight,
+  },
+  successTitle: {
+    color: colors.textPrimary,
+    fontFamily: fonts.black,
+    fontSize: 26,
+    lineHeight: 33,
+    marginTop: 22,
+  },
+  successDescription: {
+    color: colors.textMuted,
+    fontFamily: fonts.regular,
+    fontSize: 14,
+    lineHeight: 22,
+    textAlign: 'center',
+    marginTop: spacing.sm,
+  },
+  summaryCard: {
+    width: '100%',
+    paddingHorizontal: 18,
+    paddingVertical: 6,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    borderRadius: 18,
+    backgroundColor: colors.surface,
+    marginTop: 26,
+  },
+  summaryRow: {
+    minHeight: 60,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+  },
+  summaryIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.primarySoft,
+  },
+  summaryText: {
+    flex: 1,
+    color: colors.textPrimary,
+    fontFamily: fonts.bold,
+    fontSize: 14.5,
+  },
+  summaryDivider: {
+    height: 1,
+    backgroundColor: colors.borderSoft,
+  },
+  dashboardButton: {
+    width: '100%',
+    marginTop: 'auto',
+  },
+  educatorScreen: {
+    flex: 1,
+    backgroundColor: colors.bg,
+  },
+  educatorContent: {
+    flexGrow: 1,
+    padding: spacing.xxl,
+    paddingTop: 48,
+  },
+  educatorEmoji: {
+    fontSize: 44,
+    textAlign: 'center',
+    marginBottom: spacing.md,
+  },
+  educatorTitle: {
+    color: colors.textPrimary,
+    fontFamily: fonts.black,
+    fontSize: 24,
+    lineHeight: 30,
+    textAlign: 'center',
+  },
+  educatorDescription: {
+    color: colors.textMuted,
+    fontFamily: fonts.regular,
+    fontSize: 14,
+    lineHeight: 21,
+    textAlign: 'center',
+    marginTop: spacing.sm,
+    marginBottom: spacing.xl,
+  },
+  educatorChoice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    minHeight: 68,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    borderRadius: 16,
+    backgroundColor: colors.surface,
+    marginBottom: spacing.sm,
+  },
+  educatorAction: {
+    marginTop: spacing.lg,
+  },
 });

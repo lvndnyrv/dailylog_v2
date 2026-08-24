@@ -11,6 +11,47 @@ export interface Certification {
   issuer: string | null;
   issued: string | null;
   expires_on: string | null;
+  credential_number?: string | null;
+  document_id?: string | null;
+  required?: boolean;
+  ratio_qualifying?: boolean;
+  missing?: boolean;
+}
+
+export interface StaffCredentialRow {
+  id: string;
+  name: string;
+  issuer: string | null;
+  completed_on: string | null;
+  expires_on: string | null;
+  credential_number: string | null;
+  document_id: string | null;
+  required: boolean;
+  ratio_qualifying: boolean;
+  archived_at: string | null;
+}
+
+export interface StaffCredentialSubmissionRow {
+  id: string;
+  credential_id: string;
+  status: string;
+  issuer: string;
+  completed_on: string;
+  expires_on: string;
+  credential_number: string | null;
+  review_notes: string | null;
+  reviewed_at: string | null;
+  created_at: string;
+  credential: { id: string; name: string } | null;
+  document: {
+    id: string;
+    title: string;
+    storage_path: string;
+    mime_type: string | null;
+    size_bytes: number | null;
+  } | null;
+  submitter: { id: string; full_name: string } | null;
+  reviewer: { id: string; full_name: string } | null;
 }
 
 export interface StaffRow {
@@ -19,6 +60,7 @@ export interface StaffRow {
   employment_type: string | null;
   started_on: string | null;
   certifications: Certification[];
+  credentials: StaffCredentialRow[];
   status: string;
   profile: {
     id: string;
@@ -33,6 +75,8 @@ export interface StaffRow {
 // classrooms must be pinned to the direct FK — profiles also reaches
 // classrooms through educator_classrooms, and PostgREST refuses the ambiguity.
 const STAFF_SELECT = `id, job_title, employment_type, started_on, certifications, status,
+  credentials:staff_credentials(id, name, issuer, completed_on, expires_on,
+    credential_number, document_id, required, ratio_qualifying, archived_at),
   profile:profiles(id, full_name, email, phone, role,
     classroom:classrooms!profiles_classroom_id_fkey(id, name))`;
 
@@ -47,6 +91,7 @@ export async function listStaff(client: Client): Promise<StaffRow[]> {
   const rows = (data ?? []) as unknown as StaffRow[];
   return rows
     .filter((r) => r.profile)
+    .map(withNormalizedCredentials)
     .sort((a, b) => (a.profile!.full_name < b.profile!.full_name ? -1 : 1));
 }
 
@@ -58,7 +103,48 @@ export async function getStaffMember(client: Client, staffId: string): Promise<S
     .single();
 
   if (error) throw error;
-  return data as unknown as StaffRow;
+  return withNormalizedCredentials(data as unknown as StaffRow);
+}
+
+function withNormalizedCredentials(row: StaffRow): StaffRow {
+  const credentials = (row.credentials ?? []).filter((credential) => credential && !credential.archived_at);
+  if (credentials.length === 0) return { ...row, credentials: [] };
+  return {
+    ...row,
+    credentials,
+    certifications: credentials.map((credential) => ({
+      item: credential.name,
+      issuer: credential.issuer,
+      issued: credential.completed_on,
+      expires_on: credential.expires_on,
+      credential_number: credential.credential_number,
+      document_id: credential.document_id,
+      required: credential.required,
+      ratio_qualifying: credential.ratio_qualifying,
+      missing: credential.completed_on == null && credential.document_id == null,
+    })),
+  };
+}
+
+export async function listStaffCredentialSubmissions(
+  client: Client,
+  staffId: string,
+): Promise<StaffCredentialSubmissionRow[]> {
+  const { data, error } = await client
+    .from('staff_credential_submissions')
+    .select(`id, credential_id, status, issuer, completed_on, expires_on,
+      credential_number, review_notes, reviewed_at, created_at,
+      credential:staff_credentials!staff_credential_submissions_credential_id_fkey(id, name),
+      document:documents!staff_credential_submissions_document_id_fkey(
+        id, title, storage_path, mime_type, size_bytes
+      ),
+      submitter:profiles!staff_credential_submissions_submitted_by_fkey(id, full_name),
+      reviewer:profiles!staff_credential_submissions_reviewed_by_fkey(id, full_name)`)
+    .eq('staff_member_id', staffId)
+    .order('created_at', { ascending: false });
+
+  if (error) throw error;
+  return (data ?? []) as unknown as StaffCredentialSubmissionRow[];
 }
 
 export interface PendingStaffInvite {
@@ -101,9 +187,9 @@ export async function inviteStaff(
   const { data, error } = await client.rpc('invite_staff', {
     p_email: values.email,
     p_role: values.role,
-    p_classroom_id: values.classroomId ?? null,
-    p_full_name: values.fullName ?? null,
-    p_job_title: values.jobTitle ?? null,
+    ...(values.classroomId != null ? { p_classroom_id: values.classroomId } : {}),
+    ...(values.fullName != null ? { p_full_name: values.fullName } : {}),
+    ...(values.jobTitle != null ? { p_job_title: values.jobTitle } : {}),
     p_require_background_check: values.requireBackgroundCheck ?? false,
   });
   if (error) throw error;

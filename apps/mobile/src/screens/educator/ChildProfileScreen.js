@@ -3,16 +3,24 @@ import {
   View, Text, TouchableOpacity,
   StyleSheet, Alert, Linking, ActivityIndicator, Modal, ScrollView
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
- import * as ImagePicker from 'expo-image-picker';
+import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { supabase } from '../../lib/supabase';
 import { useClassroom } from '../../hooks/useClassroom';
 import { Input, Button, Divider } from '../../components/ui';
 import { ChildAvatar } from '../../components/ChildAvatar';
 import { DatePickerField } from '../../components/DatePickerField';
-import { colors, spacing, radius } from '../../theme';
+import { colors, fonts, spacing, radius } from '../../theme';
 import { format } from 'date-fns';
+
+function formatBirthDate(value) {
+  if (!value) return null;
+  const parsed = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return format(parsed, 'MMM d, yyyy');
+}
 
 export default function ChildProfileScreen({ route, navigation }) {
   const { child } = route.params;
@@ -55,6 +63,33 @@ export default function ChildProfileScreen({ route, navigation }) {
     firstName.trim() !== (child.first_name   || '') ||
     lastName.trim()  !== (child.last_name    || '') ||
     dob              !== (child.date_of_birth || '');
+
+  const currentClassroom = classrooms.find((room) => room.id === currentClassroomId);
+  const profileSections = [
+    {
+      label: 'Details',
+      complete: Boolean(firstName.trim() && lastName.trim()),
+    },
+    {
+      label: 'Classroom',
+      complete: Boolean(currentClassroomId),
+    },
+    {
+      label: 'Medical info',
+      complete: Boolean(allergies.length || medicalNotes.trim()),
+    },
+    {
+      label: 'Emergency contacts',
+      complete: contacts.length > 0,
+    },
+    {
+      label: 'Linked parents',
+      complete: parents.length > 0,
+    },
+  ];
+  const completedSections = profileSections.filter((section) => section.complete).length;
+  const profilePercent = completedSections * 20;
+  const missingSections = profileSections.filter((section) => !section.complete);
 
   useEffect(() => {
     loadParents();
@@ -411,16 +446,23 @@ export default function ChildProfileScreen({ route, navigation }) {
     >
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Text style={styles.back}>← Back</Text>
+        <TouchableOpacity
+          onPress={() => navigation.goBack()}
+          style={styles.headerSide}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+        >
+          <Ionicons name="chevron-back" size={22} color={colors.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Child profile</Text>
         <TouchableOpacity
           onPress={handleSave}
-          disabled={!hasChanges || saving}
-          style={[styles.saveBtn, (!hasChanges || saving) && styles.saveBtnDisabled]}
+          disabled={saving}
+          style={[styles.saveBtn, saving && styles.saveBtnDisabled]}
+          accessibilityRole="button"
+          accessibilityLabel="Save child profile"
         >
-          <Text style={[styles.saveBtnText, (!hasChanges || saving) && styles.saveBtnTextDisabled]}>
+          <Text style={styles.saveBtnText}>
             {saving ? 'Saving...' : 'Save'}
           </Text>
         </TouchableOpacity>
@@ -431,10 +473,10 @@ export default function ChildProfileScreen({ route, navigation }) {
         <View style={styles.avatarContainer}>
           <ChildAvatar
             child={{ ...child, first_name: firstName, last_name: lastName, photo_url: photoUrl }}
-            size={72}
+            size={88}
           />
           <View style={styles.avatarBadge}>
-            <Text style={styles.avatarBadgeText}>📷</Text>
+            <Ionicons name="camera-outline" size={15} color={colors.white} />
           </View>
           {uploadingPhoto && (
             <View style={styles.avatarOverlay}>
@@ -443,27 +485,31 @@ export default function ChildProfileScreen({ route, navigation }) {
           )}
         </View>
         <Text style={styles.avatarName}>{firstName} {lastName}</Text>
-        {dob && <Text style={styles.avatarDob}>Born {dob}</Text>}
-        <Text style={styles.changePhotoHint}>Tap to change photo</Text>
+        <Text style={styles.avatarDob}>
+          {dob ? `Born ${formatBirthDate(dob)}` : 'Date of birth not added'}
+          {currentClassroom ? ` · ${currentClassroom.name}` : ''}
+        </Text>
       </TouchableOpacity>
 
       {/* Profile completeness nudge */}
-      {(() => {
-        const missing = [];
-        if (!allergies?.length && !medicalNotes) missing.push('Medical info');
-        if (!contacts?.length) missing.push('Emergency contacts');
-        if (parents.length === 0 && !loadingParents) missing.push('Linked parents');
-        if (!dob) missing.push('Date of birth');
-        if (missing.length === 0) return null;
-        return (
-          <View style={styles.completenessCard}>
-            <Text style={styles.completenessTitle}>⚠️ Profile needs attention</Text>
-            <Text style={styles.completenessText}>
-              Missing: {missing.join(' · ')}
-            </Text>
+      {!loadingParents && missingSections.length > 0 && (
+        <View style={styles.completenessCard}>
+          <View style={styles.completenessHeader}>
+            <Text style={styles.completenessTitle}>Profile {profilePercent}% complete</Text>
+            <Text style={styles.completenessCount}>{completedSections} of 5 sections</Text>
           </View>
-        );
-      })()}
+          <View style={styles.completenessTrack}>
+            <View style={[styles.completenessFill, { width: `${profilePercent}%` }]} />
+          </View>
+          <View style={styles.completenessChips}>
+            {missingSections.map((section) => (
+              <View key={section.label} style={styles.completenessChip}>
+                <Text style={styles.completenessChipText}>{section.label}</Text>
+              </View>
+            ))}
+          </View>
+        </View>
+      )}
 
       {/* Details form */}
       <View style={styles.card}>
@@ -490,33 +536,31 @@ export default function ChildProfileScreen({ route, navigation }) {
       )}
 
       {/* Classroom assignment */}
-      {classrooms.length > 1 && (
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>🏫 Classroom</Text>
-          <View style={styles.classroomRow}>
-            <View style={styles.classroomInfo}>
-              <Text style={styles.classroomCurrentName}>
-                {classrooms.find(r => r.id === currentClassroomId)?.name || 'Unknown'}
-              </Text>
-              {classrooms.find(r => r.id === currentClassroomId)?.age_group && (
-                <Text style={styles.classroomCurrentAge}>
-                  {classrooms.find(r => r.id === currentClassroomId)?.age_group}
-                </Text>
-              )}
-            </View>
+      <View style={[styles.card, styles.classroomCard]}>
+        <View style={styles.classroomRow}>
+          <View style={styles.classroomInfo}>
+            <Text style={styles.cardTitleCompact}>Classroom</Text>
+            <Text style={styles.classroomCurrentName}>
+              {currentClassroom?.name || 'Not assigned'}
+            </Text>
+            {currentClassroom?.age_group ? (
+              <Text style={styles.classroomCurrentAge}>{currentClassroom.age_group}</Text>
+            ) : null}
+          </View>
+          {classrooms.length > 1 ? (
             <TouchableOpacity
               onPress={() => setShowMovePicker(true)}
               style={styles.classMoveBtn}
               disabled={movingClass}
             >
               {movingClass
-                ? <ActivityIndicator color={colors.white} size="small" />
+                ? <ActivityIndicator color={colors.primary} size="small" />
                 : <Text style={styles.classMoveBtnText}>Move to…</Text>
               }
             </TouchableOpacity>
-          </View>
+          ) : null}
         </View>
-      )}
+      </View>
 
       {/* Move classroom picker modal */}
       <Modal visible={showMovePicker} transparent animationType="slide">
@@ -556,48 +600,9 @@ export default function ChildProfileScreen({ route, navigation }) {
         </View>
       </Modal>
 
-      {/* Incident history */}
-      <View style={styles.card}>
-        <View style={styles.incidentHeader}>
-          <Text style={styles.cardTitle}>⚠️ Incident reports</Text>
-          <TouchableOpacity
-            onPress={() => navigation.navigate('IncidentReport', { child: { ...child, first_name: firstName, last_name: lastName } })}
-            style={styles.incidentNewBtn}
-          >
-            <Text style={styles.incidentNewBtnText}>+ New</Text>
-          </TouchableOpacity>
-        </View>
-        {incidents.length === 0 ? (
-          <Text style={styles.noParents}>No incidents reported.</Text>
-        ) : (
-          incidents.map((incident, i) => {
-            const sevColors = {
-              minor: colors.amber,
-              moderate: colors.coral,
-              serious: colors.danger,
-            };
-            return (
-              <View key={incident.id}>
-                {i > 0 && <Divider />}
-                <View style={styles.incidentRow}>
-                  <View style={[styles.incidentDot, { backgroundColor: sevColors[incident.severity] || colors.amber }]} />
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.incidentType}>{incident.injury_type}</Text>
-                    <Text style={styles.incidentMeta}>
-                      {format(new Date(incident.occurred_at), 'MMM d · h:mm a')} ·{' '}
-                      {incident.status === 'acknowledged' ? '✅ Acknowledged' : '⏳ Pending'}
-                    </Text>
-                  </View>
-                </View>
-              </View>
-            );
-          })
-        )}
-      </View>
-
       {/* Medical profile */}
       <View style={styles.card}>
-        <Text style={styles.cardTitle}>🏥 Medical & emergency info</Text>
+        <Text style={styles.cardTitle}>Medical & emergency</Text>
 
         {/* Allergies */}
         <Text style={styles.medLabel}>Allergies</Text>
@@ -612,7 +617,7 @@ export default function ChildProfileScreen({ route, navigation }) {
                   { text: 'Remove', style: 'destructive', onPress: () => removeAllergy(a) },
                 ])}
               >
-                <Text style={styles.allergyChipText}>⚠️ {a}</Text>
+                <Text style={styles.allergyChipText}>{a}  ×</Text>
               </TouchableOpacity>
             ))}
           </View>
@@ -707,18 +712,36 @@ export default function ChildProfileScreen({ route, navigation }) {
           onPress={() => navigation.navigate('Medication', { child: { ...child, first_name: firstName, last_name: lastName } })}
           style={styles.medLink}
         >
-          <Text style={styles.medLinkIcon}>💊</Text>
+          <View style={styles.medLinkIcon}>
+            <Ionicons name="medical-outline" size={18} color={colors.primary} />
+          </View>
           <View style={{ flex: 1 }}>
             <Text style={styles.medLinkTitle}>Medications</Text>
             <Text style={styles.medLinkSub}>Authorizations & administration log</Text>
           </View>
-          <Text style={styles.moveRoomArrow}>→</Text>
+          <Ionicons name="chevron-forward" size={18} color={colors.primary} />
+        </TouchableOpacity>
+
+        <Divider />
+
+        <TouchableOpacity
+          onPress={() => navigation.navigate('ChildConsents', { childId: child.id, child: { ...child, first_name: firstName, last_name: lastName } })}
+          style={styles.medLink}
+        >
+          <View style={styles.medLinkIcon}>
+            <Ionicons name="shield-checkmark-outline" size={18} color={colors.primary} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.medLinkTitle}>Permissions & consents</Text>
+            <Text style={styles.medLinkSub}>Parent-controlled activity permissions</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={colors.primary} />
         </TouchableOpacity>
       </View>
 
       {/* Linked parents */}
       <View style={styles.card}>
-        <Text style={styles.cardTitle}>👨‍👩‍👧 Linked parents</Text>
+        <Text style={styles.cardTitle}>Linked parents</Text>
 
         {loadingParents ? (
           <ActivityIndicator color={colors.primary} />
@@ -843,7 +866,47 @@ export default function ChildProfileScreen({ route, navigation }) {
         </View>
       </Modal>
 
-      <Divider />
+      {/* Incident history — retained below the Group 13 profile sections. */}
+      <View style={styles.card}>
+        <View style={styles.incidentHeader}>
+          <View style={styles.sectionTitleRow}>
+            <Ionicons name="warning-outline" size={18} color={colors.danger} />
+            <Text style={styles.cardTitleInline}>Incident reports</Text>
+          </View>
+          <TouchableOpacity
+            onPress={() => navigation.navigate('IncidentReport', { child: { ...child, first_name: firstName, last_name: lastName } })}
+            style={styles.incidentNewBtn}
+          >
+            <Text style={styles.incidentNewBtnText}>+ New</Text>
+          </TouchableOpacity>
+        </View>
+        {incidents.length === 0 ? (
+          <Text style={styles.noParents}>No incidents reported.</Text>
+        ) : (
+          incidents.map((incident, i) => {
+            const sevColors = {
+              minor: colors.amber,
+              moderate: colors.coral,
+              serious: colors.danger,
+            };
+            return (
+              <View key={incident.id}>
+                {i > 0 && <Divider />}
+                <View style={styles.incidentRow}>
+                  <View style={[styles.incidentDot, { backgroundColor: sevColors[incident.severity] || colors.amber }]} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.incidentType}>{incident.injury_type}</Text>
+                    <Text style={styles.incidentMeta}>
+                      {format(new Date(incident.occurred_at), 'MMM d · h:mm a')} ·{' '}
+                      {incident.status === 'acknowledged' ? 'Acknowledged' : 'Pending'}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+            );
+          })
+        )}
+      </View>
 
       {/* Danger zone */}
       <View style={styles.dangerCard}>
@@ -867,67 +930,119 @@ export default function ChildProfileScreen({ route, navigation }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
-  content: { padding: spacing.xl },
+  content: {
+    paddingHorizontal: spacing.xxl,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.xxxl,
+  },
 
   header: {
     flexDirection: 'row', alignItems: 'center',
-    justifyContent: 'space-between', marginBottom: spacing.xl,
+    justifyContent: 'space-between', marginBottom: spacing.lg,
   },
-  back: { fontSize: 15, color: colors.primary, fontWeight: '500', width: 60 },
-  headerTitle: { fontSize: 17, fontWeight: '600', color: colors.textPrimary },
+  headerSide: {
+    width: 64,
+    minHeight: 36,
+    justifyContent: 'center',
+  },
+  headerTitle: { fontSize: 18, fontFamily: fonts.black, color: colors.textPrimary },
   saveBtn: {
     backgroundColor: colors.primary, paddingHorizontal: spacing.lg,
     paddingVertical: spacing.sm, borderRadius: radius.full,
+    minWidth: 64,
+    alignItems: 'center',
   },
   saveBtnDisabled: { backgroundColor: colors.border },
-  saveBtnText: { fontSize: 14, fontWeight: '600', color: colors.white },
-  saveBtnTextDisabled: { color: colors.textMuted },
+  saveBtnText: { fontSize: 13.5, fontFamily: fonts.bold, color: colors.white },
 
   avatarWrap: { alignItems: 'center', marginBottom: spacing.xl },
   avatarContainer: { position: 'relative', marginBottom: spacing.sm },
   avatarBadge: {
-    position: 'absolute', bottom: 0, right: -4,
-    backgroundColor: colors.surface, borderRadius: 12,
-    width: 24, height: 24, alignItems: 'center', justifyContent: 'center',
-    borderWidth: 2, borderColor: colors.border,
+    position: 'absolute', bottom: -2, right: -2,
+    backgroundColor: colors.primary, borderRadius: 15,
+    width: 30, height: 30, alignItems: 'center', justifyContent: 'center',
+    borderWidth: 2.5, borderColor: colors.bg,
   },
-  avatarBadgeText: { fontSize: 12 },
   avatarOverlay: {
     ...StyleSheet.absoluteFillObject,
-    borderRadius: 36, backgroundColor: 'rgba(0,0,0,0.4)',
+    borderRadius: 44, backgroundColor: 'rgba(0,0,0,0.4)',
     alignItems: 'center', justifyContent: 'center',
   },
-  avatarName: { fontSize: 20, fontWeight: '700', color: colors.textPrimary },
-  avatarDob: { fontSize: 13, color: colors.textSecondary, marginTop: 3 },
-  changePhotoHint: { fontSize: 12, color: colors.primary, marginTop: spacing.xs, fontWeight: '500' },
+  avatarName: { fontSize: 20, fontFamily: fonts.black, color: colors.textPrimary },
+  avatarDob: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontFamily: fonts.regular,
+    color: colors.textSecondary,
+    marginTop: 3,
+    textAlign: 'center',
+  },
 
   // Profile completeness
   completenessCard: {
-    backgroundColor: colors.amberLight, borderRadius: radius.lg,
-    borderWidth: 1, borderColor: colors.amber + '44',
+    backgroundColor: colors.amberLight, borderRadius: 16,
     padding: spacing.lg, marginBottom: spacing.lg,
   },
-  completenessTitle: { fontSize: 14, fontWeight: '600', color: colors.amber, marginBottom: spacing.xs },
-  completenessText: { fontSize: 13, color: colors.textSecondary, lineHeight: 18 },
+  completenessHeader: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+  },
+  completenessTitle: { fontSize: 14, fontFamily: fonts.bold, color: colors.amber },
+  completenessCount: { fontSize: 12, fontFamily: fonts.bold, color: colors.amber },
+  completenessTrack: {
+    height: 6,
+    borderRadius: radius.full,
+    backgroundColor: '#F0E2C4',
+    overflow: 'hidden',
+    marginTop: spacing.md,
+  },
+  completenessFill: {
+    height: '100%',
+    borderRadius: radius.full,
+    backgroundColor: colors.amber,
+  },
+  completenessChips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: spacing.md,
+  },
+  completenessChip: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.full,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  completenessChipText: { fontSize: 11.5, fontFamily: fonts.bold, color: colors.amber },
 
   card: {
-    backgroundColor: colors.surface, borderRadius: radius.lg,
-    borderWidth: 1, borderColor: colors.border,
+    backgroundColor: colors.surface, borderRadius: 18,
+    borderWidth: 1.5, borderColor: colors.border,
     padding: spacing.lg, marginBottom: spacing.lg,
   },
-  cardTitle: { fontSize: 15, fontWeight: '600', color: colors.textPrimary, marginBottom: spacing.lg },
+  cardTitle: { fontSize: 15, fontFamily: fonts.black, color: colors.textPrimary, marginBottom: spacing.lg },
+  cardTitleCompact: {
+    fontSize: 15,
+    fontFamily: fonts.black,
+    color: colors.textPrimary,
+    marginBottom: 3,
+  },
+  cardTitleInline: { fontSize: 15, fontFamily: fonts.black, color: colors.textPrimary },
+  sectionTitleRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   saveFullBtn: { marginBottom: spacing.lg },
 
-  noParents: { fontSize: 13, color: colors.textMuted, marginBottom: spacing.md },
+  noParents: { fontSize: 13, fontFamily: fonts.regular, color: colors.textMuted, marginBottom: spacing.md },
   parentRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: spacing.sm, gap: spacing.md },
   parentAvatar: {
     width: 40, height: 40, borderRadius: 20,
     backgroundColor: colors.purpleLight, alignItems: 'center', justifyContent: 'center',
   },
-  parentInitial: { fontSize: 15, fontWeight: '700', color: colors.purple },
+  parentInitial: { fontSize: 15, fontFamily: fonts.bold, color: colors.purple },
   parentInfo: { flex: 1 },
-  parentName: { fontSize: 14, fontWeight: '600', color: colors.textPrimary },
-  parentEmail: { fontSize: 12, color: colors.textSecondary, marginTop: 1 },
+  parentName: { fontSize: 14, fontFamily: fonts.bold, color: colors.textPrimary },
+  parentEmail: { fontSize: 12, fontFamily: fonts.regular, color: colors.textSecondary, marginTop: 1 },
   phoneRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 3 },
   phoneIcon: { fontSize: 11 },
   phoneText: { fontSize: 12, color: colors.primary, fontWeight: '500', textDecorationLine: 'underline' },
@@ -965,33 +1080,37 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: colors.danger + '33',
     padding: spacing.lg, marginTop: spacing.sm,
   },
-  dangerTitle: { fontSize: 15, fontWeight: '600', color: colors.danger, marginBottom: spacing.xs },
-  dangerDesc: { fontSize: 13, color: colors.textSecondary, lineHeight: 18 },
+  dangerTitle: { fontSize: 15, fontFamily: fonts.black, color: colors.danger, marginBottom: spacing.xs },
+  dangerDesc: { fontSize: 13, fontFamily: fonts.regular, color: colors.textSecondary, lineHeight: 18 },
 
   incidentHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.md },
   incidentNewBtn: {
     backgroundColor: colors.dangerLight, paddingHorizontal: spacing.md,
     paddingVertical: spacing.xs + 1, borderRadius: radius.full,
   },
-  incidentNewBtnText: { fontSize: 12, color: colors.danger, fontWeight: '600' },
+  incidentNewBtnText: { fontSize: 12, color: colors.danger, fontFamily: fonts.bold },
   incidentRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: spacing.sm },
   incidentDot: { width: 10, height: 10, borderRadius: 5 },
   incidentType: { fontSize: 14, fontWeight: '500', color: colors.textPrimary },
   incidentMeta: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
 
   // Classroom assignment — compact row + modal
+  classroomCard: {
+    paddingVertical: spacing.lg,
+  },
   classroomRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
   },
   classroomInfo: { flex: 1 },
-  classroomCurrentName: { fontSize: 15, fontWeight: '600', color: colors.textPrimary },
-  classroomCurrentAge: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
+  classroomCurrentName: { fontSize: 13, fontFamily: fonts.regular, color: colors.textSecondary },
+  classroomCurrentAge: { fontSize: 12, fontFamily: fonts.regular, color: colors.textFaint, marginTop: 2 },
   classMoveBtn: {
-    backgroundColor: colors.primary, paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm + 2, borderRadius: radius.full,
+    backgroundColor: colors.surface, paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm + 1, borderRadius: radius.full,
+    borderWidth: 1.8, borderColor: colors.primary,
     minWidth: 90, alignItems: 'center',
   },
-  classMoveBtnText: { fontSize: 13, color: colors.white, fontWeight: '600' },
+  classMoveBtnText: { fontSize: 13, color: colors.primary, fontFamily: fonts.bold },
 
   // Move modal
   moveOverlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.45)' },
@@ -1026,13 +1145,13 @@ const styles = StyleSheet.create({
   },
 
   // Medical section
-  medLabel: { fontSize: 13, fontWeight: '600', color: colors.textSecondary, marginBottom: spacing.sm },
+  medLabel: { fontSize: 13, fontFamily: fonts.bold, color: colors.textPrimary, marginBottom: spacing.sm },
   allergyWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.sm },
   allergyChip: {
     backgroundColor: colors.dangerLight, borderWidth: 1, borderColor: colors.danger + '55',
     paddingHorizontal: spacing.md, paddingVertical: spacing.xs + 2, borderRadius: radius.full,
   },
-  allergyChipText: { fontSize: 13, color: colors.danger, fontWeight: '600' },
+  allergyChipText: { fontSize: 13, color: colors.danger, fontFamily: fonts.bold },
   medAddRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   medAddBtn: {
     backgroundColor: colors.primary, paddingHorizontal: spacing.lg,
@@ -1052,7 +1171,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', gap: spacing.md,
     paddingVertical: spacing.sm,
   },
-  medLinkIcon: { fontSize: 22 },
-  medLinkTitle: { fontSize: 14, fontWeight: '600', color: colors.textPrimary },
-  medLinkSub: { fontSize: 12, color: colors.textSecondary, marginTop: 1 },
+  medLinkIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: radius.md,
+    backgroundColor: colors.primarySoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  medLinkTitle: { fontSize: 14, fontFamily: fonts.bold, color: colors.textPrimary },
+  medLinkSub: { fontSize: 12, fontFamily: fonts.regular, color: colors.textSecondary, marginTop: 1 },
 });

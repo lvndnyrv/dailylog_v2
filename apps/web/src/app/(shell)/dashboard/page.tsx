@@ -59,11 +59,12 @@ export default async function DashboardPage({
   // Certs expiring within 30 days (or expired) → attention + staffing warnings.
   const certIssues = staff.flatMap((member) =>
     (member.certifications ?? [])
-      .filter((c) => c.expires_on && daysUntilExpiry(c.expires_on) <= 30)
+      .filter((c) => c.missing || (c.expires_on && daysUntilExpiry(c.expires_on) <= 30))
       .map((c) => ({
         staffName: member.profile!.full_name,
         item: c.item,
-        expiresOn: c.expires_on!,
+        expiresOn: c.expires_on ?? new Date().toISOString().slice(0, 10),
+        missing: Boolean(c.missing),
         room: member.profile!.classroom?.name ?? null,
       })),
   );

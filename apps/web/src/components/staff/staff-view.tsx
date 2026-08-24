@@ -41,6 +41,7 @@ const ROLE_LABELS: Record<string, string> = {
 type CertState =
   | { kind: "none" }
   | { kind: "valid" }
+  | { kind: "missing"; label: string }
   | { kind: "expiring"; label: string }
   | { kind: "expired"; label: string };
 
@@ -53,6 +54,7 @@ function certState(member: StaffRow): CertState {
   let soonestDays = Infinity;
 
   for (const cert of certs) {
+    if (cert.missing) return { kind: "missing", label: `${cert.item} missing` };
     if (!cert.expires_on) continue;
     const days = Math.floor((new Date(`${cert.expires_on}T12:00`).getTime() - now) / 86400000);
     if (days < 0) return { kind: "expired", label: `${cert.item} expired` };
@@ -125,14 +127,14 @@ export function StaffView({
 
   const certIssues = staff.filter((s) => {
     const state = certState(s);
-    return state.kind === "expiring" || state.kind === "expired";
+    return state.kind === "missing" || state.kind === "expiring" || state.kind === "expired";
   }).length;
 
   const filtered = staff.filter((s) => {
     if (roomFilter && s.profile?.classroom?.id !== roomFilter) return false;
     if (certFilter) {
       const state = certState(s);
-      if (state.kind !== "expiring" && state.kind !== "expired") return false;
+      if (state.kind !== "missing" && state.kind !== "expiring" && state.kind !== "expired") return false;
     }
     return true;
   });
@@ -265,6 +267,11 @@ export function StaffView({
                       {state.kind === "none" && <span className="text-faint">—</span>}
                       {state.kind === "valid" && (
                         <span className="font-semibold text-success">All valid ✓</span>
+                      )}
+                      {state.kind === "missing" && (
+                        <span className="rounded-full bg-danger-bg px-2.5 py-[3px] text-[11px] font-bold text-danger">
+                          {state.label}
+                        </span>
                       )}
                       {state.kind === "expiring" && (
                         <span className="whitespace-nowrap rounded-full bg-warning-bg px-2.5 py-[3px] text-[11px] font-bold text-warning-text">

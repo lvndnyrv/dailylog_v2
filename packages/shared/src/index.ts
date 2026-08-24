@@ -32,6 +32,7 @@ export const CONSENT_KINDS = [
   'Photo & media consent',
   'Field-trip permission',
   'Sunscreen application',
+  'Water / splash play',
 ] as const;
 export type ConsentKind = (typeof CONSENT_KINDS)[number];
 

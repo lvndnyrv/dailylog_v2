@@ -129,6 +129,16 @@ export function useStaffTime() {
         {
           event: '*',
           schema: 'public',
+          table: 'staff_shifts',
+          filter: `staff_member_id=eq.${staffMember.id}`,
+        },
+        () => load(),
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
           table: 'staff_time_off_requests',
           filter: `staff_member_id=eq.${staffMember.id}`,
         },

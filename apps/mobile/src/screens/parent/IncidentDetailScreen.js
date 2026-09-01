@@ -105,7 +105,7 @@ export default function IncidentDetailScreen({ route, navigation }) {
     (async () => {
       const { data } = await supabase
         .from('incident_reports')
-        .select('*')
+        .select('id, child_id, occurred_at, location, severity, injury_type, injury_side, body_parts, description, first_aid_given, photo_paths, status, submitted_at, signed_off_at, parent_notified_at, parent_acknowledged_at, parent_acknowledge_name')
         .eq('id', incidentId)
         .maybeSingle();
       if (active && data) setFallbackIncident(data);
@@ -156,7 +156,7 @@ export default function IncidentDetailScreen({ route, navigation }) {
 
   async function exportPdf() {
     try {
-      await exportIncidentPdf({ incident, child });
+      await exportIncidentPdf({ incident, child, daycareName: daycare?.name });
     } catch (error) {
       Alert.alert('Could not export report', error.message);
     }
@@ -184,6 +184,7 @@ export default function IncidentDetailScreen({ route, navigation }) {
 
   const signedAt = incident.acknowledgment?.acknowledged_at || incident.parent_acknowledged_at;
   const signedBy = incident.acknowledgment?.signed_name || incident.parent_acknowledge_name;
+  const directorReviewPending = incident.director_review_required || incident.status === 'submitted';
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
@@ -216,8 +217,6 @@ export default function IncidentDetailScreen({ route, navigation }) {
 
           <NarrativeCard label="WHAT HAPPENED">{incident.description}</NarrativeCard>
           <NarrativeCard label="ACTION TAKEN">{incident.first_aid_given || 'No first aid was required.'}</NarrativeCard>
-          {incident.notes ? <NarrativeCard label="FOLLOW-UP NOTES">{incident.notes}</NarrativeCard> : null}
-
           {incident.photo_paths?.length ? (
             <View style={styles.narrativeCard}>
               <Text style={styles.narrativeLabel}>PHOTOS</Text>
@@ -244,6 +243,7 @@ export default function IncidentDetailScreen({ route, navigation }) {
               <View style={styles.acknowledgedCopy}>
                 <Text style={styles.acknowledgedTitle}>Acknowledged</Text>
                 <Text style={styles.acknowledgedText}>Signed by {signedBy || 'Parent'}{signedAt ? ` · ${format(new Date(signedAt), 'MMM d, h:mm a')}` : ''}</Text>
+                {directorReviewPending ? <Text style={styles.reviewPendingText}>Director review is still in progress.</Text> : null}
               </View>
             </View>
           ) : (
@@ -329,6 +329,7 @@ const styles = StyleSheet.create({
   acknowledgedCopy: { flex: 1 },
   acknowledgedTitle: { color: colors.textPrimary, fontSize: 14, fontFamily: fonts.bold },
   acknowledgedText: { marginTop: 3, color: colors.success, fontSize: 11.5, fontFamily: fonts.regular },
+  reviewPendingText: { marginTop: 5, color: colors.amber, fontSize: 11.5, fontFamily: fonts.bold },
   recordNote: { marginTop: spacing.lg, color: colors.textFaint, fontSize: 10.5, lineHeight: 15, textAlign: 'center', fontFamily: fonts.regular },
   footer: { padding: spacing.lg, borderTopWidth: 1, borderTopColor: colors.borderSoft, backgroundColor: colors.surface },
   ackButton: { minHeight: 54, alignItems: 'center', justifyContent: 'center', borderRadius: radius.md, backgroundColor: colors.primary },

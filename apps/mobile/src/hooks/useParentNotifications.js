@@ -134,8 +134,9 @@ export function ParentNotificationsProvider({ children }) {
 
   useEffect(() => {
     if (!profile?.id || profile.role !== 'parent') return undefined;
+    const channelInstance = `${Date.now()}:${Math.random().toString(36).slice(2)}`;
     const channel = supabase
-      .channel(`parent-notifications:${profile.id}`)
+      .channel(`parent-notifications:${profile.id}:${channelInstance}`)
       .on('postgres_changes', {
         event: '*', schema: 'public', table: 'notifications',
         filter: `profile_id=eq.${profile.id}`,

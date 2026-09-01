@@ -77,8 +77,12 @@ export function useUnreadMessages() {
     });
 
     // Listen for new/updated messages via realtime
+    // A unique channel is required because React Strict Mode may mount the
+    // effect again before removeChannel has finished closing the old channel.
+    // Reusing the subscribed name makes supabase-js reject additional `.on()`
+    // callbacks during fast refresh and foreground transitions.
     const channel = supabase
-      .channel('unread-badge')
+      .channel(`unread-badge:${profile.id}:${Date.now()}:${Math.random().toString(36).slice(2)}`)
       .on('postgres_changes', {
         event: 'INSERT',
         schema: 'public',
@@ -100,5 +104,4 @@ export function useUnreadMessages() {
 
   return { unreadCount: count, refresh };
 }
-
 

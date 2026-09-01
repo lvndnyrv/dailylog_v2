@@ -25,6 +25,7 @@ declare
   v_first_path text := 'enrollment-offers/GROUP24-COMPLETION-TEST/immunization/first.pdf';
   v_second_path text := 'enrollment-offers/GROUP24-COMPLETION-TEST/immunization/second.pdf';
   v_failed boolean;
+  v_cleanup_allowed boolean;
   v_count int;
 begin
   perform pg_temp.impersonate('postgres');
@@ -102,10 +103,24 @@ begin
   v_offer := public.save_parent_enrollment_document(
     v_code, 'immunization', 'second.pdf', 'application/pdf', 120, v_second_path
   );
-  if v_offer->>'replaced_storage_path' <> v_first_path
-     or not public.can_delete_parent_enrollment_upload(v_first_path)
-     or public.can_delete_parent_enrollment_upload(v_second_path) then
+  if v_offer->>'replaced_storage_path' <> v_first_path then
     raise exception 'FAIL: replacement did not expose only the unreferenced private object for Storage cleanup';
+  end if;
+  v_failed := false;
+  begin
+    perform public.can_delete_parent_enrollment_upload(v_first_path);
+  exception when insufficient_privilege then
+    v_failed := true;
+  end;
+  if not v_failed then
+    raise exception 'FAIL: anonymous caller could invoke the private cleanup predicate';
+  end if;
+  perform pg_temp.impersonate('service_role');
+  select public.can_delete_parent_enrollment_upload(v_first_path)
+    and not public.can_delete_parent_enrollment_upload(v_second_path)
+  into v_cleanup_allowed;
+  if not v_cleanup_allowed then
+    raise exception 'FAIL: cleanup worker could not distinguish the replaced private object';
   end if;
   raise notice 'PASS: document replacement permits Storage cleanup only for the previous object';
 
@@ -148,6 +163,18 @@ begin
 
   perform pg_temp.impersonate('authenticated', v_guardian);
   v_offer := public.link_parent_enrollment_account(v_code);
+  perform pg_temp.impersonate('anon');
+  v_failed := false;
+  begin
+    perform public.get_parent_enrollment_offer(v_code);
+  exception when others then
+    v_failed := true;
+  end;
+  if not v_failed then
+    raise exception 'FAIL: linked enrollment remained readable through its anonymous bearer link';
+  end if;
+  perform pg_temp.impersonate('authenticated', v_guardian);
+  perform public.get_parent_enrollment_offer(v_code);
   perform pg_temp.impersonate('postgres');
   if v_offer->'co_guardian_invite'->>'email' <> 'noah.group24@family.test'
      or not exists (
@@ -160,6 +187,7 @@ begin
     raise exception 'FAIL: the co-guardian application entry was not handed off';
   end if;
   raise notice 'PASS: account linking prepares the co-guardian invitation exactly once';
+  raise notice 'PASS: consumed offer links require the linked family account';
 end;
 $$;
 

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View,
 } from 'react-native';
@@ -6,6 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { format } from 'date-fns';
 import { useAuth } from '../../hooks/useAuth';
+import { useParentFamily } from '../../hooks/useParentFamily';
 import { sendEventRsvp } from '../../hooks/useStaffVisibility';
 import { supabase } from '../../lib/supabase';
 import { Button, EmptyState } from '../../components/ui';
@@ -13,13 +14,14 @@ import { showToast } from '../../components/Toast';
 import { colors, fonts, radius, spacing } from '../../theme';
 
 const RESPONSES = [
-  { key: 'yes', label: 'Yes', subtitle: "We'll be there", icon: 'checkmark-circle-outline' },
-  { key: 'maybe', label: 'Maybe', subtitle: 'Not sure yet', icon: 'help-circle-outline' },
-  { key: 'no', label: 'No', subtitle: "Can't make it", icon: 'close-circle-outline' },
+  { key: 'yes', label: 'Yes', subtitle: "We'll be there", icon: 'checkmark-circle-outline', color: colors.success, background: colors.successLight },
+  { key: 'maybe', label: 'Maybe', subtitle: 'Not sure yet', icon: 'help-circle-outline', color: colors.amber, background: colors.amberLight },
+  { key: 'no', label: 'No', subtitle: "Can't make it", icon: 'close-circle-outline', color: colors.danger, background: colors.dangerLight },
 ];
 
 export default function EventDetailScreen({ navigation, route }) {
   const { profile } = useAuth();
+  const family = useParentFamily();
   const announcementId = route.params?.announcementId || route.params?.announcement?.id;
   const [event, setEvent] = useState(route.params?.announcement || null);
   const [response, setResponse] = useState(null);
@@ -27,10 +29,9 @@ export default function EventDetailScreen({ navigation, route }) {
   const [loading, setLoading] = useState(!route.params?.announcement);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [rsvpChildId, setRsvpChildId] = useState(null);
 
-  useEffect(() => { load(); }, [announcementId, profile?.id]);
-
-  async function load() {
+  const load = useCallback(async () => {
     if (!announcementId || !profile?.id) {
       setError('This event could not be identified.');
       setLoading(false);
@@ -39,7 +40,7 @@ export default function EventDetailScreen({ navigation, route }) {
     setError('');
     const { data, error: loadError } = await supabase
       .from('announcements')
-      .select('*, classroom:classrooms(name), rsvps:announcement_rsvps(profile_id,response,guests,updated_at)')
+      .select('*, classroom:classrooms(name), rsvps:announcement_rsvps(profile_id,response,guests,child_id,updated_at)')
       .eq('id', announcementId)
       .single();
     if (loadError) {
@@ -52,6 +53,7 @@ export default function EventDetailScreen({ navigation, route }) {
     if (own) {
       setResponse(own.response);
       setGuests(Math.max(1, own.guests || 1));
+      setRsvpChildId(own.child_id || null);
     }
     setLoading(false);
 
@@ -60,18 +62,54 @@ export default function EventDetailScreen({ navigation, route }) {
       profile_id: profile.id,
       read_at: new Date().toISOString(),
     }, { onConflict: 'announcement_id,profile_id' });
-  }
+  }, [announcementId, profile?.id]);
+
+  useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    if (!announcementId) return undefined;
+    const channel = supabase
+      .channel(`parent-event:${announcementId}:${Date.now()}`)
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'announcements',
+        filter: `id=eq.${announcementId}`,
+      }, () => load())
+      .subscribe();
+    return () => supabase.removeChannel(channel);
+  }, [announcementId, load]);
+
+  const eligibleChildren = useMemo(() => family.children.filter((child) => (
+    !event?.classroom_id || child.classroom_id === event.classroom_id
+  )), [event?.classroom_id, family.children]);
+  const invitedChild = useMemo(() => (
+    eligibleChildren.find((child) => child.id === rsvpChildId)
+    || eligibleChildren.find((child) => child.id === family.selectedChildId)
+    || eligibleChildren[0]
+    || null
+  ), [eligibleChildren, family.selectedChildId, rsvpChildId]);
 
   async function save() {
     if (!response) {
       Alert.alert('Choose a response', 'Let the center know if your family can attend.');
       return;
     }
+    if (!invitedChild?.id) {
+      Alert.alert('No invited child found', 'This event is not linked to one of your active children. Please contact the center.');
+      return;
+    }
     setSaving(true);
     try {
-      const saved = await sendEventRsvp(announcementId, response, response === 'no' ? 0 : guests);
+      const saved = await sendEventRsvp(
+        announcementId,
+        response,
+        response === 'no' ? 0 : guests,
+        invitedChild.id,
+      );
       setResponse(saved.response);
       setGuests(Math.max(1, saved.guests || 1));
+      setRsvpChildId(saved.childId || invitedChild.id);
       showToast('Your RSVP was saved', 'success');
       navigation.goBack();
     } catch (saveError) {
@@ -143,7 +181,9 @@ export default function EventDetailScreen({ navigation, route }) {
             ) : null}
           </View>
 
-          <Text style={styles.sectionTitle}>Can your family attend?</Text>
+          <Text style={styles.sectionTitle}>
+            {invitedChild?.first_name ? `Will ${invitedChild.first_name} attend?` : 'Can your family attend?'}
+          </Text>
           <View style={styles.responseRow}>
             {RESPONSES.map((option) => {
               const selected = response === option.key;
@@ -152,11 +192,15 @@ export default function EventDetailScreen({ navigation, route }) {
                   key={option.key}
                   onPress={() => setResponse(option.key)}
                   disabled={isPast}
-                  style={[styles.responseCard, selected && styles.responseCardSelected, isPast && styles.disabled]}
+                  style={[
+                    styles.responseCard,
+                    selected && { borderColor: option.color, backgroundColor: option.background },
+                    isPast && styles.disabled,
+                  ]}
                 >
-                  <Ionicons name={option.icon} size={24} color={selected ? colors.white : colors.primary} />
-                  <Text style={[styles.responseLabel, selected && styles.responseLabelSelected]}>{option.label}</Text>
-                  <Text style={[styles.responseSub, selected && styles.responseSubSelected]}>{option.subtitle}</Text>
+                  <Ionicons name={option.icon} size={24} color={selected ? option.color : colors.primary} />
+                  <Text style={[styles.responseLabel, selected && { color: option.color }]}>{option.label}</Text>
+                  <Text style={styles.responseSub}>{option.subtitle}</Text>
                 </TouchableOpacity>
               );
             })}
@@ -166,7 +210,9 @@ export default function EventDetailScreen({ navigation, route }) {
             <View style={styles.guestsCard}>
               <View style={styles.guestsCopy}>
                 <Text style={styles.guestsTitle}>How many are coming?</Text>
-                <Text style={styles.guestsSub}>Include your child in the total.</Text>
+                <Text style={styles.guestsSub}>
+                  Include {invitedChild?.first_name || 'your child'} in the total.
+                </Text>
               </View>
               <View style={styles.stepper}>
                 <TouchableOpacity onPress={() => setGuests((value) => Math.max(1, value - 1))} style={styles.stepperButton}>
@@ -189,7 +235,9 @@ export default function EventDetailScreen({ navigation, route }) {
             <Button label="Send RSVP" onPress={save} loading={saving} style={styles.saveButton} />
           )}
 
-          <Text style={styles.footer}>You can update your response any time before the event starts.</Text>
+          {!isPast ? (
+            <Text style={styles.footer}>You can update your response any time before the event starts.</Text>
+          ) : null}
         </ScrollView>
       )}
     </SafeAreaView>
@@ -218,11 +266,8 @@ const styles = StyleSheet.create({
   sectionTitle: { marginTop: spacing.xl, marginBottom: spacing.md, fontSize: 17, fontFamily: fonts.black, color: colors.textPrimary },
   responseRow: { flexDirection: 'row', gap: spacing.sm },
   responseCard: { flex: 1, minHeight: 102, alignItems: 'center', justifyContent: 'center', padding: spacing.sm, borderWidth: 1.5, borderColor: colors.border, borderRadius: radius.md, backgroundColor: colors.surface },
-  responseCardSelected: { borderColor: colors.primary, backgroundColor: colors.primary },
   responseLabel: { marginTop: 6, fontSize: 14, fontFamily: fonts.bold, color: colors.textPrimary },
-  responseLabelSelected: { color: colors.white },
   responseSub: { marginTop: 2, fontSize: 9.5, fontFamily: fonts.regular, color: colors.textMuted, textAlign: 'center' },
-  responseSubSelected: { color: '#EAF3FF' },
   disabled: { opacity: 0.55 },
   guestsCard: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, marginTop: spacing.lg, padding: spacing.lg, borderRadius: radius.md, backgroundColor: colors.primarySoft },
   guestsCopy: { flex: 1 },

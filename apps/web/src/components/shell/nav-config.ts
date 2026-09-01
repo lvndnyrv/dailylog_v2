@@ -31,7 +31,7 @@ export const NAV_ITEMS: NavItem[] = [
   { label: "Attendance", href: "/attendance", icon: Check, built: true },
   { label: "Billing", href: "/billing", icon: CreditCard, built: true },
   { label: "Messages", href: "/messages", icon: MessageSquare, built: false },
-  { label: "Compliance", href: "/compliance", icon: CircleCheck, built: false },
+  { label: "Compliance", href: "/compliance", icon: CircleCheck, built: true },
   { label: "Reports", href: "/reports", icon: BarChart3, built: false },
   { label: "Settings", href: "/settings", icon: Settings, built: false },
 ];

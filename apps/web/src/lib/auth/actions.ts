@@ -2,9 +2,10 @@
 
 import {
   acceptStaffInvite,
+  checkCenterRegistrationCode,
+  completeCenterSetup,
   getMyProfile,
   getStaffInvite,
-  startCenter,
 } from "@dailylog/db/queries";
 import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
@@ -176,28 +177,71 @@ export async function startCenterAction(
   const fullName = String(formData.get("full_name") ?? "").trim();
   const email = String(formData.get("email") ?? "").trim();
   const password = String(formData.get("password") ?? "");
-  if (!centerName || !fullName) return { error: "Center name and your name are required." };
+  const address = String(formData.get("address") ?? "").trim();
+  const phone = String(formData.get("phone") ?? "").trim();
+  const registrationCode = String(formData.get("registration_code") ?? "").trim();
+  if (!centerName || !fullName || !email || !address || !phone || !registrationCode) {
+    return { error: "Complete every required field, including your registration code." };
+  }
   if (password.length < 12) {
     return { error: "12+ characters — that's the only rule." };
+  }
+
+  let preview;
+  try {
+    preview = await checkCenterRegistrationCode(supabase, registrationCode, email);
+  } catch {
+    return { error: "We could not verify that registration code. Wait a moment and try again." };
+  }
+  if (!preview) {
+    return {
+      error: "That registration code is invalid, expired, already used, or belongs to another email.",
+    };
+  }
+  if (preview.center_name.trim().toLowerCase() !== centerName.toLowerCase()) {
+    return {
+      error: `This code was issued for ${preview.center_name}. Use that approved center name.`,
+    };
   }
 
   const { data, error } = await supabase.auth.signUp({
     email,
     password,
-    options: { data: { full_name: fullName } },
+    options: {
+      data: {
+        full_name: fullName,
+        center_registration_code: registrationCode,
+        approved_center_name: preview.center_name,
+      },
+    },
   });
   if (error) return { error: error.message };
   if (!data.session) {
     return {
       error:
-        "Account created — confirm your email from your inbox, then sign in to finish setting up your center.",
+        "Account created — confirm your email, then finish the approved center setup in the DailyLog app.",
     };
   }
 
   try {
-    await startCenter(supabase, centerName);
+    await completeCenterSetup(supabase, {
+      centerName: preview.center_name,
+      address,
+      phone,
+      registrationCode,
+    });
+    await supabase.auth.updateUser({
+      data: {
+        center_registration_code: null,
+        approved_center_name: null,
+      },
+    });
   } catch (err) {
-    return { error: err instanceof Error ? err.message : "Could not create the center." };
+    return {
+      error: err instanceof Error
+        ? err.message
+        : "The approved center could not be created. Your code was not consumed; try again.",
+    };
   }
 
   redirect("/dashboard");

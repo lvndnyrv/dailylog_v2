@@ -72,6 +72,8 @@ export function Input({ label, value, onChangeText, placeholder, secureTextEntry
           multiline={multiline}
           numberOfLines={multiline ? 3 : 1}
           {...rest}
+          accessibilityLabel={rest.accessibilityLabel || label || placeholder}
+          accessibilityHint={rest.accessibilityHint || error || undefined}
           style={[styles.inputInner, multiline && styles.inputMulti]}
         />
         {isPassword && (
@@ -79,6 +81,8 @@ export function Input({ label, value, onChangeText, placeholder, secureTextEntry
             onPress={() => setShowPassword(p => !p)}
             style={styles.eyeBtn}
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            accessibilityRole="button"
+            accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
           >
             <Ionicons
               name={showPassword ? 'eye-off-outline' : 'eye-outline'}
@@ -88,7 +92,7 @@ export function Input({ label, value, onChangeText, placeholder, secureTextEntry
           </TouchableOpacity>
         )}
       </View>
-      {error && <Text style={styles.inputErrorText}>{error}</Text>}
+      {error && <Text style={styles.inputErrorText} accessibilityLiveRegion="polite">{error}</Text>}
     </View>
   );
 }

@@ -13,6 +13,7 @@ import { money, monthLabel, ScreenHeader, sharedStyles } from './ParentBillingSh
 export default function ParentStatementsScreen({ navigation }) {
   const { home, loading, error, refresh } = useParentBilling();
   const [exporting, setExporting] = useState('');
+  const taxReceipt = home?.tax_receipt;
 
   useFocusEffect(useCallback(() => {
     refresh().catch(() => {});
@@ -47,18 +48,30 @@ export default function ParentStatementsScreen({ navigation }) {
       ) : null}
       {home ? (
         <ScrollView contentContainerStyle={sharedStyles.content}>
-          <TouchableOpacity
-            style={styles.taxCard}
-            disabled={Boolean(exporting)}
-            onPress={() => share('tax', home.tax_receipt)}
-          >
-            <View style={styles.taxIcon}><Ionicons name="document-text-outline" size={21} color={colors.success} /></View>
-            <View style={styles.taxCopy}>
-              <Text style={styles.taxTitle}>{home.tax_receipt?.year} Tax receipt</Text>
-              <Text style={styles.taxSubtitle}>Year-end childcare summary · {money(home.tax_receipt?.total_cents, 'CAD', false)}</Text>
+          {taxReceipt ? (
+            <TouchableOpacity
+              style={styles.taxCard}
+              disabled={Boolean(exporting)}
+              onPress={() => share('tax', taxReceipt)}
+              accessibilityRole="button"
+              accessibilityLabel={`Download ${taxReceipt.year} tax receipt`}
+            >
+              <View style={styles.taxIcon}><Ionicons name="document-text-outline" size={21} color={colors.success} /></View>
+              <View style={styles.taxCopy}>
+                <Text style={styles.taxTitle}>{taxReceipt.year} Tax receipt</Text>
+                <Text style={styles.taxSubtitle}>Year-end childcare summary · {money(taxReceipt.total_cents, 'CAD', false)}</Text>
+              </View>
+              {exporting === 'tax' ? <ActivityIndicator color={colors.success} /> : <Ionicons name="download-outline" size={21} color={colors.success} />}
+            </TouchableOpacity>
+          ) : (
+            <View style={styles.taxUnavailableCard}>
+              <View style={styles.taxUnavailableIcon}><Ionicons name="time-outline" size={21} color={colors.amber} /></View>
+              <View style={styles.taxCopy}>
+                <Text style={styles.taxTitle}>Tax receipt not ready yet</Text>
+                <Text style={styles.taxUnavailableText}>Your annual childcare receipt will appear here after the center closes the calendar year.</Text>
+              </View>
             </View>
-            {exporting === 'tax' ? <ActivityIndicator color={colors.success} /> : <Ionicons name="download-outline" size={21} color={colors.success} />}
-          </TouchableOpacity>
+          )}
 
           <Text style={styles.sectionTitle}>Monthly statements</Text>
           <View style={styles.statementList}>
@@ -103,6 +116,9 @@ const styles = StyleSheet.create({
   taxCopy: { flex: 1, minWidth: 0 },
   taxTitle: { color: colors.textPrimary, fontFamily: fonts.black, fontSize: 15 },
   taxSubtitle: { color: '#1B6B45', fontFamily: fonts.regular, fontSize: 12.5, marginTop: 3 },
+  taxUnavailableCard: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, backgroundColor: colors.amberLight, borderWidth: 1.5, borderColor: 'rgba(176,120,43,0.2)', borderRadius: 16, padding: spacing.lg, marginTop: spacing.sm },
+  taxUnavailableIcon: { width: 42, height: 42, borderRadius: radius.md, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
+  taxUnavailableText: { color: colors.textMuted, fontFamily: fonts.regular, fontSize: 12.5, lineHeight: 18, marginTop: 3 },
   sectionTitle: { color: colors.textPrimary, fontFamily: fonts.bold, fontSize: 13.5, marginTop: spacing.lg, marginBottom: spacing.md },
   statementList: { gap: 9 },
   statementRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, minHeight: 62, paddingHorizontal: spacing.lg, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.primaryLight, borderRadius: radius.lg },

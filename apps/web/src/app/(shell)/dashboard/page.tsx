@@ -6,6 +6,7 @@ import {
   listIncidentsAwaitingSignoff,
   listRoomsLive,
   listStaff,
+  listComplianceDueItems,
 } from "@dailylog/db/queries";
 import { formatAge } from "@dailylog/shared";
 import { SectionHeader } from "@/components/shell/header";
@@ -28,7 +29,7 @@ export default async function DashboardPage({
   const supabase = await getServerSupabase();
   const today = new Date().toISOString().slice(0, 10);
 
-  const [profile, rooms, incidents, attendance, billing, enrollments, staff] =
+  const [profile, rooms, incidents, attendance, billing, enrollments, staff, complianceDue] =
     await Promise.all([
       getMyProfile(supabase),
       listRoomsLive(supabase),
@@ -37,6 +38,7 @@ export default async function DashboardPage({
       getBillingSummary(supabase),
       listEnrollments(supabase),
       listStaff(supabase),
+      listComplianceDueItems(supabase),
     ]);
 
   const firstName = profile?.full_name.split(" ")[0] ?? "there";
@@ -96,6 +98,7 @@ export default async function DashboardPage({
         enrollment={{ capacity, filled, waitlist, tours }}
         offers={offers}
         certIssues={certIssues}
+        complianceDue={complianceDue}
         staffing={staffing}
         openIncident={review === "incident"}
       />

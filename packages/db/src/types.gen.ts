@@ -257,6 +257,9 @@ export type Database = {
       attendance_records: {
         Row: {
           absence_reason: string | null
+          absence_report_id: string | null
+          absence_reported_at: string | null
+          absence_reported_by: string | null
           checked_in_at: string | null
           checked_in_by: string | null
           checked_out_at: string | null
@@ -275,6 +278,9 @@ export type Database = {
         }
         Insert: {
           absence_reason?: string | null
+          absence_report_id?: string | null
+          absence_reported_at?: string | null
+          absence_reported_by?: string | null
           checked_in_at?: string | null
           checked_in_by?: string | null
           checked_out_at?: string | null
@@ -293,6 +299,9 @@ export type Database = {
         }
         Update: {
           absence_reason?: string | null
+          absence_report_id?: string | null
+          absence_reported_at?: string | null
+          absence_reported_by?: string | null
           checked_in_at?: string | null
           checked_in_by?: string | null
           checked_out_at?: string | null
@@ -310,6 +319,20 @@ export type Database = {
           updated_at?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "attendance_records_absence_report_id_fkey"
+            columns: ["absence_report_id"]
+            isOneToOne: false
+            referencedRelation: "parent_absence_reports"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attendance_records_absence_reported_by_fkey"
+            columns: ["absence_reported_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "attendance_records_checked_in_by_fkey"
             columns: ["checked_in_by"]
@@ -735,6 +758,7 @@ export type Database = {
       }
       child_pickups: {
         Row: {
+          approval_status: string
           archived_at: string | null
           child_id: string
           created_at: string | null
@@ -746,9 +770,15 @@ export type Database = {
           phone: string | null
           pin: string
           relationship: string | null
+          requested_at: string | null
+          requested_by: string | null
+          review_note: string | null
+          reviewed_at: string | null
+          reviewed_by: string | null
           updated_at: string | null
         }
         Insert: {
+          approval_status?: string
           archived_at?: string | null
           child_id: string
           created_at?: string | null
@@ -760,9 +790,15 @@ export type Database = {
           phone?: string | null
           pin: string
           relationship?: string | null
+          requested_at?: string | null
+          requested_by?: string | null
+          review_note?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
           updated_at?: string | null
         }
         Update: {
+          approval_status?: string
           archived_at?: string | null
           child_id?: string
           created_at?: string | null
@@ -774,6 +810,11 @@ export type Database = {
           phone?: string | null
           pin?: string
           relationship?: string | null
+          requested_at?: string | null
+          requested_by?: string | null
+          review_note?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
           updated_at?: string | null
         }
         Relationships: [
@@ -796,6 +837,20 @@ export type Database = {
             columns: ["daycare_id"]
             isOneToOne: false
             referencedRelation: "daycares"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "child_pickups_requested_by_fkey"
+            columns: ["requested_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "child_pickups_reviewed_by_fkey"
+            columns: ["reviewed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -950,6 +1005,209 @@ export type Database = {
           },
         ]
       }
+      compliance_documents: {
+        Row: {
+          category: string
+          created_at: string
+          daycare_id: string
+          expires_on: string | null
+          id: string
+          include_in_inspection: boolean
+          mime_type: string
+          replaces_id: string | null
+          size_bytes: number
+          storage_path: string
+          title: string
+          uploaded_by: string
+          version: number
+          watch_expiry: boolean
+        }
+        Insert: {
+          category: string
+          created_at?: string
+          daycare_id: string
+          expires_on?: string | null
+          id?: string
+          include_in_inspection?: boolean
+          mime_type: string
+          replaces_id?: string | null
+          size_bytes: number
+          storage_path: string
+          title: string
+          uploaded_by: string
+          version?: number
+          watch_expiry?: boolean
+        }
+        Update: {
+          category?: string
+          created_at?: string
+          daycare_id?: string
+          expires_on?: string | null
+          id?: string
+          include_in_inspection?: boolean
+          mime_type?: string
+          replaces_id?: string | null
+          size_bytes?: number
+          storage_path?: string
+          title?: string
+          uploaded_by?: string
+          version?: number
+          watch_expiry?: boolean
+        }
+        Relationships: [
+          {
+            foreignKeyName: "compliance_documents_daycare_id_fkey"
+            columns: ["daycare_id"]
+            isOneToOne: false
+            referencedRelation: "daycares"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "compliance_documents_replaces_id_fkey"
+            columns: ["replaces_id"]
+            isOneToOne: true
+            referencedRelation: "compliance_documents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "compliance_documents_uploaded_by_fkey"
+            columns: ["uploaded_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      compliance_drills: {
+        Row: {
+          attendance_children: number
+          attendance_staff: number
+          children_count: number
+          conducted_at: string
+          created_at: string
+          created_by: string
+          daycare_id: string
+          duration_seconds: number
+          id: string
+          kind: string
+          lead_staff_id: string
+          next_due_on: string | null
+          notes: string
+          staff_count: number
+          void_reason: string | null
+          voided_at: string | null
+        }
+        Insert: {
+          attendance_children: number
+          attendance_staff: number
+          children_count: number
+          conducted_at: string
+          created_at?: string
+          created_by: string
+          daycare_id: string
+          duration_seconds: number
+          id?: string
+          kind: string
+          lead_staff_id: string
+          next_due_on?: string | null
+          notes?: string
+          staff_count: number
+          void_reason?: string | null
+          voided_at?: string | null
+        }
+        Update: {
+          attendance_children?: number
+          attendance_staff?: number
+          children_count?: number
+          conducted_at?: string
+          created_at?: string
+          created_by?: string
+          daycare_id?: string
+          duration_seconds?: number
+          id?: string
+          kind?: string
+          lead_staff_id?: string
+          next_due_on?: string | null
+          notes?: string
+          staff_count?: number
+          void_reason?: string | null
+          voided_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "compliance_drills_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "compliance_drills_daycare_id_fkey"
+            columns: ["daycare_id"]
+            isOneToOne: false
+            referencedRelation: "daycares"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "compliance_drills_lead_staff_id_fkey"
+            columns: ["lead_staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff_members"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      compliance_inspection_shares: {
+        Row: {
+          created_at: string
+          created_by: string
+          daycare_id: string
+          expires_at: string
+          id: string
+          label: string
+          last_opened_at: string | null
+          revoked_at: string | null
+          token_hash: string
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          daycare_id: string
+          expires_at?: string
+          id?: string
+          label: string
+          last_opened_at?: string | null
+          revoked_at?: string | null
+          token_hash: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          daycare_id?: string
+          expires_at?: string
+          id?: string
+          label?: string
+          last_opened_at?: string | null
+          revoked_at?: string | null
+          token_hash?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "compliance_inspection_shares_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "compliance_inspection_shares_daycare_id_fkey"
+            columns: ["daycare_id"]
+            isOneToOne: false
+            referencedRelation: "daycares"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       consents: {
         Row: {
           child_id: string
@@ -1008,6 +1266,42 @@ export type Database = {
           {
             foreignKeyName: "consents_parent_id_fkey"
             columns: ["parent_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      conversation_participants: {
+        Row: {
+          conversation_id: string
+          joined_at: string
+          last_read_at: string | null
+          profile_id: string
+        }
+        Insert: {
+          conversation_id: string
+          joined_at?: string
+          last_read_at?: string | null
+          profile_id: string
+        }
+        Update: {
+          conversation_id?: string
+          joined_at?: string
+          last_read_at?: string | null
+          profile_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "conversation_participants_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "conversation_participants_profile_id_fkey"
+            columns: ["profile_id"]
             isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
@@ -1190,6 +1484,7 @@ export type Database = {
           phone: string | null
           ratio_alert_after_minutes: number
           ratio_block_checkins: boolean
+          ratio_ledger_started_at: string
           ratio_notify_floaters: boolean
           time_tracking_enabled: boolean
           timezone: string
@@ -1207,6 +1502,7 @@ export type Database = {
           phone?: string | null
           ratio_alert_after_minutes?: number
           ratio_block_checkins?: boolean
+          ratio_ledger_started_at?: string
           ratio_notify_floaters?: boolean
           time_tracking_enabled?: boolean
           timezone?: string
@@ -1224,6 +1520,7 @@ export type Database = {
           phone?: string | null
           ratio_alert_after_minutes?: number
           ratio_block_checkins?: boolean
+          ratio_ledger_started_at?: string
           ratio_notify_floaters?: boolean
           time_tracking_enabled?: boolean
           timezone?: string
@@ -1378,6 +1675,66 @@ export type Database = {
             columns: ["educator_id"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      enrollment_agreement_signatures: {
+        Row: {
+          application_snapshot: Json
+          created_at: string
+          daycare_id: string
+          enrollment_id: string
+          id: string
+          photo_consent: boolean
+          signature_name: string
+          signed_at: string
+          signed_ip: string | null
+          terms_snapshot: Json
+          user_agent: string | null
+          version: string
+        }
+        Insert: {
+          application_snapshot?: Json
+          created_at?: string
+          daycare_id: string
+          enrollment_id: string
+          id?: string
+          photo_consent?: boolean
+          signature_name: string
+          signed_at?: string
+          signed_ip?: string | null
+          terms_snapshot: Json
+          user_agent?: string | null
+          version: string
+        }
+        Update: {
+          application_snapshot?: Json
+          created_at?: string
+          daycare_id?: string
+          enrollment_id?: string
+          id?: string
+          photo_consent?: boolean
+          signature_name?: string
+          signed_at?: string
+          signed_ip?: string | null
+          terms_snapshot?: Json
+          user_agent?: string | null
+          version?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "enrollment_agreement_signatures_daycare_id_fkey"
+            columns: ["daycare_id"]
+            isOneToOne: false
+            referencedRelation: "daycares"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "enrollment_agreement_signatures_enrollment_id_fkey"
+            columns: ["enrollment_id"]
+            isOneToOne: false
+            referencedRelation: "enrollments"
             referencedColumns: ["id"]
           },
         ]
@@ -2249,6 +2606,74 @@ export type Database = {
           },
         ]
       }
+      incident_acknowledgments: {
+        Row: {
+          acknowledged_at: string
+          child_id: string
+          created_at: string
+          daycare_id: string
+          id: string
+          incident_id: string
+          parent_id: string
+          signed_name: string
+          statement_text: string
+          statement_version: string
+        }
+        Insert: {
+          acknowledged_at?: string
+          child_id: string
+          created_at?: string
+          daycare_id: string
+          id?: string
+          incident_id: string
+          parent_id: string
+          signed_name: string
+          statement_text: string
+          statement_version?: string
+        }
+        Update: {
+          acknowledged_at?: string
+          child_id?: string
+          created_at?: string
+          daycare_id?: string
+          id?: string
+          incident_id?: string
+          parent_id?: string
+          signed_name?: string
+          statement_text?: string
+          statement_version?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "incident_acknowledgments_child_id_fkey"
+            columns: ["child_id"]
+            isOneToOne: false
+            referencedRelation: "children"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "incident_acknowledgments_daycare_id_fkey"
+            columns: ["daycare_id"]
+            isOneToOne: false
+            referencedRelation: "daycares"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "incident_acknowledgments_incident_id_fkey"
+            columns: ["incident_id"]
+            isOneToOne: true
+            referencedRelation: "incident_reports"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "incident_acknowledgments_parent_id_fkey"
+            columns: ["parent_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       incident_reports: {
         Row: {
           body_parts: string[] | null
@@ -2268,6 +2693,7 @@ export type Database = {
           occurred_at: string
           parent_acknowledge_name: string | null
           parent_acknowledged_at: string | null
+          parent_acknowledged_by: string | null
           parent_notified_at: string | null
           photo_paths: string[] | null
           severity: string
@@ -2297,6 +2723,7 @@ export type Database = {
           occurred_at?: string
           parent_acknowledge_name?: string | null
           parent_acknowledged_at?: string | null
+          parent_acknowledged_by?: string | null
           parent_notified_at?: string | null
           photo_paths?: string[] | null
           severity?: string
@@ -2326,6 +2753,7 @@ export type Database = {
           occurred_at?: string
           parent_acknowledge_name?: string | null
           parent_acknowledged_at?: string | null
+          parent_acknowledged_by?: string | null
           parent_notified_at?: string | null
           photo_paths?: string[] | null
           severity?: string
@@ -2369,6 +2797,13 @@ export type Database = {
           {
             foreignKeyName: "incident_reports_first_aid_by_fkey"
             columns: ["first_aid_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "incident_reports_parent_acknowledged_by_fkey"
+            columns: ["parent_acknowledged_by"]
             isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
@@ -2807,6 +3242,8 @@ export type Database = {
           daycare_id: string
           dosage: string
           end_date: string | null
+          ended_at: string | null
+          ended_by: string | null
           id: string
           label_photo_path: string | null
           max_daily_doses: number | null
@@ -2814,6 +3251,7 @@ export type Database = {
           name: string
           notes: string | null
           parent_id: string | null
+          renewed_from_id: string | null
           route: string | null
           schedule: string | null
           schedule_type: string
@@ -2833,6 +3271,8 @@ export type Database = {
           daycare_id: string
           dosage: string
           end_date?: string | null
+          ended_at?: string | null
+          ended_by?: string | null
           id?: string
           label_photo_path?: string | null
           max_daily_doses?: number | null
@@ -2840,6 +3280,7 @@ export type Database = {
           name: string
           notes?: string | null
           parent_id?: string | null
+          renewed_from_id?: string | null
           route?: string | null
           schedule?: string | null
           schedule_type?: string
@@ -2859,6 +3300,8 @@ export type Database = {
           daycare_id?: string
           dosage?: string
           end_date?: string | null
+          ended_at?: string | null
+          ended_by?: string | null
           id?: string
           label_photo_path?: string | null
           max_daily_doses?: number | null
@@ -2866,6 +3309,7 @@ export type Database = {
           name?: string
           notes?: string | null
           parent_id?: string | null
+          renewed_from_id?: string | null
           route?: string | null
           schedule?: string | null
           schedule_type?: string
@@ -2891,10 +3335,24 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "medication_authorizations_ended_by_fkey"
+            columns: ["ended_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "medication_authorizations_parent_id_fkey"
             columns: ["parent_id"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "medication_authorizations_renewed_from_id_fkey"
+            columns: ["renewed_from_id"]
+            isOneToOne: false
+            referencedRelation: "medication_authorizations"
             referencedColumns: ["id"]
           },
         ]
@@ -3352,6 +3810,83 @@ export type Database = {
           },
         ]
       }
+      parent_absence_reports: {
+        Row: {
+          cancelled_at: string | null
+          cancelled_by: string | null
+          child_id: string
+          created_at: string
+          daycare_id: string
+          ends_on: string
+          id: string
+          note: string | null
+          reason: string
+          reported_by: string
+          starts_on: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          cancelled_at?: string | null
+          cancelled_by?: string | null
+          child_id: string
+          created_at?: string
+          daycare_id: string
+          ends_on: string
+          id?: string
+          note?: string | null
+          reason: string
+          reported_by: string
+          starts_on: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          cancelled_at?: string | null
+          cancelled_by?: string | null
+          child_id?: string
+          created_at?: string
+          daycare_id?: string
+          ends_on?: string
+          id?: string
+          note?: string | null
+          reason?: string
+          reported_by?: string
+          starts_on?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "parent_absence_reports_cancelled_by_fkey"
+            columns: ["cancelled_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "parent_absence_reports_child_id_fkey"
+            columns: ["child_id"]
+            isOneToOne: false
+            referencedRelation: "children"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "parent_absence_reports_daycare_id_fkey"
+            columns: ["daycare_id"]
+            isOneToOne: false
+            referencedRelation: "daycares"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "parent_absence_reports_reported_by_fkey"
+            columns: ["reported_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       parent_children: {
         Row: {
           child_id: string
@@ -3704,6 +4239,8 @@ export type Database = {
           payment_method_id: string | null
           receipt_emailed_to: string | null
           receipt_number: string | null
+          refund_reason: string | null
+          refunded_at: string | null
           status: string
         }
         Insert: {
@@ -3722,6 +4259,8 @@ export type Database = {
           payment_method_id?: string | null
           receipt_emailed_to?: string | null
           receipt_number?: string | null
+          refund_reason?: string | null
+          refunded_at?: string | null
           status?: string
         }
         Update: {
@@ -3740,6 +4279,8 @@ export type Database = {
           payment_method_id?: string | null
           receipt_emailed_to?: string | null
           receipt_number?: string | null
+          refund_reason?: string | null
+          refunded_at?: string | null
           status?: string
         }
         Relationships: [
@@ -4448,6 +4989,73 @@ export type Database = {
           },
         ]
       }
+      room_ratio_history: {
+        Row: {
+          classroom_id: string
+          created_at: string
+          daycare_id: string
+          ends_at: string | null
+          id: string
+          max_children_per_staff: number
+          present_count: number
+          recorded_by: string | null
+          required_staff: number
+          source: string
+          staff_count: number
+          starts_at: string
+        }
+        Insert: {
+          classroom_id: string
+          created_at?: string
+          daycare_id: string
+          ends_at?: string | null
+          id?: string
+          max_children_per_staff: number
+          present_count: number
+          recorded_by?: string | null
+          required_staff: number
+          source: string
+          staff_count: number
+          starts_at: string
+        }
+        Update: {
+          classroom_id?: string
+          created_at?: string
+          daycare_id?: string
+          ends_at?: string | null
+          id?: string
+          max_children_per_staff?: number
+          present_count?: number
+          recorded_by?: string | null
+          required_staff?: number
+          source?: string
+          staff_count?: number
+          starts_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "room_ratio_history_classroom_id_fkey"
+            columns: ["classroom_id"]
+            isOneToOne: false
+            referencedRelation: "classrooms"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "room_ratio_history_daycare_id_fkey"
+            columns: ["daycare_id"]
+            isOneToOne: false
+            referencedRelation: "daycares"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "room_ratio_history_recorded_by_fkey"
+            columns: ["recorded_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       room_transition_plans: {
         Row: {
           child_id: string
@@ -4981,6 +5589,77 @@ export type Database = {
           },
         ]
       }
+      staff_regular_schedules: {
+        Row: {
+          classroom_id: string | null
+          created_at: string
+          created_by: string | null
+          daycare_id: string
+          ends_local: string
+          id: string
+          staff_member_id: string
+          starts_local: string
+          unpaid_break_minutes: number
+          updated_at: string
+          weekday: number
+        }
+        Insert: {
+          classroom_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          daycare_id: string
+          ends_local: string
+          id?: string
+          staff_member_id: string
+          starts_local: string
+          unpaid_break_minutes?: number
+          updated_at?: string
+          weekday: number
+        }
+        Update: {
+          classroom_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          daycare_id?: string
+          ends_local?: string
+          id?: string
+          staff_member_id?: string
+          starts_local?: string
+          unpaid_break_minutes?: number
+          updated_at?: string
+          weekday?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "staff_regular_schedules_classroom_id_fkey"
+            columns: ["classroom_id"]
+            isOneToOne: false
+            referencedRelation: "classrooms"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "staff_regular_schedules_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "staff_regular_schedules_daycare_id_fkey"
+            columns: ["daycare_id"]
+            isOneToOne: false
+            referencedRelation: "daycares"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "staff_regular_schedules_staff_member_id_fkey"
+            columns: ["staff_member_id"]
+            isOneToOne: false
+            referencedRelation: "staff_members"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       staff_shifts: {
         Row: {
           classroom_id: string | null
@@ -4991,6 +5670,7 @@ export type Database = {
           id: string
           notes: string | null
           published_at: string | null
+          regular_schedule_id: string | null
           staff_member_id: string
           starts_at: string
           status: string
@@ -5006,6 +5686,7 @@ export type Database = {
           id?: string
           notes?: string | null
           published_at?: string | null
+          regular_schedule_id?: string | null
           staff_member_id: string
           starts_at: string
           status?: string
@@ -5021,6 +5702,7 @@ export type Database = {
           id?: string
           notes?: string | null
           published_at?: string | null
+          regular_schedule_id?: string | null
           staff_member_id?: string
           starts_at?: string
           status?: string
@@ -5047,6 +5729,13 @@ export type Database = {
             columns: ["daycare_id"]
             isOneToOne: false
             referencedRelation: "daycares"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "staff_shifts_regular_schedule_id_fkey"
+            columns: ["regular_schedule_id"]
+            isOneToOne: false
+            referencedRelation: "staff_regular_schedules"
             referencedColumns: ["id"]
           },
           {
@@ -5344,6 +6033,49 @@ export type Database = {
         Args: { p_code: string }
         Returns: string
       }
+      _compliance_due_items: {
+        Args: { p_daycare: string }
+        Returns: {
+          days_left: number
+          due_on: string
+          id: string
+          kind: string
+          title: string
+        }[]
+      }
+      _compliance_inspection_pack: {
+        Args: { p_daycare: string }
+        Returns: Json
+      }
+      _compliance_profile_access: {
+        Args: { p_daycare: string; p_profile: string; p_write: boolean }
+        Returns: boolean
+      }
+      _compliance_ratio_ledger: { Args: { p_daycare: string }; Returns: Json }
+      _create_compliance_inspection_share: {
+        Args: { p_label: string }
+        Returns: Json
+      }
+      _log_compliance_drill: {
+        Args: {
+          p_children_count: number
+          p_conducted_local: string
+          p_duration_seconds: number
+          p_kind: string
+          p_lead_staff_id: string
+          p_next_due_on?: string
+          p_notes?: string
+          p_staff_count: number
+        }
+        Returns: string
+      }
+      _notify_parent_absence: {
+        Args: {
+          p_action: string
+          p_report: Database["public"]["Tables"]["parent_absence_reports"]["Row"]
+        }
+        Returns: undefined
+      }
       _perm: { Args: { a: boolean; e: boolean; v: boolean }; Returns: Json }
       _perms: {
         Args: {
@@ -5360,8 +6092,24 @@ export type Database = {
         }
         Returns: Json
       }
+      _read_compliance_inspection_share: {
+        Args: { p_document_id?: string; p_token: string }
+        Returns: Json
+      }
+      _record_room_ratio_history: {
+        Args: {
+          p_classroom_id: string
+          p_observed_at?: string
+          p_source?: string
+        }
+        Returns: undefined
+      }
       _refresh_room_ratio_event: {
         Args: { p_allow_notification?: boolean; p_classroom_id: string }
+        Returns: undefined
+      }
+      _revoke_compliance_inspection_share: {
+        Args: { p_id: string }
         Returns: undefined
       }
       _room_ratio_snapshot: {
@@ -5373,6 +6121,22 @@ export type Database = {
           required_staff: number
           staff_count: number
         }[]
+      }
+      _save_compliance_document: {
+        Args: {
+          p_category: string
+          p_expires_on?: string
+          p_include_in_inspection?: boolean
+          p_replaces_id?: string
+          p_storage_path: string
+          p_title: string
+          p_watch_expiry?: boolean
+        }
+        Returns: string
+      }
+      _void_compliance_drill: {
+        Args: { p_id: string; p_reason: string }
+        Returns: undefined
       }
       accept_parent_child_invite: {
         Args: { p_code: string; p_relationship?: string }
@@ -5393,6 +6157,21 @@ export type Database = {
       acknowledge_incident: {
         Args: { p_incident_id: string; p_name: string }
         Returns: undefined
+      }
+      acknowledge_parent_incident: {
+        Args: { p_incident_id: string; p_signed_name: string }
+        Returns: Json
+      }
+      add_demo_parent_payment_method: {
+        Args: {
+          p_brand: string
+          p_expiry_month: number
+          p_expiry_year: number
+          p_last4: string
+          p_make_default: boolean
+          p_method_type: string
+        }
+        Returns: Json
       }
       admin_set_user_role: {
         Args: { p_role: string; p_user_id: string }
@@ -5436,10 +6215,19 @@ export type Database = {
         Args: { p_action?: string; p_area: string; p_child_id: string }
         Returns: boolean
       }
+      can_access_compliance: { Args: { p_write?: boolean }; Returns: boolean }
       can_access_family: { Args: { p_family_id: string }; Returns: boolean }
       can_access_log: { Args: { p_log_id: string }; Returns: boolean }
       can_access_log_area: {
         Args: { p_action?: string; p_log_id: string }
+        Returns: boolean
+      }
+      can_delete_parent_enrollment_upload: {
+        Args: { p_storage_path: string }
+        Returns: boolean
+      }
+      can_delete_unreferenced_parent_document: {
+        Args: { p_name: string }
         Returns: boolean
       }
       can_manage_family_billing: {
@@ -5461,6 +6249,16 @@ export type Database = {
       }
       can_write_child: { Args: { p_child_id: string }; Returns: boolean }
       can_write_log: { Args: { p_log_id: string }; Returns: boolean }
+      cancel_parent_absence: { Args: { p_report_id: string }; Returns: Json }
+      cancel_parent_co_guardian_invite: {
+        Args: { p_invite_id: string }
+        Returns: boolean
+      }
+      cancel_parent_data_request: {
+        Args: { p_request_id: string }
+        Returns: boolean
+      }
+      cancel_parent_enrollment_tour: { Args: { p_code: string }; Returns: Json }
       center_today: { Args: never; Returns: string }
       check_center_registration_code: {
         Args: { p_code: string; p_email: string }
@@ -5551,6 +6349,14 @@ export type Database = {
         Args: { p_invoice_id: string; p_payment_method_id: string }
         Returns: Json
       }
+      complete_demo_parent_invoice_payment_group25: {
+        Args: { p_invoice_id: string; p_payment_method_id: string }
+        Returns: Json
+      }
+      complete_demo_parent_invoice_payment_internal: {
+        Args: { p_invoice_id: string; p_payment_method_id: string }
+        Returns: Json
+      }
       complete_mobile_late_pickup: {
         Args: { p_notes?: string; p_pass_id: string }
         Returns: {
@@ -5591,6 +6397,10 @@ export type Database = {
         }
         Returns: undefined
       }
+      complete_room_transition_plan: {
+        Args: { p_plan_id: string }
+        Returns: Json
+      }
       consume_rate_limit: {
         Args: {
           p_limit: number
@@ -5604,14 +6414,18 @@ export type Database = {
         Args: { p_code: string }
         Returns: Json
       }
+      create_compliance_inspection_share: {
+        Args: { p_label: string }
+        Returns: Json
+      }
       create_daycare_location: {
         Args: { p_address?: string; p_color?: string; p_location_label: string }
         Returns: string
       }
       create_invoice: {
         Args: {
-          p_billed_to: string | null
-          p_child_id: string | null
+          p_billed_to: string
+          p_child_id: string
           p_due_on: string
           p_lines: Json
         }
@@ -5707,6 +6521,7 @@ export type Database = {
         }
         Returns: number
       }
+      enqueue_compliance_due_reminders: { Args: never; Returns: number }
       enqueue_email_notification: {
         Args: {
           p_body?: string
@@ -5721,6 +6536,16 @@ export type Database = {
       }
       enqueue_staff_credential_expiry_reminders: {
         Args: never
+        Returns: number
+      }
+      enqueue_system_medication_notification: {
+        Args: {
+          p_body: string
+          p_child_id: string
+          p_dedupe_key: string
+          p_payload: Json
+          p_title: string
+        }
         Returns: number
       }
       enroll_from_pipeline: {
@@ -5801,6 +6626,7 @@ export type Database = {
           sent_to_parents: boolean
         }[]
       }
+      get_compliance_inspection_pack: { Args: never; Returns: Json }
       get_daycare_classrooms: {
         Args: never
         Returns: {
@@ -5911,19 +6737,42 @@ export type Database = {
           overdue_invoices: number
         }[]
       }
+      get_or_create_child_conversation: {
+        Args: { p_child_id: string }
+        Returns: string
+      }
+      get_or_create_staff_conversation: {
+        Args: { p_other_profile_id: string }
+        Returns: string
+      }
+      get_parent_absence_hub: { Args: { p_child_id: string }; Returns: Json }
       get_parent_account_hub: { Args: never; Returns: Json }
       get_parent_billing_home: { Args: never; Returns: Json }
       get_parent_billing_invoice: {
         Args: { p_invoice_id: string }
         Returns: Json
       }
+      get_parent_child_details: { Args: { p_child_id: string }; Returns: Json }
       get_parent_documents_hub: { Args: never; Returns: Json }
       get_parent_enrollment_offer: { Args: { p_code: string }; Returns: Json }
+      get_parent_enrollment_offer_bearer_internal: {
+        Args: { p_code: string }
+        Returns: Json
+      }
+      get_parent_incident_hub: { Args: { p_child_id: string }; Returns: Json }
+      get_parent_incident_hub_group20_base: {
+        Args: { p_child_id: string }
+        Returns: Json
+      }
       get_parent_inquiry_center: {
         Args: { p_daycare_id: string }
         Returns: Json
       }
       get_parent_inquiry_journey: { Args: { p_code: string }; Returns: Json }
+      get_parent_invoice_payment_history: {
+        Args: { p_invoice_id: string }
+        Returns: Json
+      }
       get_parent_notification_settings: { Args: never; Returns: Json }
       get_parent_payment_receipt: {
         Args: { p_payment_id: string }
@@ -5932,12 +6781,15 @@ export type Database = {
       get_parent_pickup_options: {
         Args: { p_child_id: string; p_include_removed?: boolean }
         Returns: {
+          approval_status: string
           avatar_url: string
           full_name: string
           is_active: boolean
           is_primary: boolean
           phone: string
           relationship: string
+          requested_at: string
+          review_note: string
           source_id: string
           source_type: string
         }[]
@@ -6077,10 +6929,6 @@ export type Database = {
         }[]
       }
       link_child_with_code: { Args: { p_code: string }; Returns: string }
-      preview_parent_child_invite: {
-        Args: { p_code: string }
-        Returns: Json
-      }
       link_parent_enrollment_account: {
         Args: { p_code: string }
         Returns: Json
@@ -6096,6 +6944,27 @@ export type Database = {
           staff_member_id: string
         }[]
       }
+      list_compliance_due_items: {
+        Args: never
+        Returns: {
+          days_left: number
+          due_on: string
+          id: string
+          kind: string
+          title: string
+        }[]
+      }
+      list_compliance_inspection_shares: {
+        Args: never
+        Returns: {
+          created_at: string
+          expires_at: string
+          id: string
+          label: string
+          last_opened_at: string
+          revoked_at: string
+        }[]
+      }
       list_my_daycare_locations: {
         Args: never
         Returns: {
@@ -6108,7 +6977,36 @@ export type Database = {
           location_label: string
         }[]
       }
+      list_my_staff_conversations: {
+        Args: never
+        Returns: {
+          conversation_id: string
+          last_message_at: string
+          last_message_body: string
+          other_full_name: string
+          other_profile_id: string
+          other_role: string
+          unread_count: number
+        }[]
+      }
+      log_compliance_drill: {
+        Args: {
+          p_children_count: number
+          p_conducted_local: string
+          p_duration_seconds: number
+          p_kind: string
+          p_lead_staff_id: string
+          p_next_due_on?: string
+          p_notes?: string
+          p_staff_count: number
+        }
+        Returns: string
+      }
       mark_messages_read: { Args: { p_child_id: string }; Returns: undefined }
+      mark_staff_conversation_read: {
+        Args: { p_conversation_id: string }
+        Returns: number
+      }
       mobile_mark_child_absent: {
         Args: {
           p_child_id: string
@@ -6127,6 +7025,10 @@ export type Database = {
       my_classroom_ids: { Args: never; Returns: string[] }
       my_family_ids: { Args: never; Returns: string[] }
       my_staff_member_id: { Args: never; Returns: string }
+      next_center_open_date: {
+        Args: { p_after_date: string; p_daycare_id: string }
+        Returns: string
+      }
       parent_add_authorized_pickup: {
         Args: {
           p_child_id: string
@@ -6147,8 +7049,11 @@ export type Database = {
         Args: { p_pickup_id: string }
         Returns: undefined
       }
+      preview_parent_child_invite: { Args: { p_code: string }; Returns: Json }
       process_due_child_departures: { Args: never; Returns: number }
+      process_medication_authorization_statuses: { Args: never; Returns: Json }
       process_overdue_waitlist_checkins: { Args: never; Returns: number }
+      process_room_ratio_history: { Args: never; Returns: number }
       queue_parent_schedule_notice: {
         Args: {
           p_available_at?: string
@@ -6161,6 +7066,10 @@ export type Database = {
           p_title: string
         }
         Returns: number
+      }
+      read_compliance_inspection_share: {
+        Args: { p_document_id?: string; p_token: string }
+        Returns: Json
       }
       record_invoice_payment: {
         Args: {
@@ -6178,6 +7087,10 @@ export type Database = {
         Args: { p_announcement_id: string }
         Returns: number
       }
+      remove_parent_payment_method: {
+        Args: { p_payment_method_id: string }
+        Returns: Json
+      }
       reopen_parent_enrollment_offer: {
         Args: { p_code: string }
         Returns: Json
@@ -6185,6 +7098,17 @@ export type Database = {
       replace_admin_staff_credentials: {
         Args: { p_credentials: Json; p_staff_member_id: string }
         Returns: undefined
+      }
+      report_parent_absence: {
+        Args: {
+          p_child_id: string
+          p_ends_on: string
+          p_note?: string
+          p_reason: string
+          p_report_id?: string
+          p_starts_on: string
+        }
+        Returns: Json
       }
       report_unauthorized_pickup: {
         Args: {
@@ -6218,9 +7142,17 @@ export type Database = {
         }
         Returns: string
       }
+      resend_parent_payment_receipt: {
+        Args: { p_payment_id: string }
+        Returns: Json
+      }
       respond_parent_waitlist_checkin: {
         Args: { p_code: string; p_keep_spot: boolean }
         Returns: Json
+      }
+      review_parent_authorized_pickup: {
+        Args: { p_decision: string; p_note?: string; p_pickup_id: string }
+        Returns: string
       }
       review_parent_document_submission: {
         Args: { p_decision: string; p_reason?: string; p_submission_id: string }
@@ -6238,9 +7170,25 @@ export type Database = {
         }
         Returns: boolean
       }
+      revoke_compliance_inspection_share: {
+        Args: { p_id: string }
+        Returns: undefined
+      }
       revoke_staff_delegation: {
         Args: { p_delegation_id: string }
         Returns: undefined
+      }
+      save_compliance_document: {
+        Args: {
+          p_category: string
+          p_expires_on?: string
+          p_include_in_inspection?: boolean
+          p_replaces_id?: string
+          p_storage_path: string
+          p_title: string
+          p_watch_expiry?: boolean
+        }
+        Returns: string
       }
       save_meal_menu_day: {
         Args: { p_classroom_id: string; p_items: Json; p_menu_date: string }
@@ -6280,14 +7228,23 @@ export type Database = {
         }
         Returns: Json
       }
+      save_staff_regular_schedule: {
+        Args: { p_schedule: Json; p_staff_member_id: string }
+        Returns: number
+      }
       seed_default_roles: { Args: { p_daycare: string }; Returns: undefined }
       send_mobile_event_rsvp: {
         Args: {
           p_announcement_id: string
+          p_child_id?: string
           p_guests?: number
           p_response: string
         }
         Returns: Json
+      }
+      send_staff_message: {
+        Args: { p_body: string; p_conversation_id: string }
+        Returns: string
       }
       set_mobile_parent_consent: {
         Args: { p_child_id: string; p_granted: boolean; p_kind: string }
@@ -6324,7 +7281,7 @@ export type Database = {
       storage_child_id: { Args: { p_name: string }; Returns: string }
       submit_enrollment_inquiry: {
         Args: {
-          p_child_date_of_birth: string | null
+          p_child_date_of_birth: string
           p_child_first_name: string
           p_classroom_id?: string
           p_daycare_id: string
@@ -6337,15 +7294,15 @@ export type Database = {
       }
       submit_enrollment_inquiry_v2: {
         Args: {
-          p_child_date_of_birth: string | null
+          p_child_date_of_birth: string
           p_child_first_name: string
-          p_classroom_id: string | null
+          p_classroom_id: string
           p_daycare_id: string
           p_days_per_week: number
-          p_desired_start: string | null
+          p_desired_start: string
           p_guardian_email: string
           p_guardian_name: string
-          p_guardian_phone: string | null
+          p_guardian_phone: string
         }
         Returns: string
       }
@@ -6375,15 +7332,15 @@ export type Database = {
       }
       submit_parent_enrollment_inquiry: {
         Args: {
-          p_child_date_of_birth: string | null
+          p_child_date_of_birth: string
           p_child_full_name: string
-          p_classroom_id: string | null
+          p_classroom_id: string
           p_daycare_id: string
           p_days_per_week: number
-          p_desired_start: string | null
+          p_desired_start: string
           p_guardian_email: string
           p_guardian_name: string
-          p_guardian_phone: string | null
+          p_guardian_phone: string
         }
         Returns: Json
       }
@@ -6394,6 +7351,15 @@ export type Database = {
       sync_staff_certifications_json: {
         Args: { p_staff_member_id: string }
         Returns: undefined
+      }
+      update_parent_profile: {
+        Args: {
+          p_avatar_url?: string
+          p_display_name: string
+          p_full_name: string
+          p_phone?: string
+        }
+        Returns: Json
       }
       verify_mobile_pickup_pass: {
         Args: {
@@ -6411,6 +7377,10 @@ export type Database = {
           relationship: string
           room_name: string
         }[]
+      }
+      void_compliance_drill: {
+        Args: { p_id: string; p_reason: string }
+        Returns: undefined
       }
       withdraw_mobile_credential_submission: {
         Args: { p_submission_id: string }
@@ -6443,6 +7413,7 @@ export type Database = {
           public: boolean | null
           type: Database["storage"]["Enums"]["buckettype"]
           updated_at: string | null
+          versioning_status: string
         }
         Insert: {
           allowed_mime_types?: string[] | null
@@ -6456,6 +7427,7 @@ export type Database = {
           public?: boolean | null
           type?: Database["storage"]["Enums"]["buckettype"]
           updated_at?: string | null
+          versioning_status?: string
         }
         Update: {
           allowed_mime_types?: string[] | null
@@ -6469,6 +7441,7 @@ export type Database = {
           public?: boolean | null
           type?: Database["storage"]["Enums"]["buckettype"]
           updated_at?: string | null
+          versioning_status?: string
         }
         Relationships: []
       }
@@ -6546,9 +7519,12 @@ export type Database = {
       }
       objects: {
         Row: {
+          archived_at: string | null
           bucket_id: string | null
           created_at: string | null
           id: string
+          is_delete_marker: boolean
+          is_versioned: boolean
           last_accessed_at: string | null
           metadata: Json | null
           name: string | null
@@ -6560,9 +7536,12 @@ export type Database = {
           version: string | null
         }
         Insert: {
+          archived_at?: string | null
           bucket_id?: string | null
           created_at?: string | null
           id?: string
+          is_delete_marker?: boolean
+          is_versioned?: boolean
           last_accessed_at?: string | null
           metadata?: Json | null
           name?: string | null
@@ -6574,9 +7553,12 @@ export type Database = {
           version?: string | null
         }
         Update: {
+          archived_at?: string | null
           bucket_id?: string | null
           created_at?: string | null
           id?: string
+          is_delete_marker?: boolean
+          is_versioned?: boolean
           last_accessed_at?: string | null
           metadata?: Json | null
           name?: string | null

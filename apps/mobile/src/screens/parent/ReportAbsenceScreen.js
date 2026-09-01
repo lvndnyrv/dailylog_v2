@@ -18,6 +18,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { addDays, format, parseISO } from 'date-fns';
 
 import { useParentAbsences } from '../../hooks/useParentAbsences';
+import { useParentFamily } from '../../hooks/useParentFamily';
 import { colors, fonts, radius, spacing } from '../../theme';
 
 const DATE_OPTIONS = [
@@ -82,7 +83,12 @@ function ReportRow({ report, onEdit, onCancel }) {
 }
 
 export default function ReportAbsenceScreen({ navigation, route }) {
-  const child = route.params?.child || null;
+  const family = useParentFamily();
+  const routeChildId = route.params?.childId || route.params?.child?.id;
+  const child = route.params?.child
+    || family.children.find((candidate) => candidate.id === routeChildId)
+    || family.selectedChild
+    || null;
   const absences = useParentAbsences(child?.id);
   const formRef = useRef(null);
   const [dateOption, setDateOption] = useState('today');

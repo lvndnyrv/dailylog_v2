@@ -1,16 +1,17 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   FlatList,
-  Image,
   Modal,
+  RefreshControl,
   StyleSheet,
   Switch,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
@@ -24,8 +25,6 @@ import { Button, EmptyState, Input } from '../../components/ui';
 import { DatePickerField } from '../../components/DatePickerField';
 import { showToast } from '../../components/Toast';
 import { colors, fonts, radius, spacing } from '../../theme';
-
-const ANNOUNCEMENT_IMAGE = require('../../../assets/onboarding/child-day.jpg');
 
 function announcementTime(value) {
   const date = new Date(value);
@@ -41,6 +40,9 @@ export default function AnnouncementsScreen({ navigation }) {
   const [items, setItems] = useState([]);
   const [readIds, setReadIds] = useState(new Set());
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [loadError, setLoadError] = useState('');
+  const [centerName, setCenterName] = useState('Your daycare');
   const [composing, setComposing] = useState(false);
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
@@ -55,32 +57,42 @@ export default function AnnouncementsScreen({ navigation }) {
 
   const isStaff = isStaffRole(profile?.role);
 
-  useEffect(() => {
-    if (profile?.id) load();
-  }, [profile?.id]);
-
-  async function load() {
-    setLoading(true);
+  const load = useCallback(async ({ silent = false } = {}) => {
+    if (!profile?.id) return;
+    if (silent) setRefreshing(true);
+    else setLoading(true);
+    setLoadError('');
     const { data, error } = await supabase
       .from('announcements')
       .select(`
         *,
         author:profiles!announcements_author_id_fkey(full_name),
+        daycare:daycares(name),
         classroom:classrooms(name),
-        rsvps:announcement_rsvps(profile_id, response)
+        rsvps:announcement_rsvps(profile_id, response, guests, child_id)
       `)
       .order('pinned', { ascending: false })
       .order('created_at', { ascending: false })
       .limit(50);
     if (error) {
-      Alert.alert('Could not load announcements', error.message);
-      setItems([]);
+      setLoadError(error.message || 'We could not load announcements.');
       setLoading(false);
+      setRefreshing(false);
       return;
     }
 
     const announcements = data || [];
     setItems(announcements);
+    if (announcements[0]?.daycare?.name) {
+      setCenterName(announcements[0].daycare.name);
+    } else if (profile.daycare_id) {
+      const { data: daycare } = await supabase
+        .from('daycares')
+        .select('name')
+        .eq('id', profile.daycare_id)
+        .maybeSingle();
+      if (daycare?.name) setCenterName(daycare.name);
+    }
     if (!isStaff && announcements.length) {
       const { data: reads } = await supabase
         .from('announcement_reads')
@@ -88,9 +100,31 @@ export default function AnnouncementsScreen({ navigation }) {
         .eq('profile_id', profile.id)
         .in('announcement_id', announcements.map((item) => item.id));
       setReadIds(new Set((reads || []).map((item) => item.announcement_id)));
+    } else if (!isStaff) {
+      setReadIds(new Set());
     }
     setLoading(false);
-  }
+    setRefreshing(false);
+  }, [isStaff, profile?.daycare_id, profile?.id]);
+
+  useFocusEffect(useCallback(() => {
+    load();
+  }, [load]));
+
+  useEffect(() => {
+    if (!profile?.id) return undefined;
+    const instance = `${Date.now()}:${Math.random().toString(36).slice(2)}`;
+    const channel = supabase
+      .channel(`announcements:${profile.id}:${instance}`)
+      .on('postgres_changes', {
+        event: '*', schema: 'public', table: 'announcements',
+      }, () => load({ silent: true }))
+      .on('postgres_changes', {
+        event: '*', schema: 'public', table: 'announcement_rsvps',
+      }, () => load({ silent: true }))
+      .subscribe();
+    return () => supabase.removeChannel(channel);
+  }, [load, profile?.id]);
 
   async function handleSend() {
     if (!title.trim() || !body.trim()) {
@@ -198,22 +232,41 @@ export default function AnnouncementsScreen({ navigation }) {
     }
   }
 
-  function renderParentItem({ item, index }) {
+  function renderParentItem({ item }) {
     const isRead = readIds.has(item.id);
     const myRsvp = item.rsvps?.find((rsvp) => rsvp.profile_id === profile.id)?.response;
+    const eventIsPast = item.rsvp_enabled && item.event_at && new Date(item.event_at) <= new Date();
     const roomLabel = item.classroom?.name ? item.classroom.name.toUpperCase() : 'ALL ROOMS';
+    function openEvent() {
+      if (!isRead) markRead(item);
+      navigation.navigate('EventDetail', { announcement: item });
+    }
     return (
       <TouchableOpacity
-        style={[styles.parentCard, isRead && styles.parentCardRead]}
-        onPress={item.rsvp_enabled ? () => navigation.navigate('EventDetail', { announcement: item }) : undefined}
+        style={styles.parentCard}
+        onPress={item.rsvp_enabled ? openEvent : undefined}
         activeOpacity={item.rsvp_enabled ? 0.76 : 1}
       >
-        {item.pinned && index === 0 && (
-          <Image source={ANNOUNCEMENT_IMAGE} style={styles.announcementImage} resizeMode="cover" />
-        )}
+        {item.rsvp_enabled ? (
+          <View style={styles.eventBanner}>
+            <View style={styles.eventBannerIcon}>
+              <Ionicons name="calendar" size={25} color={colors.white} />
+            </View>
+            <View style={styles.eventBannerCopy}>
+              <Text style={styles.eventBannerEyebrow}>FAMILY EVENT</Text>
+              <Text style={styles.eventBannerDate}>
+                {item.event_at ? format(new Date(item.event_at), 'EEEE, MMMM d') : 'Date to be confirmed'}
+              </Text>
+            </View>
+          </View>
+        ) : null}
         <View style={styles.parentCardContent}>
           <View style={styles.metaRow}>
-            {item.pinned ? (
+            {item.rsvp_enabled ? (
+              <View style={styles.eventBadge}>
+                <Text style={styles.eventBadgeText}>EVENT · RSVP</Text>
+              </View>
+            ) : item.pinned ? (
               <View style={styles.pinnedBadge}>
                 <Text style={styles.pinnedBadgeText}>PINNED</Text>
               </View>
@@ -224,11 +277,11 @@ export default function AnnouncementsScreen({ navigation }) {
             )}
             <Text style={styles.metaText}>
               {item.classroom?.name || 'All rooms'} · {announcementTime(item.created_at)}
-              {isRead ? ' · Read' : ''}
             </Text>
+            {!isRead ? <View style={styles.unreadDot} /> : null}
           </View>
           <Text style={styles.parentCardTitle}>{item.title}</Text>
-          <Text style={styles.parentCardBody}>{item.body}</Text>
+          <Text style={styles.parentCardBody} numberOfLines={item.rsvp_enabled ? 3 : 5}>{item.body}</Text>
 
           {item.rsvp_enabled && (
             <View>
@@ -240,11 +293,15 @@ export default function AnnouncementsScreen({ navigation }) {
               </View>
               <TouchableOpacity
                 style={styles.rsvpPrimary}
-                onPress={() => navigation.navigate('EventDetail', { announcement: item })}
+                onPress={openEvent}
                 activeOpacity={0.78}
               >
                 <Text style={styles.rsvpPrimaryText}>
-                  {myRsvp ? `RSVP: ${myRsvp === 'yes' ? 'Going' : myRsvp === 'no' ? "Can't attend" : 'Maybe'} · Edit` : 'RSVP now'}
+                  {eventIsPast
+                    ? 'Event ended · View details'
+                    : myRsvp
+                      ? `RSVP: ${myRsvp === 'yes' ? 'Going' : myRsvp === 'no' ? "Can't attend" : 'Maybe'} · Edit`
+                      : 'RSVP now'}
                 </Text>
                 <Ionicons name="chevron-forward" size={17} color={colors.white} />
               </TouchableOpacity>
@@ -310,7 +367,7 @@ export default function AnnouncementsScreen({ navigation }) {
           <View style={styles.headerCopy}>
             <Text style={styles.headerTitle}>Announcements</Text>
             <Text style={styles.headerSubtitle}>
-              {isStaff ? 'Updates sent to families' : 'Sunny Grove Early Learning'}
+              {isStaff ? 'Updates sent to families' : centerName}
             </Text>
           </View>
           {isStaff ? (
@@ -329,6 +386,13 @@ export default function AnnouncementsScreen({ navigation }) {
           <View style={styles.loadingWrap}>
             <ActivityIndicator color={colors.primary} size="large" />
           </View>
+        ) : loadError ? (
+          <View style={styles.loadingWrap}>
+            <EmptyState icon="📢" message={loadError} />
+            <TouchableOpacity onPress={() => load()} style={styles.retryButton}>
+              <Text style={styles.retryText}>Try again</Text>
+            </TouchableOpacity>
+          </View>
         ) : (
           <FlatList
             data={items}
@@ -336,6 +400,13 @@ export default function AnnouncementsScreen({ navigation }) {
             renderItem={isStaff ? renderStaffItem : renderParentItem}
             contentContainerStyle={styles.list}
             ListEmptyComponent={<EmptyState icon="📢" message="No announcements yet." />}
+            refreshControl={(
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={() => load({ silent: true })}
+                tintColor={colors.primary}
+              />
+            )}
           />
         )}
 
@@ -526,8 +597,26 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     marginBottom: spacing.md,
   },
-  parentCardRead: { opacity: 0.68 },
-  announcementImage: { width: '100%', height: 140 },
+  eventBanner: {
+    minHeight: 104,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    paddingHorizontal: spacing.xl,
+    paddingVertical: spacing.lg,
+    backgroundColor: colors.primary,
+  },
+  eventBannerIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.18)',
+  },
+  eventBannerCopy: { flex: 1 },
+  eventBannerEyebrow: { fontSize: 10.5, letterSpacing: 1.1, fontFamily: fonts.bold, color: '#DCEBFF' },
+  eventBannerDate: { marginTop: 5, fontSize: 18, lineHeight: 23, fontFamily: fonts.black, color: colors.white },
   parentCardContent: { padding: spacing.lg },
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.sm },
   pinnedBadge: {
@@ -537,6 +626,13 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   pinnedBadgeText: { fontSize: 11, letterSpacing: 0.6, fontFamily: fonts.bold, color: colors.primary },
+  eventBadge: {
+    borderRadius: radius.full,
+    backgroundColor: colors.successLight,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  eventBadgeText: { fontSize: 11, letterSpacing: 0.5, fontFamily: fonts.bold, color: colors.success },
   roomBadge: {
     borderRadius: radius.full,
     backgroundColor: colors.amberLight,
@@ -545,6 +641,7 @@ const styles = StyleSheet.create({
   },
   roomBadgeText: { fontSize: 11, letterSpacing: 0.5, fontFamily: fonts.bold, color: colors.amber },
   metaText: { flex: 1, fontSize: 12, fontFamily: fonts.regular, color: colors.textFaint },
+  unreadDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.primary },
   parentCardTitle: {
     fontSize: 17,
     lineHeight: 23,
@@ -586,6 +683,15 @@ const styles = StyleSheet.create({
   staffFooter: { marginTop: spacing.md, fontSize: 11.5, fontFamily: fonts.regular, color: colors.textFaint },
   responsesLink: { flexDirection: 'row', alignItems: 'center', gap: 3, alignSelf: 'flex-start', marginTop: spacing.sm },
   responsesLinkText: { fontSize: 12.5, fontFamily: fonts.bold, color: colors.primary },
+  retryButton: {
+    marginTop: spacing.md,
+    borderWidth: 1.5,
+    borderColor: colors.primary,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.xl,
+    paddingVertical: spacing.sm,
+  },
+  retryText: { fontSize: 13.5, fontFamily: fonts.bold, color: colors.primary },
   overlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(23,51,91,0.5)' },
   sheet: {
     maxHeight: '88%',

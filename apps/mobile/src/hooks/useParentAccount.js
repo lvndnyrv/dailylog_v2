@@ -131,6 +131,16 @@ export function useParentAccount() {
     });
   }, []);
 
+  const getChildDetails = useCallback(async (childId) => {
+    const { data, error: detailsError } = await supabase.rpc('get_parent_child_details', {
+      p_child_id: childId,
+    });
+    if (detailsError) {
+      throw new Error(messageFor(detailsError, 'Child details could not be loaded.'));
+    }
+    return data;
+  }, []);
+
   return {
     hub,
     notifications,
@@ -144,5 +154,6 @@ export function useParentAccount() {
     cancelGuardianInvite,
     requestDataAction,
     cancelDataRequest,
+    getChildDetails,
   };
 }

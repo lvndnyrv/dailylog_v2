@@ -9,6 +9,34 @@ function throwIfError(error) {
   if (error) throw new Error(error.message || 'Pickup service is unavailable.');
 }
 
+function pickupState(person) {
+  if (person.is_active) return 'active';
+  if (person.approval_status === 'pending') return 'pending';
+  if (person.approval_status === 'rejected') return 'rejected';
+  return 'removed';
+}
+
+export function dedupeParentPickupOptions(rows = []) {
+  const unique = new Map();
+
+  rows.forEach((person) => {
+    // The list represents people and their current lifecycle state, not an
+    // audit log. Retain separate active/removed history while collapsing old
+    // repeated test requests for the same person in the same state.
+    const key = [
+      person.source_type,
+      (person.full_name || '').trim().toLocaleLowerCase(),
+      pickupState(person),
+    ].join(':');
+    const current = unique.get(key);
+    const requestedAt = Date.parse(person.requested_at || '') || 0;
+    const currentRequestedAt = Date.parse(current?.requested_at || '') || 0;
+    if (!current || requestedAt >= currentRequestedAt) unique.set(key, person);
+  });
+
+  return Array.from(unique.values());
+}
+
 export function useTodayPickups(classroomId) {
   const [pickups, setPickups] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -62,7 +90,7 @@ export async function getParentPickupOptions(childId, includeRemoved = true) {
     p_include_removed: includeRemoved,
   });
   throwIfError(error);
-  return data || [];
+  return dedupeParentPickupOptions(data || []);
 }
 
 export async function createMobilePickupPass(childId, presenter) {

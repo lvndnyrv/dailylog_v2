@@ -1,5 +1,12 @@
 import React, { useCallback, useMemo } from 'react';
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import {
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -34,7 +41,16 @@ export default function ParentClosuresScreen({ navigation }) {
         <ScheduleError message={schedule.error} onRetry={schedule.refresh} />
       ) : null}
       {schedule.hub ? (
-        <ScrollView contentContainerStyle={scheduleStyles.content}>
+        <ScrollView
+          contentContainerStyle={scheduleStyles.content}
+          refreshControl={(
+            <RefreshControl
+              refreshing={schedule.loading && Boolean(schedule.hub)}
+              onRefresh={() => schedule.refresh().catch(() => {})}
+              tintColor={colors.primary}
+            />
+          )}
+        >
           <View style={styles.hoursCard}>
             <Ionicons name="time-outline" size={19} color={colors.primary} />
             <Text style={styles.hoursText}>
@@ -64,7 +80,7 @@ export default function ParentClosuresScreen({ navigation }) {
           <View style={scheduleStyles.infoCard}>
             <Ionicons name="receipt-outline" size={19} color={colors.primary} />
             <Text style={scheduleStyles.infoText}>
-              Days marked “No charge” are excluded from attendance charges. Any tuition adjustment is shown on the invoice issued by your office.
+              Closed days are marked “No charge.” If your center applies a tuition adjustment, it will appear on the invoice issued by the office.
             </Text>
           </View>
         </ScrollView>

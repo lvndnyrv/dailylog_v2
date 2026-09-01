@@ -56,8 +56,9 @@ export function useParentIncidents(childId) {
 
   useEffect(() => {
     if (!childId) return undefined;
+    const channelInstance = `${Date.now()}:${Math.random().toString(36).slice(2)}`;
     const channel = supabase
-      .channel(`parent-incident-hub:${childId}`)
+      .channel(`parent-incident-hub:${childId}:${channelInstance}`)
       .on('postgres_changes', {
         event: '*', schema: 'public', table: 'incident_reports', filter: `child_id=eq.${childId}`,
       }, () => refresh({ quiet: true }).catch(() => {}))

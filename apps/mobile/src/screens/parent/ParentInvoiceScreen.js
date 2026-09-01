@@ -205,7 +205,7 @@ export default function ParentInvoiceScreen({ navigation, route }) {
                       }}
                     />
                   ))}
-                  <TouchableOpacity style={styles.addMethod} onPress={() => navigation.navigate('ParentPaymentMethods')}>
+                  <TouchableOpacity style={styles.addMethod} onPress={() => navigation.navigate('ParentAddPaymentMethod')}>
                     <View style={styles.addIcon}><Ionicons name="add" size={20} color={colors.textFaint} /></View>
                     <Text style={styles.addMethodText}>Add payment method</Text>
                   </TouchableOpacity>

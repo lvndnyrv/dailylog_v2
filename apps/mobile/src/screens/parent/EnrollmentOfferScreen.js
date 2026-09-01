@@ -155,6 +155,22 @@ function CheckRow({ checked, onPress, label, optional, error }) {
   );
 }
 
+function EnrollmentProgress({ step, label }) {
+  return (
+    <View style={styles.progressBlock}>
+      <View style={styles.progressTrack}>
+        {[1, 2, 3].map((item) => (
+          <View
+            key={item}
+            style={[styles.progressSegment, item <= step && styles.progressSegmentActive]}
+          />
+        ))}
+      </View>
+      <Text style={styles.progressLabel}>Step {step} of 3 · {label}</Text>
+    </View>
+  );
+}
+
 function OfferLanding({ offer, busy, onReview, onDecline, onMessage }) {
   return (
     <View style={styles.centeredPage}>
@@ -181,7 +197,7 @@ function OfferLanding({ offer, busy, onReview, onDecline, onMessage }) {
   );
 }
 
-function OfferDetails({ offer, busy, onAccept, onAgreementDocument }) {
+function OfferDetails({ offer, busy, onAccept, onPolicies }) {
   return (
     <View>
       <Text style={styles.eyebrow}>YOUR OFFER</Text>
@@ -196,23 +212,25 @@ function OfferDetails({ offer, busy, onAccept, onAgreementDocument }) {
       </Card>
       <Card>
         <InfoRow label="Schedule" value={offer.schedule?.label || 'Mon–Fri · full day'} />
+        <InfoRow label="Start date" value={prettyDate(offer.desired_start_date)} />
         <InfoRow label="Monthly tuition" value={`${money(offer.tuition_cents, offer.currency)} / month`} />
-        <InfoRow label="Deposit today" value={money(offer.deposit_cents, offer.currency)} last />
+        <InfoRow label="Registration deposit" value={money(offer.deposit_cents, offer.currency)} last />
       </Card>
       <Card tone="success">
-        <Text style={styles.cardTitle}>Included with enrollment</Text>
-        {['Daily updates and photos', 'Family messaging', 'Attendance and pickup access'].map((item) => (
+        <Text style={styles.cardTitle}>Included</Text>
+        {['Meals, snacks and daily photo log', 'Deposit applied to your family account'].map((item) => (
           <View key={item} style={styles.bulletRow}>
             <Ionicons name="checkmark-circle" size={19} color={colors.success} />
             <Text style={styles.bulletText}>{item}</Text>
           </View>
         ))}
       </Card>
-      <TouchableOpacity onPress={onAgreementDocument} style={styles.policyLink}>
-        <Text style={styles.policyLinkText}>Read full offer & policies (PDF)</Text>
+      <TouchableOpacity onPress={onPolicies} style={styles.policyLink}>
+        <Text style={styles.policyLinkText}>Read the full offer & policies</Text>
         <Ionicons name="chevron-forward" size={17} color={colors.primary} />
       </TouchableOpacity>
       <Button label="Accept offer" onPress={onAccept} loading={busy} style={styles.fullButton} />
+      <Text style={styles.actionHint}>Accepting starts your enrollment application. Nothing is charged yet.</Text>
     </View>
   );
 }
@@ -282,6 +300,7 @@ function ApplicationStep({ offer, busy, onSubmit }) {
       <Text style={styles.eyebrow}>APPLICATION · STEP 1 OF 3</Text>
       <Text style={styles.title}>Tell us about your family</Text>
       <Text style={styles.subtitle}>You can review these details with the center later.</Text>
+      <EnrollmentProgress step={1} label="Your details" />
       <Text style={styles.sectionHeading}>Child</Text>
       <Input label="Full name (required)" value={childName} onChangeText={changeField('childName', setChildName)} placeholder="Child's full name" error={errors.childName} />
       <DatePickerField
@@ -350,6 +369,7 @@ function DocumentsStep({ offer, busy, uploadBusy, onUpload, onContinue }) {
       <Text style={styles.eyebrow}>DOCUMENTS · STEP 2 OF 3</Text>
       <Text style={styles.title}>Add enrollment documents</Text>
       <Text style={styles.subtitle}>PDF, JPG or PNG · up to 10 MB each. You can finish missing documents later.</Text>
+      <EnrollmentProgress step={2} label="Required documents" />
       {DOCUMENT_TYPES.map((item) => {
         const document = documents.get(item.kind);
         const isUploading = uploadBusy === item.kind;
@@ -423,6 +443,7 @@ function AgreementStep({ offer, busy, onSign, onAgreementDocument }) {
       <Text style={styles.eyebrow}>AGREEMENT · STEP 3 OF 3</Text>
       <Text style={styles.title}>Review and sign</Text>
       <Text style={styles.subtitle}>Enrollment agreement version {AGREEMENT_VERSION}.</Text>
+      <EnrollmentProgress step={3} label="Review & sign" />
       <Card>
         <View style={styles.agreementHeader}>
           <View style={styles.documentIcon}><Ionicons name="document-text" size={22} color={colors.primary} /></View>
@@ -494,7 +515,7 @@ function DepositStep({ offer, busy, includeFirstMonth, setIncludeFirstMonth, onP
   );
 }
 
-function OfferPoliciesSheet({ offer, onClose }) {
+function OfferPoliciesSheet({ offer, onClose, onOpenDocument }) {
   const policies = [
     ['Tuition & deposit', `${money(offer.tuition_cents, offer.currency)} monthly. The ${money(offer.deposit_cents, offer.currency)} deposit is applied to the family account.`],
     ['Schedule', `${offer.schedule?.label || 'Full-day care'} beginning ${prettyDate(offer.desired_start_date)}.`],
@@ -520,6 +541,7 @@ function OfferPoliciesSheet({ offer, onClose }) {
             <Text style={styles.noticeText}>This in-app summary does not replace center-specific attachments or notices. Contact {offer.daycare_name} if any term is unclear before signing.</Text>
           </Card>
         </ScrollView>
+        <Button label="Open printable agreement" onPress={onOpenDocument} variant="ghost" style={styles.fullButton} />
         <Button label="Done reviewing" onPress={onClose} style={styles.fullButton} />
       </View>
     </View>
@@ -582,6 +604,7 @@ function SuccessStep({ offer, busy, user, onLink, onCreate, onSignIn, onFinish, 
     const nextErrors = {};
     if (!name.trim()) nextErrors.name = 'Full name is required.';
     if (!phone.trim()) nextErrors.phone = 'Phone number is required.';
+    else if (!validPhone(phone)) nextErrors.phone = 'Enter a valid phone number.';
     if (!password) nextErrors.password = 'Password is required.';
     else if (password.length < 6) nextErrors.password = 'Use at least 6 characters.';
     if (!agreed) nextErrors.agreed = 'Required to create your family account.';
@@ -725,10 +748,22 @@ export default function EnrollmentOfferScreen() {
   }, [currentStep]);
 
   useEffect(() => {
+    if (!error) return;
+    const frame = requestAnimationFrame(() => {
+      scrollRef.current?.scrollTo({ y: 0, animated: true });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [error]);
+
+  useEffect(() => {
     let active = true;
     (async () => {
       setLoading(true);
       setError(null);
+      setVerifyEmail(false);
+      setShowPolicies(false);
+      setShowDecline(false);
+      setHistory([]);
       const { data, error: loadError } = await supabase.rpc('get_parent_enrollment_offer', { p_code: code });
       if (!active) return;
       if (loadError || !data) {
@@ -920,7 +955,7 @@ export default function EnrollmentOfferScreen() {
     if (!offer) return null;
     if (currentStep === 'declined') return <DeclinedStep offer={offer} busy={busy} onReopen={() => runRpc('reopen_parent_enrollment_offer', { p_code: code })} onMessage={messageCenter} />;
     if (currentStep === 'offer') return <OfferLanding offer={offer} busy={busy} onReview={() => runRpc('review_parent_enrollment_offer', { p_code: code }, 'details')} onDecline={() => setShowDecline(true)} onMessage={messageCenter} />;
-    if (currentStep === 'details') return <OfferDetails offer={offer} busy={busy} onAccept={() => runRpc('accept_parent_enrollment_offer', { p_code: code }, 'application')} onAgreementDocument={openAgreementDocument} />;
+    if (currentStep === 'details') return <OfferDetails offer={offer} busy={busy} onAccept={() => runRpc('accept_parent_enrollment_offer', { p_code: code }, 'application')} onPolicies={() => setShowPolicies(true)} />;
     if (currentStep === 'application') return <ApplicationStep offer={offer} busy={busy} onSubmit={(application) => runRpc('save_parent_enrollment_application', { p_code: code, p_application: application }, 'documents')} />;
     if (currentStep === 'documents') return <DocumentsStep offer={offer} busy={busy} uploadBusy={uploadBusy} onUpload={uploadDocument} onContinue={() => runRpc('continue_parent_enrollment_documents', { p_code: code }, 'agreement')} />;
     if (currentStep === 'agreement') return <AgreementStep offer={offer} busy={busy} onAgreementDocument={openAgreementDocument} onSign={(values) => runRpc('sign_parent_enrollment_agreement', { p_code: code, p_signature_name: values.signature, p_acknowledge_tuition: values.tuition, p_acknowledge_policies: values.policies, p_photo_consent: values.photo }, 'deposit')} />;
@@ -934,6 +969,7 @@ export default function EnrollmentOfferScreen() {
       <View style={styles.celebration}><Ionicons name="mail-outline" size={45} color={colors.primary} /></View>
       <Text style={styles.heroTitle}>Check your inbox</Text>
       <Text style={styles.heroText}>Confirm {offer?.guardian_email}, then reopen DailyLog. Your completed enrollment is saved.</Text>
+      <Button label="Back to enrollment" onPress={() => setVerifyEmail(false)} variant="ghost" style={styles.fullButton} />
     </View>
   );
   if (!offer || expired) return (
@@ -969,7 +1005,13 @@ export default function EnrollmentOfferScreen() {
           </View>
         </View>
       ) : null}
-      {showPolicies ? <OfferPoliciesSheet offer={offer} onClose={() => setShowPolicies(false)} /> : null}
+      {showPolicies ? (
+        <OfferPoliciesSheet
+          offer={offer}
+          onClose={() => setShowPolicies(false)}
+          onOpenDocument={openAgreementDocument}
+        />
+      ) : null}
     </KeyboardAvoidingView>
   );
 }
@@ -1017,6 +1059,7 @@ const styles = StyleSheet.create({
   fullButton: { width: '100%', marginTop: spacing.md },
   textAction: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm, padding: spacing.md, marginTop: spacing.xs },
   textActionLabel: { color: colors.primary, fontFamily: fonts.bold, fontSize: 14 },
+  actionHint: { color: colors.textFaint, fontFamily: fonts.regular, fontSize: 12, lineHeight: 18, textAlign: 'center', marginTop: spacing.sm },
   cardTitle: { color: colors.textPrimary, fontFamily: fonts.bold, fontSize: 15 },
   cardSub: { color: colors.textMuted, fontFamily: fonts.regular, fontSize: 13, lineHeight: 19, marginTop: 2 },
   bulletRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: spacing.md },
@@ -1025,6 +1068,11 @@ const styles = StyleSheet.create({
   nextStepNumber: { width: 25, height: 25, flexShrink: 0, borderRadius: 13, backgroundColor: colors.primaryLight, alignItems: 'center', justifyContent: 'center' },
   nextStepNumberText: { color: colors.primary, fontFamily: fonts.black, fontSize: 12 },
   nextStepText: { flex: 1, minWidth: 0, color: colors.textSecondary, fontFamily: fonts.regular, fontSize: 14, lineHeight: 20 },
+  progressBlock: { marginTop: -spacing.sm, marginBottom: spacing.lg },
+  progressTrack: { flexDirection: 'row', gap: spacing.xs },
+  progressSegment: { flex: 1, height: 5, borderRadius: radius.full, backgroundColor: colors.border },
+  progressSegmentActive: { backgroundColor: colors.primary },
+  progressLabel: { marginTop: spacing.sm, color: colors.textFaint, fontFamily: fonts.bold, fontSize: 12 },
   policyLink: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: spacing.sm, padding: spacing.md },
   policyLinkText: { color: colors.primary, fontFamily: fonts.bold, fontSize: 14 },
   sectionHeading: { fontSize: 17, fontFamily: fonts.black, color: colors.textPrimary, marginTop: spacing.md, marginBottom: spacing.md },

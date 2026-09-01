@@ -519,6 +519,16 @@ export default function RosterScreen({ navigation }) {
           >
             <Text style={styles.priorityButtonText}>{phaseConfig.button}</Text>
           </TouchableOpacity>
+          {phase !== 'morning' && children.length > 0 ? (
+            <TouchableOpacity
+              style={styles.finishRollCall}
+              onPress={() => navigation.navigate('RollCall')}
+              accessibilityRole="button"
+              accessibilityLabel="Review attendance"
+            >
+              <Text style={styles.finishRollCallText}>Review attendance</Text>
+            </TouchableOpacity>
+          ) : null}
         </View>
 
         <TouchableOpacity

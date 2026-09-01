@@ -27,6 +27,7 @@ declare
   v_first jsonb;
   v_second jsonb;
   v_receipt jsonb;
+  v_resend jsonb;
   v_decline jsonb;
   v_foreign uuid;
   v_foreign_payment uuid;
@@ -138,6 +139,32 @@ begin
   end if;
   raise notice 'PASS: exact-balance payment is idempotent, durable, and queues one receipt email';
 
+  perform pg_temp.impersonate('postgres');
+  update public.notification_outbox
+  set status = 'failed',
+      attempts = max_attempts,
+      last_error = 'Simulated permanent provider failure'
+  where dedupe_key = 'parent-payment-receipt:' || (v_first->>'payment_id')
+    and channel = 'email';
+  perform pg_temp.impersonate('authenticated', v_parent);
+  v_resend := public.resend_parent_payment_receipt((v_first->>'payment_id')::uuid);
+  if v_resend->>'email_status' <> 'pending' then
+    raise exception 'FAIL: failed receipt email was not safely requeued: %', v_resend;
+  end if;
+  perform pg_temp.impersonate('postgres');
+  if not exists (
+    select 1 from public.notification_outbox
+    where dedupe_key = 'parent-payment-receipt:' || (v_first->>'payment_id')
+      and channel = 'email'
+      and status = 'pending'
+      and attempts = 0
+      and last_error is null
+  ) then
+    raise exception 'FAIL: receipt resend did not clear exhausted delivery state';
+  end if;
+  raise notice 'PASS: an authorized parent can requeue a failed receipt email';
+
+  perform pg_temp.impersonate('authenticated', v_parent);
   v_receipt := public.get_parent_payment_receipt(v_refunded_payment);
   if v_receipt->>'status' <> 'refunded'
      or v_receipt->>'refunded_at' is null
@@ -181,8 +208,16 @@ begin
       v_failed := true;
     end;
     if not v_failed then raise exception 'FAIL: cross-family receipt was exposed'; end if;
+
+    v_failed := false;
+    begin
+      perform public.resend_parent_payment_receipt(v_foreign_payment);
+    exception when others then
+      v_failed := true;
+    end;
+    if not v_failed then raise exception 'FAIL: cross-family receipt email was requeued'; end if;
   end if;
-  raise notice 'PASS: durable receipt lookup remains family-scoped';
+  raise notice 'PASS: durable receipt lookup and resend remain family-scoped';
 end;
 $$;
 

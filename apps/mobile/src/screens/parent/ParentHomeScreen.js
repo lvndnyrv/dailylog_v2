@@ -1,5 +1,5 @@
-import React, { useCallback, useState, useEffect } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, RefreshControl } from 'react-native';
+import React, { useCallback, useMemo, useState, useEffect } from 'react';
+import { ActivityIndicator, View, Text, ScrollView, TouchableOpacity, StyleSheet, RefreshControl } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../../lib/supabase';
@@ -7,12 +7,19 @@ import { useDailyLog } from '../../hooks/useDailyLog';
 import { useParentFamily } from '../../hooks/useParentFamily';
 import { useParentNotifications } from '../../hooks/useParentNotifications';
 import { useParentSchedule } from '../../hooks/useParentSchedule';
-import { LoadingScreen, Badge, EmptyState, Divider } from '../../components/ui';
+import { LoadingScreen, Badge, Divider } from '../../components/ui';
 import { PhotoSection } from '../../components/PhotoSection';
 import { colors, spacing, radius } from '../../theme';
 import { format, subDays, addDays, isToday } from 'date-fns';
 
-const MOOD_EMOJI = { Happy: '😊', Fussy: '😤', Curious: '🧐', Irritable: '😠', Sleepy: '😴', Sick: '🤒' };
+const MOOD_PRESENTATION = {
+  Happy: { icon: 'happy-outline', color: colors.success, background: colors.successLight },
+  Fussy: { icon: 'thunderstorm-outline', color: colors.coral, background: colors.coralLight },
+  Curious: { icon: 'bulb-outline', color: colors.primary, background: colors.primaryLight },
+  Irritable: { icon: 'alert-circle-outline', color: colors.danger, background: colors.dangerLight },
+  Sleepy: { icon: 'moon-outline', color: colors.purple, background: colors.purpleLight },
+  Sick: { icon: 'medical-outline', color: colors.amber, background: colors.amberLight },
+};
 const AMOUNT_STYLE = {
   all: { color: colors.success, bg: colors.successLight },
   some: { color: colors.amber, bg: colors.amberLight },
@@ -23,6 +30,169 @@ const INCIDENT_TONE = {
   moderate: { color: colors.coral, backgroundColor: colors.coralLight },
   serious: { color: colors.danger, backgroundColor: colors.dangerLight },
 };
+
+function moodPresentation(mood) {
+  return MOOD_PRESENTATION[mood] || {
+    icon: 'ellipse-outline', color: colors.textMuted, background: colors.primarySoft,
+  };
+}
+
+function normalizeTimelineTime(value, fallback) {
+  if (!value && fallback) return normalizeTimelineTime(fallback);
+  if (!value) return { label: '', sortKey: '' };
+  if (value.includes('T')) {
+    const date = new Date(value);
+    return {
+      label: Number.isNaN(date.getTime()) ? '' : format(date, 'h:mm a'),
+      sortKey: Number.isNaN(date.getTime()) ? '' : format(date, 'HH:mm:ss'),
+    };
+  }
+  return { label: value.slice(0, 5), sortKey: value };
+}
+
+function buildTimelineEntries({ log, attendance, meals, sleeps, diapers, activities }) {
+  const items = [];
+  if (log?.moods?.length) {
+    const mood = moodPresentation(log.moods[0]);
+    const time = attendance?.checked_in_at
+      ? normalizeTimelineTime(attendance.checked_in_at)
+      : { label: 'Drop-off', sortKey: log.created_at };
+    items.push({
+      id: `mood-${log.id}`,
+      icon: mood.icon,
+      tone: mood.color,
+      title: log.moods.join(' & '),
+      detail: 'Mood at drop-off',
+      ...time,
+    });
+  }
+  meals.forEach((meal) => {
+    items.push({
+      id: `meal-${meal.id}`,
+      icon: 'restaurant-outline',
+      tone: meal.amount === 'none' ? colors.danger : meal.amount === 'some' ? colors.amber : colors.success,
+      title: meal.food_type,
+      detail: meal.amount === 'all' ? 'Ate all' : meal.amount === 'some' ? 'Ate some' : 'Did not eat',
+      ...normalizeTimelineTime(meal.time, meal.created_at),
+    });
+  });
+  sleeps.forEach((sleep) => {
+    items.push({
+      id: `sleep-${sleep.id}`,
+      icon: 'moon-outline',
+      tone: colors.purple,
+      title: sleep.end_time ? `Nap · ${calcDuration(sleep.start_time, sleep.end_time)}` : 'Nap in progress',
+      detail: sleep.end_time ? `Woke at ${sleep.end_time.slice(0, 5)}` : 'We will update when they wake',
+      ...normalizeTimelineTime(sleep.start_time, sleep.created_at),
+    });
+  });
+  diapers.forEach((diaper) => {
+    const details = [diaper.type === 'toilet' ? 'Toilet' : 'Diaper', diaper.wet && 'wet', diaper.bm && 'BM'].filter(Boolean);
+    items.push({
+      id: `care-${diaper.id}`,
+      icon: 'water-outline',
+      tone: colors.primary,
+      title: details.join(' · '),
+      detail: 'Care check',
+      ...normalizeTimelineTime(diaper.time, diaper.created_at),
+    });
+  });
+  activities.forEach((activity) => {
+    items.push({
+      id: `activity-${activity.id}`,
+      icon: 'color-palette-outline',
+      tone: colors.purple,
+      title: activity.activity_name,
+      detail: 'Learning & play',
+      ...normalizeTimelineTime(activity.created_at),
+    });
+  });
+  return items.sort((left, right) => right.sortKey.localeCompare(left.sortKey));
+}
+
+function DailyTimeline({ entries }) {
+  return (
+    <View style={styles.timelineCard}>
+      {entries.map((entry, index) => (
+        <View key={entry.id}>
+          {index === 0 ? <Text style={styles.timelineSection}>LATEST</Text> : index === 1 ? <Text style={styles.timelineSection}>EARLIER TODAY</Text> : null}
+          <View style={styles.timelineRow}>
+            <View style={[styles.timelineIcon, { backgroundColor: `${entry.tone}18` }]}>
+              <Ionicons name={entry.icon} size={18} color={entry.tone} />
+            </View>
+            <View style={styles.timelineCopy}>
+              <Text style={styles.timelineTitle}>{entry.title}</Text>
+              <Text style={styles.timelineDetail}>{entry.detail}</Text>
+            </View>
+            <Text style={styles.timelineTime}>{entry.label}</Text>
+          </View>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+function GlanceMetric({ icon, color = colors.textFaint, label }) {
+  return (
+    <View style={styles.glanceItem}>
+      <Ionicons name={icon} size={18} color={color} />
+      <Text style={styles.glanceValue}>{label}</Text>
+    </View>
+  );
+}
+
+function CardSectionTitle({ icon, title, color = colors.primary, background = colors.primarySoft, titleColor = colors.textPrimary }) {
+  return (
+    <View style={styles.cardTitleRow}>
+      <View style={[styles.cardTitleIcon, { backgroundColor: background }]}>
+        <Ionicons name={icon} size={16} color={color} />
+      </View>
+      <Text style={[styles.cardTitle, { color: titleColor }]}>{title}</Text>
+    </View>
+  );
+}
+
+function ParentToolRow({
+  icon,
+  iconColor = colors.primary,
+  iconBackground = colors.primarySoft,
+  title,
+  subtitle,
+  badge,
+  badgeTone = 'primary',
+  onPress,
+  isLast = false,
+}) {
+  const badgeStyle = badgeTone === 'danger'
+    ? styles.toolBadgeDanger
+    : badgeTone === 'amber'
+      ? styles.toolBadgeAmber
+      : styles.toolBadgePrimary;
+
+  return (
+    <TouchableOpacity
+      style={[styles.toolRow, isLast && styles.toolRowLast]}
+      onPress={onPress}
+      activeOpacity={0.72}
+      accessibilityRole="button"
+      accessibilityLabel={`${title}. ${subtitle}`}
+    >
+      <View style={[styles.toolIcon, { backgroundColor: iconBackground }]}>
+        <Ionicons name={icon} size={19} color={iconColor} />
+      </View>
+      <View style={styles.toolCopy}>
+        <Text style={styles.toolTitle}>{title}</Text>
+        <Text style={styles.toolSubtitle} numberOfLines={2}>{subtitle}</Text>
+      </View>
+      {badge ? (
+        <View style={[styles.toolBadge, badgeStyle]}>
+          <Text style={[styles.toolBadgeText, badgeTone === 'danger' && styles.toolBadgeTextDanger]}>{badge}</Text>
+        </View>
+      ) : null}
+      <Ionicons name="chevron-forward" size={17} color={colors.textFaint} />
+    </TouchableOpacity>
+  );
+}
 
 // ─── EMPTY STATE with child invite code entry ────────────────────────────────
 function LinkChildEmptyState({ onOpen, onLinked }) {
@@ -112,6 +282,7 @@ export default function ParentHomeScreen({ navigation, route }) {
   const [pendingIncidents, setPendingIncidents] = useState([]);
   const [attendanceRec, setAttendanceRec] = useState(null);
   const [announcements, setAnnouncements] = useState([]);
+  const [dayView, setDayView] = useState('timeline');
 
   const {
     log, meals, diapers, sleeps, activities, supplies, loading,
@@ -124,9 +295,17 @@ export default function ParentHomeScreen({ navigation, route }) {
       family.selectChild(requestedChildId);
     }
     const requestedDate = route.params?.logDate;
+    if (!requestedDate) {
+      setSelectedDate((currentDate) => (isToday(currentDate) ? currentDate : new Date()));
+      return;
+    }
     if (requestedDate && /^\d{4}-\d{2}-\d{2}$/.test(requestedDate)) {
       const parsed = new Date(`${requestedDate}T12:00:00`);
-      if (!Number.isNaN(parsed.getTime()) && parsed <= new Date()) setSelectedDate(parsed);
+      if (!Number.isNaN(parsed.getTime()) && parsed <= new Date()) {
+        setSelectedDate((currentDate) => (
+          format(currentDate, 'yyyy-MM-dd') === requestedDate ? currentDate : parsed
+        ));
+      }
     }
   }, [children, family.selectChild, route.params?.childId, route.params?.logDate]);
 
@@ -134,10 +313,11 @@ export default function ParentHomeScreen({ navigation, route }) {
     if (!selectedChild?.id) { setPendingIncidents([]); return; }
     const { data, error } = await supabase
       .from('incident_reports')
-      .select('*')
+      .select('id, child_id, occurred_at, location, severity, injury_type, description, status, parent_notified_at, parent_acknowledged_at')
       .eq('child_id', selectedChild.id)
       .in('status', ['submitted', 'signed_off'])
       .not('parent_notified_at', 'is', null)
+      .is('parent_acknowledged_at', null)
       .order('occurred_at', { ascending: false });
     if (error) throw error;
     setPendingIncidents(data || []);
@@ -187,8 +367,23 @@ export default function ParentHomeScreen({ navigation, route }) {
   ]);
 
   useFocusEffect(useCallback(() => {
-    refreshAll();
-  }, [refreshAll]));
+    // useDailyLog already performs its own initial/date load. Starting a
+    // second identical five-query load here can leave the newer request
+    // waiting behind the first one on mobile connections.
+    Promise.allSettled([
+      family.refresh({ silent: true }),
+      familySchedule.refresh(),
+      fetchIncidents(),
+      fetchAttendance(),
+      fetchAnnouncements(),
+    ]);
+  }, [
+    family.refresh,
+    familySchedule.refresh,
+    fetchAnnouncements,
+    fetchAttendance,
+    fetchIncidents,
+  ]));
 
   // Fetch unacknowledged incidents for the selected child
   useEffect(() => {
@@ -196,8 +391,9 @@ export default function ParentHomeScreen({ navigation, route }) {
 
     // Real-time for incidents
     if (!selectedChild?.id) return;
+    const channelInstance = `${Date.now()}:${Math.random().toString(36).slice(2)}`;
     const channel = supabase
-      .channel(`parent-incidents:${selectedChild.id}`)
+      .channel(`parent-incidents:${selectedChild.id}:${channelInstance}`)
       .on('postgres_changes', {
         event: '*', schema: 'public', table: 'incident_reports',
         filter: `child_id=eq.${selectedChild.id}`,
@@ -212,8 +408,9 @@ export default function ParentHomeScreen({ navigation, route }) {
     fetchAttendance().catch(() => {});
     if (!selectedChild?.id) return undefined;
     const selectedDateString = format(selectedDate, 'yyyy-MM-dd');
+    const channelInstance = `${Date.now()}:${Math.random().toString(36).slice(2)}`;
     const channel = supabase
-      .channel(`parent-attendance:${selectedChild.id}:${selectedDateString}`)
+      .channel(`parent-attendance:${selectedChild.id}:${selectedDateString}:${channelInstance}`)
       .on('postgres_changes', {
         event: '*',
         schema: 'public',
@@ -230,8 +427,9 @@ export default function ParentHomeScreen({ navigation, route }) {
   // Recent announcements (last 5, newest first — pinned first)
   useEffect(() => {
     fetchAnnouncements().catch(() => {});
+    const channelInstance = `${Date.now()}:${Math.random().toString(36).slice(2)}`;
     const channel = supabase
-      .channel('parent-home-announcements')
+      .channel(`parent-home-announcements:${channelInstance}`)
       .on('postgres_changes', {
         event: '*', schema: 'public', table: 'announcements',
       }, () => fetchAnnouncements().catch(() => {}))
@@ -239,7 +437,24 @@ export default function ParentHomeScreen({ navigation, route }) {
     return () => supabase.removeChannel(channel);
   }, [fetchAnnouncements]);
 
-  if (family.loading || (selectedChild && loading)) return <LoadingScreen />;
+  const timelineEntries = useMemo(() => buildTimelineEntries({
+    log,
+    attendance: attendanceRec,
+    meals,
+    sleeps,
+    diapers,
+    activities,
+  }), [activities, attendanceRec, diapers, log, meals, sleeps]);
+
+  const totalNapMinutes = useMemo(() => sleeps.reduce((total, sleep) => {
+    if (!sleep.end_time) return total;
+    const label = calcDuration(sleep.start_time, sleep.end_time);
+    const hours = Number(label.match(/(\d+)h/)?.[1] || 0);
+    const minutes = Number(label.match(/(\d+)m/)?.[1] || 0);
+    return total + (hours * 60) + minutes;
+  }, 0), [sleeps]);
+
+  if (family.loading) return <LoadingScreen />;
 
   if (family.error && !children.length) {
     return (
@@ -264,7 +479,9 @@ export default function ParentHomeScreen({ navigation, route }) {
 
   const today = isToday(selectedDate);
   const hasMoods = log?.moods?.length > 0;
-  const hasContent = meals.length || diapers.length || sleeps.length || activities.length;
+  const hasContent = Boolean(meals.length || diapers.length || sleeps.length || activities.length);
+  const absent = ['absent', 'excused'].includes(attendanceRec?.status);
+  const complete = Boolean(log?.sent_to_parents || attendanceRec?.checked_out_at);
   const upcomingClosure = (familySchedule.hub?.closures || [])
     .find((closure) => closure.ends_on >= familySchedule.hub?.today);
   const roomMove = (familySchedule.hub?.room_moves || [])
@@ -337,9 +554,13 @@ export default function ParentHomeScreen({ navigation, route }) {
                 onPress={() => navigation.navigate('IncidentDetail', { incident, child: selectedChild })}
                 activeOpacity={0.7}
               >
-                <Text style={styles.incidentAlertEmoji}>
-                  {incident.severity === 'serious' ? '🚨' : incident.severity === 'moderate' ? '⚠️' : '🟡'}
-                </Text>
+                <View style={[styles.incidentAlertIcon, { backgroundColor: colors.surface }]}>
+                  <Ionicons
+                    name={incident.severity === 'serious' ? 'alert-circle-outline' : incident.severity === 'moderate' ? 'warning-outline' : 'medkit-outline'}
+                    size={20}
+                    color={incidentTone.color}
+                  />
+                </View>
                 <View style={styles.incidentAlertContent}>
                   <Text style={[styles.incidentAlertTitle, { color: incidentTone.color }]}>
                     {incident.severity === 'serious' ? 'Serious' : incident.severity === 'moderate' ? 'Moderate' : 'Minor'} incident reported
@@ -348,7 +569,7 @@ export default function ParentHomeScreen({ navigation, route }) {
                     {incident.injury_type} · {format(new Date(incident.occurred_at), 'h:mm a')} — Tap to review
                   </Text>
                 </View>
-                <Text style={[styles.incidentAlertChevron, { color: incidentTone.color }]}>›</Text>
+                <Ionicons name="chevron-forward" size={18} color={incidentTone.color} />
               </TouchableOpacity>
             );
           })}
@@ -356,14 +577,16 @@ export default function ParentHomeScreen({ navigation, route }) {
       )}
 
       {/* Family schedule notices — Admin Groups 11c and 7e */}
-      {upcomingClosure ? (
+      {today && upcomingClosure ? (
         <TouchableOpacity
           style={[styles.scheduleBanner, styles.closureBanner]}
           onPress={() => navigation.navigate('ParentClosureNotice', { closureId: upcomingClosure.id })}
           activeOpacity={0.75}
           accessibilityRole="button"
         >
-          <Text style={styles.scheduleIcon}>🗓️</Text>
+          <View style={[styles.scheduleIcon, styles.closureIcon]}>
+            <Ionicons name="calendar-outline" size={20} color={colors.amber} />
+          </View>
           <View style={styles.scheduleCopy}>
             <Text style={styles.scheduleEyebrow}>CENTER CLOSURE</Text>
             <Text style={styles.scheduleTitle}>{upcomingClosure.reason}</Text>
@@ -371,11 +594,11 @@ export default function ParentHomeScreen({ navigation, route }) {
               {format(new Date(`${upcomingClosure.starts_on}T12:00:00`), 'EEEE, MMMM d')} · See closure details
             </Text>
           </View>
-          <Text style={styles.scheduleChevron}>›</Text>
+          <Ionicons name="chevron-forward" size={18} color={colors.textFaint} />
         </TouchableOpacity>
       ) : null}
 
-      {roomMove ? (
+      {today && roomMove ? (
         <TouchableOpacity
           style={[styles.scheduleBanner, styles.moveBanner]}
           onPress={() => navigation.navigate('ParentRoomMove', {
@@ -385,7 +608,9 @@ export default function ParentHomeScreen({ navigation, route }) {
           activeOpacity={0.75}
           accessibilityRole="button"
         >
-          <Text style={styles.scheduleIcon}>🎒</Text>
+          <View style={[styles.scheduleIcon, styles.moveIcon]}>
+            <Ionicons name="school-outline" size={20} color={colors.primary} />
+          </View>
           <View style={styles.scheduleCopy}>
             <Text style={styles.scheduleEyebrow}>ROOM MOVE PLAN</Text>
             <Text style={styles.scheduleTitle}>
@@ -395,7 +620,7 @@ export default function ParentHomeScreen({ navigation, route }) {
               Move day {format(new Date(`${roomMove.move_on}T12:00:00`), 'MMM d')} · See the transition plan
             </Text>
           </View>
-          <Text style={styles.scheduleChevron}>›</Text>
+          <Ionicons name="chevron-forward" size={18} color={colors.textFaint} />
         </TouchableOpacity>
       ) : null}
 
@@ -420,18 +645,27 @@ export default function ParentHomeScreen({ navigation, route }) {
       </View>
 
       {/* Announcements */}
-      {announcements.length > 0 && (
+      {today && announcements.length > 0 && (
         <TouchableOpacity
           style={styles.annCard}
           onPress={() => navigation.navigate('Announcements')}
           activeOpacity={0.8}
         >
-          <Text style={styles.annTitle}>📢 Announcements</Text>
-          {announcements.map((a, i) => (
+          <View style={styles.annTitleRow}>
+            <View style={styles.annTitleIcon}>
+              <Ionicons name="megaphone-outline" size={18} color={colors.amber} />
+            </View>
+            <Text style={styles.annTitle}>Announcements</Text>
+          </View>
+          {announcements.slice(0, 1).map((a, i) => (
             <View key={a.id}>
               {i > 0 && <Divider />}
               <View style={styles.annRow}>
-                {a.pinned && <Text style={styles.annPin}>📌</Text>}
+                {a.pinned ? (
+                  <View style={styles.annPin}>
+                    <Ionicons name="pin-outline" size={16} color={colors.amber} />
+                  </View>
+                ) : null}
                 <View style={{ flex: 1 }}>
                   <Text style={styles.annRowTitle}>{a.title}</Text>
                   <Text style={styles.annRowBody} numberOfLines={3}>{a.body}</Text>
@@ -440,122 +674,168 @@ export default function ParentHomeScreen({ navigation, route }) {
               </View>
             </View>
           ))}
+          {announcements.length > 1 ? (
+            <Text style={styles.annMore}>View {announcements.length - 1} more announcement{announcements.length === 2 ? '' : 's'} →</Text>
+          ) : null}
         </TouchableOpacity>
       )}
 
       {/* Header card */}
       <View style={styles.heroCard}>
-        <View>
+        <View style={styles.heroCopy}>
           <Text style={styles.heroName}>{selectedChild?.first_name}'s day</Text>
-          {log?.sent_to_parents
-            ? <Badge label="Log sent ✓" color={colors.success} bg={colors.successLight} />
-            : today
-              ? <Badge label="In progress..." color={colors.amber} bg={colors.amberLight} />
-              : <Badge label="Not filled" color={colors.textMuted} bg={colors.bg} />
+          {absent
+            ? <Badge label="Away today" color={colors.amber} bg={colors.amberLight} />
+            : complete
+              ? <Badge label="Day complete ✓" color={colors.success} bg={colors.successLight} />
+              : attendanceRec?.checked_in_at
+                ? <Badge label="In preschool" color={colors.success} bg={colors.successLight} />
+                : log
+                  ? <Badge label="In progress..." color={colors.amber} bg={colors.amberLight} />
+                  : today
+                    ? <Badge label="Waiting for check-in" color={colors.textMuted} bg={colors.bg} />
+                    : <Badge label="No update" color={colors.textMuted} bg={colors.bg} />
           }
           {/* Attendance times */}
           {attendanceRec?.checked_in_at && (
-            <Text style={styles.attendanceText}>
-              📍 Arrived {format(new Date(attendanceRec.checked_in_at), 'h:mm a')}
-              {attendanceRec.checked_out_at && ` · Left ${format(new Date(attendanceRec.checked_out_at), 'h:mm a')}`}
-            </Text>
+            <View style={styles.attendanceLine}>
+              <Ionicons name="location-outline" size={15} color={colors.primaryDark} />
+              <Text style={styles.attendanceText}>
+                Arrived {format(new Date(attendanceRec.checked_in_at), 'h:mm a')}
+                {attendanceRec.checked_out_at && ` · Left ${format(new Date(attendanceRec.checked_out_at), 'h:mm a')}`}
+              </Text>
+            </View>
           )}
           {attendanceRec?.status === 'absent' && (
-            <Text style={styles.absenceText}>
-              🗓️ Absent · {attendanceRec.absence_reason
-                ? attendanceRec.absence_reason.charAt(0).toUpperCase() + attendanceRec.absence_reason.slice(1)
-                : 'Reported'}
-            </Text>
+            <View style={styles.attendanceLine}>
+              <Ionicons name="calendar-outline" size={15} color={colors.amber} />
+              <Text style={styles.absenceText}>
+                Absent · {attendanceRec.absence_reason
+                  ? attendanceRec.absence_reason.charAt(0).toUpperCase() + attendanceRec.absence_reason.slice(1)
+                  : 'Reported'}
+              </Text>
+            </View>
           )}
         </View>
-        {hasMoods && (
-          <Text style={styles.moodDisplay}>
-            {log.moods.map(m => MOOD_EMOJI[m] || '').join(' ')}
-          </Text>
-        )}
+        {hasMoods ? (
+          <View style={[styles.heroMood, { backgroundColor: moodPresentation(log.moods[0]).background }]}>
+            <Ionicons
+              name={moodPresentation(log.moods[0]).icon}
+              size={25}
+              color={moodPresentation(log.moods[0]).color}
+            />
+          </View>
+        ) : null}
       </View>
 
-      {/* Quick actions */}
-      <View style={styles.actionRow}>
+      {complete && !absent ? (
         <TouchableOpacity
-          style={[styles.actionBtn, attendanceRec?.status === 'absent' && styles.actionBtnHighlighted]}
-          onPress={() => navigation.navigate('ReportAbsence', { child: selectedChild })}
-          activeOpacity={0.7}
-        >
-          <Text style={styles.actionIcon}>🗓️</Text>
-          <Text style={styles.actionText}>
-            {attendanceRec?.absence_report_id ? 'Manage absence' : 'Report absence'}
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.actionBtn, pendingIncidents.length > 0 && styles.incidentActionHighlighted]}
-          onPress={() => navigation.navigate('ParentIncidents', { child: selectedChild, childId: selectedChild?.id })}
-          activeOpacity={0.7}
-        >
-          <Text style={styles.actionIcon}>🩹</Text>
-          <Text style={styles.actionText}>
-            {pendingIncidents.length ? `Review incident${pendingIncidents.length > 1 ? 's' : ''}` : 'Incident reports'}
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.actionBtn}
-          onPress={() => navigation.navigate('WeeklySummary', {
+          style={styles.recapButton}
+          onPress={() => navigation.navigate('ParentDayRecap', {
             childId: selectedChild?.id,
             childName: selectedChild?.first_name,
+            logDate: format(selectedDate, 'yyyy-MM-dd'),
           })}
-          activeOpacity={0.7}
         >
-          <Text style={styles.actionIcon}>📊</Text>
-          <Text style={styles.actionText}>Weekly summary</Text>
+          <View style={styles.recapIcon}><Ionicons name="document-text-outline" size={19} color={colors.primary} /></View>
+          <View style={styles.recapCopy}>
+            <Text style={styles.recapTitle}>Daily recap is ready</Text>
+            <Text style={styles.recapBody}>See the completed day and share a concise summary.</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={colors.textFaint} />
         </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.actionBtn}
-          onPress={() => navigation.navigate('Messaging', {
-            childId: selectedChild?.id,
-            childName: selectedChild?.first_name,
-          })}
-          activeOpacity={0.7}
-        >
-          <Text style={styles.actionIcon}>💬</Text>
-          <Text style={styles.actionText}>Message educator</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.actionBtn}
-          onPress={() => navigation.navigate('PickupPass', {
-            child: selectedChild,
-          })}
-          activeOpacity={0.7}
-        >
-          <Text style={styles.actionIcon}>🔐</Text>
-          <Text style={styles.actionText}>Pickup pass</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.actionBtn}
-          onPress={() => navigation.navigate('Medication', {
-            child: selectedChild,
-          })}
-          activeOpacity={0.7}
-        >
-          <Text style={styles.actionIcon}>💊</Text>
-          <Text style={styles.actionText}>Medications</Text>
-        </TouchableOpacity>
-      </View>
+      ) : null}
 
-      {!hasContent && !hasMoods ? (
-        <EmptyState icon="📋" message={today ? "No entries yet today.\nCheck back later!" : "No log was filled for this day."} />
+      {loading ? (
+        <View style={styles.dayLoadingCard}>
+          <ActivityIndicator color={colors.primary} />
+          <Text style={styles.dayLoadingText}>Loading this day's updates…</Text>
+        </View>
+      ) : !hasContent && !hasMoods ? (
+        <View style={[styles.dayStateCard, absent && styles.dayStateAbsent]}>
+          <View style={[styles.dayStateIcon, absent && { backgroundColor: colors.amberLight }]}>
+            <Ionicons
+              name={absent ? 'calendar-outline' : attendanceRec?.checked_in_at ? 'sunny-outline' : 'time-outline'}
+              size={27}
+              color={absent ? colors.amber : colors.primary}
+            />
+          </View>
+          <Text style={styles.dayStateTitle}>
+            {absent
+              ? `${selectedChild?.first_name} is away today`
+              : attendanceRec?.checked_in_at
+                ? 'The day is just getting started'
+                : today
+                  ? 'Waiting for check-in'
+                  : 'No daily update for this day'}
+          </Text>
+          <Text style={styles.dayStateBody}>
+            {absent
+              ? 'The absence is recorded. No classroom updates are expected.'
+              : attendanceRec?.checked_in_at
+                ? 'The educator will add meals, naps, care and activities as they happen.'
+                : today
+                  ? 'Updates will appear here after the center checks your child in.'
+                  : 'There is no attendance or classroom log available.'}
+          </Text>
+          {today && !absent ? (
+            <TouchableOpacity style={styles.dayStateAction} onPress={() => navigation.navigate('Messaging', { childId: selectedChild?.id, childName: selectedChild?.first_name })}>
+              <Text style={styles.dayStateActionText}>Message the classroom</Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
       ) : (
         <>
+          <View style={styles.glanceCard}>
+            <GlanceMetric
+              icon={hasMoods ? moodPresentation(log.moods[0]).icon : 'remove-outline'}
+              color={hasMoods ? moodPresentation(log.moods[0]).color : colors.textFaint}
+              label={hasMoods ? log.moods[0] : 'No mood'}
+            />
+            <View style={styles.glanceDivider} />
+            <GlanceMetric icon="restaurant-outline" label={`${meals.length} meal${meals.length === 1 ? '' : 's'}`} />
+            <View style={styles.glanceDivider} />
+            <GlanceMetric
+              icon="moon-outline"
+              label={totalNapMinutes ? calcMinutesLabel(totalNapMinutes) : sleeps.some((sleep) => !sleep.end_time) ? 'Napping' : 'No nap'}
+            />
+            <View style={styles.glanceDivider} />
+            <GlanceMetric icon="water-outline" label={`${diapers.length} care`} />
+          </View>
+
+          <View style={styles.dayViewToggle}>
+            {[
+              { key: 'timeline', label: 'Timeline' },
+              { key: 'details', label: 'Details' },
+            ].map((option) => (
+              <TouchableOpacity
+                key={option.key}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: dayView === option.key }}
+                onPress={() => setDayView(option.key)}
+                style={[styles.dayViewOption, dayView === option.key && styles.dayViewOptionActive]}
+              >
+                <Text style={[styles.dayViewText, dayView === option.key && styles.dayViewTextActive]}>{option.label}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          {dayView === 'timeline' ? <DailyTimeline entries={timelineEntries} /> : (
+            <>
           {/* Mood */}
           {hasMoods && (
             <View style={styles.card}>
-              <Text style={styles.cardTitle}>😊  Today's mood</Text>
+              <CardSectionTitle icon="happy-outline" title="Today's mood" color={colors.success} background={colors.successLight} />
               <View style={styles.moodRow}>
-                {log.moods.map(m => (
-                  <View key={m} style={styles.moodChip}>
-                    <Text style={styles.moodEmoji}>{MOOD_EMOJI[m]}</Text>
-                    <Text style={styles.moodLabel}>{m}</Text>
-                  </View>
-                ))}
+                {log.moods.map((m) => {
+                  const mood = moodPresentation(m);
+                  return (
+                    <View key={m} style={[styles.moodChip, { backgroundColor: mood.background }]}>
+                      <Ionicons name={mood.icon} size={16} color={mood.color} />
+                      <Text style={styles.moodLabel}>{m}</Text>
+                    </View>
+                  );
+                })}
               </View>
             </View>
           )}
@@ -563,7 +843,7 @@ export default function ParentHomeScreen({ navigation, route }) {
           {/* Meals */}
           {meals.length > 0 && (
             <View style={styles.card}>
-              <Text style={styles.cardTitle}>🍽  Meals</Text>
+              <CardSectionTitle icon="restaurant-outline" title="Meals" />
               {meals.map((meal, i) => (
                 <View key={meal.id}>
                   {i > 0 && <Divider />}
@@ -584,7 +864,7 @@ export default function ParentHomeScreen({ navigation, route }) {
           {/* Sleep */}
           {sleeps.length > 0 && (
             <View style={styles.card}>
-              <Text style={styles.cardTitle}>😴  Sleep</Text>
+              <CardSectionTitle icon="moon-outline" title="Sleep" color={colors.purple} background={colors.purpleLight} />
               {sleeps.map(s => {
                 const duration = s.end_time
                   ? calcDuration(s.start_time, s.end_time)
@@ -602,7 +882,7 @@ export default function ParentHomeScreen({ navigation, route }) {
           {/* Diapers */}
           {diapers.length > 0 && (
             <View style={styles.card}>
-              <Text style={styles.cardTitle}>🩲  Diaper / toilet</Text>
+              <CardSectionTitle icon="water-outline" title="Diaper / toilet" />
               {diapers.map((d, i) => (
                 <View key={d.id}>
                   {i > 0 && <Divider />}
@@ -620,7 +900,7 @@ export default function ParentHomeScreen({ navigation, route }) {
           {/* Activities */}
           {activities.length > 0 && (
             <View style={styles.card}>
-              <Text style={styles.cardTitle}>🎨  Activities</Text>
+              <CardSectionTitle icon="color-palette-outline" title="Activities" color={colors.purple} background={colors.purpleLight} />
               <View style={styles.activityWrap}>
                 {activities.map(a => (
                   <View key={a.id} style={styles.activityChip}>
@@ -634,7 +914,7 @@ export default function ParentHomeScreen({ navigation, route }) {
           {/* Supplies */}
           {supplies.length > 0 && (
             <View style={[styles.card, styles.supplyCard]}>
-              <Text style={[styles.cardTitle, { color: colors.danger }]}>📦  Please bring more</Text>
+              <CardSectionTitle icon="cube-outline" title="Please bring more" color={colors.danger} background={colors.dangerLight} titleColor={colors.danger} />
               <View style={styles.activityWrap}>
                 {supplies.map(s => (
                   <View key={s.id} style={styles.supplyChip}>
@@ -648,7 +928,7 @@ export default function ParentHomeScreen({ navigation, route }) {
           {/* Notes */}
           {(log?.notes || log?.comments) && (
             <View style={styles.card}>
-              <Text style={styles.cardTitle}>📝  Notes from the educator</Text>
+              <CardSectionTitle icon="document-text-outline" title="Notes from the educator" />
               {log.notes ? <Text style={styles.noteText}>{log.notes}</Text> : null}
               {log.comments ? <Text style={styles.noteText}>{log.comments}</Text> : null}
             </View>
@@ -656,8 +936,70 @@ export default function ParentHomeScreen({ navigation, route }) {
 
           {/* Photos */}
           {log && <PhotoSection logId={log.id} childId={selectedChild?.id} readOnly={true} />}
+            </>
+          )}
         </>
       )}
+
+      {/* Secondary actions stay below the daily story so care updates remain primary. */}
+      <Text style={styles.actionsHeading}>MORE FOR {selectedChild?.first_name?.toUpperCase()}</Text>
+      <View style={styles.toolsCard}>
+        <ParentToolRow
+          icon="calendar-outline"
+          iconColor={attendanceRec?.status === 'absent' ? colors.amber : colors.primary}
+          iconBackground={attendanceRec?.status === 'absent' ? colors.amberLight : colors.primarySoft}
+          title={attendanceRec?.absence_report_id ? 'Manage absence' : 'Report absence'}
+          subtitle={attendanceRec?.absence_report_id
+            ? 'Review or update the absence already reported'
+            : `Let the classroom know ${selectedChild?.first_name || 'your child'} will be away`}
+          badge={attendanceRec?.status === 'absent' ? 'Reported' : null}
+          badgeTone="amber"
+          onPress={() => navigation.navigate('ReportAbsence', { child: selectedChild })}
+        />
+        <ParentToolRow
+          icon="medkit-outline"
+          iconColor={pendingIncidents.length ? colors.danger : colors.amber}
+          iconBackground={pendingIncidents.length ? colors.dangerLight : colors.amberLight}
+          title={pendingIncidents.length ? `Review incident${pendingIncidents.length > 1 ? 's' : ''}` : 'Incident reports'}
+          subtitle={pendingIncidents.length
+            ? `${pendingIncidents.length} report${pendingIncidents.length > 1 ? 's need' : ' needs'} your acknowledgement`
+            : 'View reports, care notes and signed records'}
+          badge={pendingIncidents.length ? String(pendingIncidents.length) : null}
+          badgeTone="danger"
+          onPress={() => navigation.navigate('ParentIncidents', { child: selectedChild, childId: selectedChild?.id })}
+        />
+        <ParentToolRow
+          icon="chatbubble-ellipses-outline"
+          title="Message educator"
+          subtitle={`Chat securely with ${selectedChild?.first_name || 'your child'}’s classroom`}
+          onPress={() => navigation.navigate('Messaging', { childId: selectedChild?.id, childName: selectedChild?.first_name })}
+        />
+        <ParentToolRow
+          icon="bar-chart-outline"
+          iconColor={colors.purple}
+          iconBackground={colors.purpleLight}
+          title="Weekly summary"
+          subtitle="See routines, highlights and attendance at a glance"
+          onPress={() => navigation.navigate('WeeklySummary', { childId: selectedChild?.id, childName: selectedChild?.first_name })}
+        />
+        <ParentToolRow
+          icon="key-outline"
+          iconColor={colors.success}
+          iconBackground={colors.successLight}
+          title="Pickup pass"
+          subtitle="Open your secure pass for an authorized pickup"
+          onPress={() => navigation.navigate('PickupPass', { child: selectedChild })}
+        />
+        <ParentToolRow
+          icon="medical-outline"
+          iconColor={colors.coral}
+          iconBackground={colors.coralLight}
+          title="Medications"
+          subtitle="Manage authorizations and review dose history"
+          onPress={() => navigation.navigate('Medication', { child: selectedChild })}
+          isLast
+        />
+      </View>
 
       <View style={{ height: spacing.xxxl }} />
     </ScrollView>
@@ -674,6 +1016,12 @@ function calcDuration(start, end) {
   const mins = endMins - startMins;
   if (mins < 60) return `${mins}m`;
   return `${Math.floor(mins / 60)}h ${mins % 60}m`;
+}
+
+function calcMinutesLabel(minutes) {
+  if (minutes < 60) return `${minutes}m`;
+  const remainder = minutes % 60;
+  return `${Math.floor(minutes / 60)}h${remainder ? ` ${remainder}m` : ''}`;
 }
 
 const styles = StyleSheet.create({
@@ -764,18 +1112,57 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.primary + '33',
   },
-  actionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.md },
-  actionBtn: {
-    flexGrow: 1, flexBasis: '46%', backgroundColor: colors.surface,
-    borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border,
-    padding: spacing.md, alignItems: 'center', gap: spacing.xs,
+  heroCopy: { flex: 1, minWidth: 0 },
+  heroMood: {
+    width: 46, height: 46, borderRadius: 23,
+    alignItems: 'center', justifyContent: 'center', marginLeft: spacing.md,
   },
-  actionBtnHighlighted: { borderColor: colors.amber, backgroundColor: colors.amberLight },
-  incidentActionHighlighted: { borderColor: colors.danger, backgroundColor: colors.dangerLight },
-  actionIcon: { fontSize: 22 },
-  actionText: { fontSize: 12, color: colors.textSecondary, fontWeight: '500', textAlign: 'center' },
+  recapButton: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.md,
+    backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border,
+    borderRadius: radius.lg, padding: spacing.md, marginBottom: spacing.md,
+  },
+  recapIcon: { width: 38, height: 38, borderRadius: 19, backgroundColor: colors.primaryLight, alignItems: 'center', justifyContent: 'center' },
+  recapCopy: { flex: 1 },
+  recapTitle: { color: colors.textPrimary, fontSize: 14, fontWeight: '700' },
+  recapBody: { color: colors.textMuted, fontSize: 11.5, lineHeight: 17, marginTop: 2 },
+  actionsHeading: { color: colors.textFaint, fontSize: 9.5, fontWeight: '700', letterSpacing: 0.9, marginTop: spacing.sm, marginBottom: spacing.sm },
+  toolsCard: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: spacing.lg,
+    marginBottom: spacing.md,
+    overflow: 'hidden',
+  },
+  toolRow: {
+    minHeight: 72,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.borderSoft,
+    paddingVertical: spacing.md,
+  },
+  toolRowLast: { borderBottomWidth: 0 },
+  toolIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  toolCopy: { flex: 1, minWidth: 0 },
+  toolTitle: { color: colors.textPrimary, fontSize: 14, fontWeight: '700' },
+  toolSubtitle: { color: colors.textMuted, fontSize: 11.5, lineHeight: 16, marginTop: 2 },
+  toolBadge: { borderRadius: radius.full, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs },
+  toolBadgePrimary: { backgroundColor: colors.primaryLight },
+  toolBadgeAmber: { backgroundColor: colors.amberLight },
+  toolBadgeDanger: { backgroundColor: colors.dangerLight },
+  toolBadgeText: { color: colors.amber, fontSize: 10.5, fontWeight: '700' },
+  toolBadgeTextDanger: { color: colors.danger },
   heroName: { fontSize: 20, fontWeight: '700', color: colors.primaryDark, marginBottom: spacing.xs },
-  moodDisplay: { fontSize: 32 },
   card: {
     backgroundColor: colors.surface,
     borderRadius: radius.lg,
@@ -785,7 +1172,9 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
   },
   supplyCard: { borderColor: colors.danger + '44' },
-  cardTitle: { fontSize: 15, fontWeight: '600', color: colors.textPrimary, marginBottom: spacing.md },
+  cardTitleRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.md },
+  cardTitleIcon: { width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center' },
+  cardTitle: { flex: 1, fontSize: 15, fontWeight: '600', color: colors.textPrimary },
   moodRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   moodChip: {
     flexDirection: 'row',
@@ -798,7 +1187,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
   },
-  moodEmoji: { fontSize: 16 },
   moodLabel: { fontSize: 13, color: colors.textPrimary, fontWeight: '500' },
   mealRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.xs },
   mealTime: { fontSize: 13, color: colors.textSecondary, width: 46, fontWeight: '500' },
@@ -823,6 +1211,32 @@ const styles = StyleSheet.create({
   },
   supplyText: { fontSize: 13, color: colors.danger, fontWeight: '500' },
   noteText: { fontSize: 14, color: colors.textPrimary, lineHeight: 20, marginBottom: spacing.sm },
+  dayLoadingCard: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.md, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.lg, padding: spacing.xl, marginBottom: spacing.md },
+  dayLoadingText: { color: colors.textMuted, fontSize: 13, fontWeight: '600' },
+  dayStateCard: { alignItems: 'center', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.xl, padding: spacing.xxl, marginBottom: spacing.md },
+  dayStateAbsent: { borderColor: '#ECD4A5' },
+  dayStateIcon: { width: 58, height: 58, borderRadius: 29, backgroundColor: colors.primaryLight, alignItems: 'center', justifyContent: 'center', marginBottom: spacing.md },
+  dayStateTitle: { color: colors.textPrimary, fontSize: 19, fontWeight: '700', textAlign: 'center' },
+  dayStateBody: { color: colors.textSecondary, fontSize: 13, lineHeight: 20, textAlign: 'center', marginTop: spacing.sm },
+  dayStateAction: { borderWidth: 1, borderColor: colors.primary, borderRadius: radius.md, paddingHorizontal: spacing.lg, paddingVertical: spacing.md, marginTop: spacing.lg },
+  dayStateActionText: { color: colors.primary, fontSize: 13, fontWeight: '700' },
+  glanceCard: { flexDirection: 'row', alignItems: 'stretch', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.lg, paddingVertical: spacing.md, marginBottom: spacing.md },
+  glanceItem: { flex: 1, minWidth: 0, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 3 },
+  glanceValue: { color: colors.textSecondary, fontSize: 9.5, fontWeight: '600', textAlign: 'center', marginTop: 5 },
+  glanceDivider: { width: 1, backgroundColor: colors.borderSoft },
+  dayViewToggle: { flexDirection: 'row', backgroundColor: colors.primarySoft, borderRadius: radius.md, padding: 4, marginBottom: spacing.md },
+  dayViewOption: { flex: 1, alignItems: 'center', paddingVertical: 9, borderRadius: radius.sm },
+  dayViewOptionActive: { backgroundColor: colors.surface },
+  dayViewText: { color: colors.textMuted, fontSize: 12.5, fontWeight: '700' },
+  dayViewTextActive: { color: colors.primary },
+  timelineCard: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.lg, paddingHorizontal: spacing.lg, paddingBottom: spacing.sm, marginBottom: spacing.md },
+  timelineSection: { color: colors.textFaint, fontSize: 9.5, fontWeight: '700', letterSpacing: 1, paddingTop: spacing.md, paddingBottom: spacing.xs },
+  timelineRow: { flexDirection: 'row', alignItems: 'center', minHeight: 68, borderBottomWidth: 1, borderBottomColor: colors.borderSoft },
+  timelineIcon: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', marginRight: spacing.md },
+  timelineCopy: { flex: 1, minWidth: 0 },
+  timelineTitle: { color: colors.textPrimary, fontSize: 14, fontWeight: '700' },
+  timelineDetail: { color: colors.textMuted, fontSize: 11.5, marginTop: 2 },
+  timelineTime: { color: colors.textFaint, fontSize: 10.5, fontWeight: '600', marginLeft: spacing.sm },
   incidentBanner: { paddingHorizontal: spacing.lg, paddingTop: spacing.sm },
   incidentAlert: {
     flexDirection: 'row', alignItems: 'center', gap: spacing.md,
@@ -830,11 +1244,10 @@ const styles = StyleSheet.create({
     padding: spacing.md, marginBottom: spacing.sm,
     borderWidth: 1.5, borderColor: colors.danger,
   },
-  incidentAlertEmoji: { fontSize: 22 },
+  incidentAlertIcon: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
   incidentAlertContent: { flex: 1 },
   incidentAlertTitle: { fontSize: 14, fontWeight: '600', color: colors.danger },
   incidentAlertSub: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
-  incidentAlertChevron: { fontSize: 22, color: colors.danger },
 
   // Announcements
   annCard: {
@@ -842,16 +1255,20 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: colors.amber + '44',
     padding: spacing.lg, marginBottom: spacing.md,
   },
-  annTitle: { fontSize: 15, fontWeight: '700', color: colors.amber, marginBottom: spacing.sm },
+  annTitleRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.sm },
+  annTitleIcon: { width: 34, height: 34, borderRadius: 17, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
+  annTitle: { fontSize: 15, fontWeight: '700', color: colors.amber },
   annRow: { flexDirection: 'row', gap: spacing.sm, paddingVertical: spacing.xs },
-  annPin: { fontSize: 14 },
+  annPin: { width: 24, height: 24, alignItems: 'center', justifyContent: 'center' },
   annRowTitle: { fontSize: 14, fontWeight: '600', color: colors.textPrimary },
   annRowBody: { fontSize: 13, color: colors.textSecondary, marginTop: 2, lineHeight: 18 },
   annRowDate: { fontSize: 11, color: colors.textMuted, marginTop: 4 },
+  annMore: { color: colors.primary, fontSize: 12, fontWeight: '700', marginTop: spacing.md },
 
   // Attendance
-  attendanceText: { fontSize: 12, color: colors.primaryDark, marginTop: spacing.sm, fontWeight: '500' },
-  absenceText: { fontSize: 12, color: colors.amber, marginTop: spacing.sm, fontWeight: '700' },
+  attendanceLine: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: spacing.sm },
+  attendanceText: { flex: 1, fontSize: 12, color: colors.primaryDark, fontWeight: '500' },
+  absenceText: { flex: 1, fontSize: 12, color: colors.amber, fontWeight: '700' },
   scheduleBanner: {
     flexDirection: 'row', alignItems: 'center', gap: spacing.md,
     borderRadius: radius.lg, borderWidth: 1.5,
@@ -859,7 +1276,9 @@ const styles = StyleSheet.create({
   },
   closureBanner: { backgroundColor: '#FFFDF8', borderColor: '#EFD9B5' },
   moveBanner: { backgroundColor: colors.primaryLight, borderColor: `${colors.primary}33` },
-  scheduleIcon: { fontSize: 25 },
+  scheduleIcon: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center' },
+  closureIcon: { backgroundColor: colors.amberLight },
+  moveIcon: { backgroundColor: colors.surface },
   scheduleCopy: { flex: 1, minWidth: 0 },
   scheduleEyebrow: {
     color: colors.textFaint, fontSize: 10, fontWeight: '700', letterSpacing: 0.6,
@@ -868,5 +1287,4 @@ const styles = StyleSheet.create({
     color: colors.textPrimary, fontSize: 14.5, fontWeight: '700', marginTop: 2,
   },
   scheduleBody: { color: colors.textMuted, fontSize: 12, lineHeight: 17, marginTop: 2 },
-  scheduleChevron: { color: colors.textFaint, fontSize: 24 },
 });

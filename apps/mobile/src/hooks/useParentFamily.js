@@ -124,8 +124,9 @@ export function ParentFamilyProvider({ children: content }) {
   useEffect(() => {
     if (!profile?.id || profile.role !== 'parent') return undefined;
 
+    const channelInstance = `${Date.now()}:${Math.random().toString(36).slice(2)}`;
     const channel = supabase
-      .channel(`parent-family:${profile.id}`)
+      .channel(`parent-family:${profile.id}:${channelInstance}`)
       .on('postgres_changes', {
         event: '*',
         schema: 'public',

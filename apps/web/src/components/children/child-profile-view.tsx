@@ -5,6 +5,7 @@ import type {
   ChildPickup,
   ParentDocumentRequestReviewRow,
   PendingParentInvite,
+  PickupSecurityEvent,
   Tables,
 } from "@dailylog/db";
 import { childSetupChecklist, CONSENT_KINDS, formatAge } from "@dailylog/shared";
@@ -16,7 +17,11 @@ import { PickupModal } from "./pickup-modal";
 import { InviteParentModal } from "./invite-parent-modal";
 import { SetupPanel } from "./setup-panel";
 import { RowMenu } from "./row-menu";
-import { removePickupAction } from "@/lib/children/actions";
+import {
+  removePickupAction,
+  resolvePickupSecurityEventAction,
+  reviewPickupAction,
+} from "@/lib/children/actions";
 import { ParentDocumentWorkflowCard } from "./parent-document-workflow-card";
 
 type Guardian = {
@@ -104,6 +109,7 @@ export function ChildProfileView({
   consents,
   documents,
   documentRequests,
+  pickupSecurityEvents,
   pendingInvites,
   classrooms,
   photoUrl,
@@ -115,6 +121,7 @@ export function ChildProfileView({
   consents: Consent[];
   documents: ChildDocument[];
   documentRequests: ParentDocumentRequestReviewRow[];
+  pickupSecurityEvents: PickupSecurityEvent[];
   pendingInvites: PendingParentInvite[];
   classrooms: { id: string; name: string }[];
   photoUrl: string | null;
@@ -335,6 +342,77 @@ export function ChildProfileView({
             )}
           </section>
 
+          {pickupSecurityEvents.length > 0 && (
+            <section
+              id="pickup-safety"
+              className={`${card} scroll-mt-24 ${
+                pickupSecurityEvents.some((event) => event.status === "open")
+                  ? "border-[#E7A6A0] bg-[#FFF8F7]"
+                  : ""
+              }`}
+              aria-labelledby="pickup-safety-h"
+            >
+              <div className="mb-3 flex items-center gap-2">
+                <h2 id="pickup-safety-h" className={cardTitle}>Pickup safety log</h2>
+                {pickupSecurityEvents.some((event) => event.status === "open") && (
+                  <span className="rounded-full bg-danger-bg px-2.5 py-[3px] text-[11px] font-bold text-danger">
+                    Action required
+                  </span>
+                )}
+              </div>
+              <div className="flex flex-col gap-2.5">
+                {pickupSecurityEvents.map((event) => (
+                  <div
+                    key={event.id}
+                    className="rounded-[12px] border border-[rgba(23,51,91,.1)] bg-card px-3.5 py-3"
+                  >
+                    <div className="flex items-start gap-3">
+                      <span className={`mt-1 size-2 flex-none rounded-full ${
+                        event.status === "open" ? "bg-danger" : "bg-success"
+                      }`} />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                          <span className="text-[12.5px] font-bold text-ink">
+                            {event.attempted_name || "Unidentified person"}
+                          </span>
+                          <span className="text-[11px] text-faint">
+                            {new Date(event.created_at).toLocaleString("en-CA", {
+                              month: "short",
+                              day: "numeric",
+                              hour: "numeric",
+                              minute: "2-digit",
+                            })}
+                          </span>
+                        </div>
+                        <p className="mt-0.5 text-[11.5px] text-muted">
+                          Reported by {event.reporter?.full_name ?? "an educator"}
+                          {event.notes ? ` · ${event.notes}` : ""}
+                        </p>
+                        {event.status === "resolved" && (
+                          <p className="mt-1 text-[11.5px] font-semibold text-success">
+                            Resolved{event.resolver?.full_name ? ` by ${event.resolver.full_name}` : ""}
+                          </p>
+                        )}
+                      </div>
+                      {event.status === "open" && (
+                        <form action={resolvePickupSecurityEventAction}>
+                          <input type="hidden" name="child_id" value={child.id} />
+                          <input type="hidden" name="event_id" value={event.id} />
+                          <button
+                            type="submit"
+                            className="rounded-btn border border-[#E7A6A0] px-3 py-1.5 text-[11.5px] font-bold text-danger hover:bg-danger-bg"
+                          >
+                            Mark resolved
+                          </button>
+                        </form>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
           {/* Authorized pickups */}
           <section className={card} aria-labelledby="pickups-h">
             <div className="mb-3 flex items-center gap-2">
@@ -354,7 +432,7 @@ export function ChildProfileView({
               <p className="text-[12.5px] text-faint">No one yet — add a pickup person or link a parent.</p>
             ) : (
               <div className="flex flex-col">
-                <div className={`grid grid-cols-[1.4fr_1fr_.6fr_.8fr_60px] gap-2 border-b border-[#EDF3FB] pb-2 ${th}`}>
+                <div className={`grid grid-cols-[1.4fr_1fr_.6fr_.8fr_130px] gap-2 border-b border-[#EDF3FB] pb-2 ${th}`}>
                   <span>NAME</span>
                   <span>RELATION</span>
                   <span>PIN</span>
@@ -373,7 +451,7 @@ export function ChildProfileView({
                       ),
                   )
                   .map((g) => (
-                    <div key={g.parent!.id} className="grid grid-cols-[1.4fr_1fr_.6fr_.8fr_60px] items-center gap-2 border-b border-[#EDF3FB] py-2.5">
+                    <div key={g.parent!.id} className="grid grid-cols-[1.4fr_1fr_.6fr_.8fr_130px] items-center gap-2 border-b border-[#EDF3FB] py-2.5">
                       <span className="flex items-center gap-2">
                     <Avatar name={g.parent!.full_name} size={26} />
                         <span className="text-[12.5px] font-bold text-ink">{g.parent!.full_name}</span>
@@ -389,25 +467,60 @@ export function ChildProfileView({
                     </div>
                   ))}
                 {pickups.map((p) => (
-                  <div key={p.id} className="grid grid-cols-[1.4fr_1fr_.6fr_.8fr_60px] items-center gap-2 border-b border-[#EDF3FB] py-2.5 last:border-b-0">
+                  <div key={p.id} className="grid grid-cols-[1.4fr_1fr_.6fr_.8fr_130px] items-center gap-2 border-b border-[#EDF3FB] py-2.5 last:border-b-0">
                     <span className="flex items-center gap-2">
                       <Avatar name={p.full_name} size={26} />
                       <span className="text-[12.5px] font-bold text-ink">{p.full_name}</span>
                     </span>
                     <span className="text-[12.5px] text-muted">{p.relationship ?? "—"}</span>
-                    <span className="font-mono text-[12px] font-semibold text-ink">{p.pin}</span>
+                    <span className="font-mono text-[12px] font-semibold text-ink">
+                      {p.approval_status === "approved" ? p.pin : "—"}
+                    </span>
                     <span>
-                      <span className={`rounded-full px-2.5 py-[3px] text-[11px] font-bold ${p.is_primary ? "bg-[#E7F0FB] text-primary" : "bg-[#E4F3EC] text-success"}`}>
-                        {p.is_primary ? "Primary" : "Approved"}
+                      <span className={`rounded-full px-2.5 py-[3px] text-[11px] font-bold ${
+                        p.approval_status === "pending"
+                          ? "bg-[#FFF2DA] text-[#A86A16]"
+                          : p.approval_status === "rejected"
+                            ? "bg-[#FDE8E8] text-danger"
+                            : p.is_primary
+                              ? "bg-[#E7F0FB] text-primary"
+                              : "bg-[#E4F3EC] text-success"
+                      }`}>
+                        {p.approval_status === "pending"
+                          ? "Under review"
+                          : p.approval_status === "rejected"
+                            ? "Not approved"
+                            : p.is_primary ? "Primary" : "Approved"}
                       </span>
                     </span>
-                    <form action={removePickupAction}>
-                      <input type="hidden" name="child_id" value={child.id} />
-                      <input type="hidden" name="pickup_id" value={p.id} />
-                      <button type="submit" className="text-[11.5px] font-bold text-danger hover:underline">
-                        Remove
-                      </button>
-                    </form>
+                    {p.approval_status === "pending" ? (
+                      <span className="flex items-center gap-2">
+                        <form action={reviewPickupAction}>
+                          <input type="hidden" name="child_id" value={child.id} />
+                          <input type="hidden" name="pickup_id" value={p.id} />
+                          <input type="hidden" name="decision" value="approved" />
+                          <button type="submit" className="text-[11.5px] font-bold text-success hover:underline">
+                            Approve
+                          </button>
+                        </form>
+                        <form action={reviewPickupAction}>
+                          <input type="hidden" name="child_id" value={child.id} />
+                          <input type="hidden" name="pickup_id" value={p.id} />
+                          <input type="hidden" name="decision" value="rejected" />
+                          <button type="submit" className="text-[11.5px] font-bold text-danger hover:underline">
+                            Reject
+                          </button>
+                        </form>
+                      </span>
+                    ) : (
+                      <form action={removePickupAction}>
+                        <input type="hidden" name="child_id" value={child.id} />
+                        <input type="hidden" name="pickup_id" value={p.id} />
+                        <button type="submit" className="text-[11.5px] font-bold text-danger hover:underline">
+                          Remove
+                        </button>
+                      </form>
+                    )}
                   </div>
                 ))}
               </div>
@@ -523,12 +636,13 @@ export function ChildProfileView({
             </h2>
             <div className="flex flex-col gap-2">
               {CONSENT_KINDS.map((kind) => {
-                const granted = consents.find((consent) => consent.kind === kind)?.granted ?? false;
+                const consent = consents.find((candidate) => candidate.kind === kind);
+                const status = !consent ? "Request" : consent.granted ? "Signed" : "Declined";
                 return (
                   <div key={kind} className="flex items-center gap-2.5">
                     <span className="flex-1 text-[12.5px] font-semibold text-ink">{kind}</span>
-                    <span className={`text-[11.5px] font-bold ${granted ? "text-success" : "text-warning-text"}`}>
-                      {granted ? "Signed" : "Request"}
+                    <span className={`text-[11.5px] font-bold ${consent?.granted ? "text-success" : consent ? "text-danger" : "text-warning-text"}`}>
+                      {status}
                     </span>
                   </div>
                 );

@@ -37,13 +37,22 @@ function messageFor(error, fallback) {
 export function normalizeParentDocumentAsset(asset) {
   if (!asset?.uri) return null;
   const name = safeFileName(asset.name || asset.fileName || 'document');
-  const mimeType = asset.mimeType || mimeFromName(name);
-  const file = new File(asset.uri);
+  const declaredMimeType = String(asset.mimeType || '').toLowerCase();
+  const mimeType = !declaredMimeType || declaredMimeType === 'application/octet-stream'
+    ? mimeFromName(name)
+    : declaredMimeType;
+  let readableSize = 0;
+  try {
+    readableSize = new File(asset.uri).size || 0;
+  } catch {
+    // Some document providers expose metadata before the local cache copy is
+    // ready. The picker-provided size remains useful for validation.
+  }
   return {
     uri: asset.uri,
     name,
     mimeType,
-    size: Number(asset.size || asset.fileSize || file.size || 0),
+    size: Number(asset.size || asset.fileSize || readableSize || 0),
   };
 }
 
@@ -62,15 +71,18 @@ export function useParentDocuments() {
   const refresh = useCallback(async () => {
     setLoading(true);
     setError('');
-    const { data, error: loadError } = await supabase.rpc('get_parent_documents_hub');
-    setLoading(false);
-    if (loadError) {
+    try {
+      const { data, error: loadError } = await supabase.rpc('get_parent_documents_hub');
+      if (loadError) throw loadError;
+      setHub(data);
+      return data;
+    } catch (loadError) {
       const message = messageFor(loadError, 'Your family documents could not be loaded.');
       setError(message);
       throw new Error(message);
+    } finally {
+      setLoading(false);
     }
-    setHub(data);
-    return data;
   }, []);
 
   const submitRequest = useCallback(async ({ request, child, daycareId, userId, asset }) => {

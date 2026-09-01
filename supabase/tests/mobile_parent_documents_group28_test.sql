@@ -33,6 +33,14 @@ declare
   v_orphan_path text;
   v_failed boolean := false;
 begin
+  if not exists (
+    select 1 from storage.buckets bucket
+    where bucket.id = 'documents' and bucket.file_size_limit = 10485760
+  ) then
+    raise exception 'FAIL: private document storage does not enforce the 10 MB product limit';
+  end if;
+  raise notice 'PASS: private document storage enforces the 10 MB product limit';
+
   perform pg_temp.impersonate('authenticated', v_parent);
   v_hub := public.get_parent_documents_hub();
   if jsonb_array_length(v_hub->'children') < 1
@@ -93,6 +101,19 @@ begin
     raise exception 'FAIL: uploader cannot clean up an unreferenced object';
   end if;
   raise notice 'PASS: storage reads require a record and failed uploads remain removable';
+
+  v_failed := false;
+  begin
+    perform public.submit_parent_document_request(
+      v_request, v_path, 'mateo-immunization.pdf', 'application/pdf', 1
+    );
+  exception when others then
+    v_failed := true;
+  end;
+  if not v_failed then
+    raise exception 'FAIL: a client-supplied size could disagree with the stored object';
+  end if;
+  raise notice 'PASS: submitted metadata must match the stored object';
 
   v_submitted := public.submit_parent_document_request(
     v_request, v_path, 'mateo-immunization.pdf', 'application/pdf', 2048

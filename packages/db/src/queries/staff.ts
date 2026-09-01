@@ -72,6 +72,15 @@ export interface StaffRow {
   } | null;
 }
 
+export interface StaffRegularScheduleRow {
+  id: string;
+  weekday: number;
+  starts_local: string;
+  ends_local: string;
+  unpaid_break_minutes: number;
+  classroom: { id: string; name: string } | null;
+}
+
 // classrooms must be pinned to the direct FK — profiles also reaches
 // classrooms through educator_classrooms, and PostgREST refuses the ambiguity.
 const STAFF_SELECT = `id, job_title, employment_type, started_on, certifications, status,
@@ -104,6 +113,20 @@ export async function getStaffMember(client: Client, staffId: string): Promise<S
 
   if (error) throw error;
   return withNormalizedCredentials(data as unknown as StaffRow);
+}
+
+export async function listStaffRegularSchedule(
+  client: Client,
+  staffId: string,
+): Promise<StaffRegularScheduleRow[]> {
+  const { data, error } = await client
+    .from('staff_regular_schedules')
+    .select('id, weekday, starts_local, ends_local, unpaid_break_minutes, classroom:classrooms(id, name)')
+    .eq('staff_member_id', staffId)
+    .order('weekday');
+
+  if (error) throw error;
+  return (data ?? []) as unknown as StaffRegularScheduleRow[];
 }
 
 function withNormalizedCredentials(row: StaffRow): StaffRow {

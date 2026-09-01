@@ -1,10 +1,15 @@
-import { getStaffMember, listStaffCredentialSubmissions } from "@dailylog/db/queries";
+import {
+  getMyProfile,
+  getStaffMember,
+  listStaffCredentialSubmissions,
+  listStaffRegularSchedule,
+} from "@dailylog/db/queries";
 import { notFound } from "next/navigation";
 import { StaffProfileView } from "@/components/staff/staff-profile-view";
 import { getServerSupabase } from "@/lib/supabase/server";
 
-// Educator profile 4b — certifications, employment, contact. Schedule,
-// permissions matrix and documents are later phases.
+// Educator profile 4b/4i — certifications, employment, contact, regular
+// schedule publishing, credential documents, and the role-permission summary.
 export default async function StaffProfilePage({
   params,
   searchParams,
@@ -17,10 +22,13 @@ export default async function StaffProfilePage({
 
   let member: Awaited<ReturnType<typeof getStaffMember>>;
   let credentialSubmissions: Awaited<ReturnType<typeof listStaffCredentialSubmissions>> = [];
+  let regularSchedule: Awaited<ReturnType<typeof listStaffRegularSchedule>> = [];
+  const currentProfile = await getMyProfile(supabase);
   try {
-    [member, credentialSubmissions] = await Promise.all([
+    [member, credentialSubmissions, regularSchedule] = await Promise.all([
       getStaffMember(supabase, id),
       listStaffCredentialSubmissions(supabase, id),
+      listStaffRegularSchedule(supabase, id),
     ]);
   } catch {
     notFound();
@@ -42,6 +50,8 @@ export default async function StaffProfilePage({
       member={member}
       openEdit={edit === "1"}
       credentialSubmissions={submissionsWithUrls}
+      regularSchedule={regularSchedule}
+      currentProfileId={currentProfile?.id ?? null}
     />
   );
 }

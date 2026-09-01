@@ -9,6 +9,7 @@ export * from './incidents';
 export * from './ledger';
 export * from './notifications';
 export * from './children';
+export * from './compliance';
 export * from './enrollment';
 export * from './families';
 export * from './roles';

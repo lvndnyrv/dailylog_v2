@@ -121,7 +121,7 @@ export default function WelcomeScreen({ onDone }) {
           ))}
         </View>
         <Button
-          label={isLast ? 'Get started' : 'Next'}
+          label={isLast ? 'Create account' : 'Next'}
           onPress={next}
           style={styles.nextButton}
         />

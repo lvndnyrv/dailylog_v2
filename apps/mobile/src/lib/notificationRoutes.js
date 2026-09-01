@@ -35,9 +35,26 @@ export function resolveNotificationRoute(payload = {}, role = 'parent') {
   const transitionId = value(payload, 'transitionId', 'transition_id');
   const authorizationId = value(payload, 'authorizationId', 'authorization_id');
   const medicationLogId = value(payload, 'medicationLogId', 'medication_log_id');
+  const composeMedication = payload.compose === true
+    || ['1', 'true', 'yes'].includes(String(payload.compose || '').toLowerCase());
 
   if (role === 'parent') {
     if (screen === 'ParentNotifications') return { name: 'ParentNotifications' };
+    if (screen === 'AuthorizedPickups' || type === 'pickup_reviewed') {
+      return { name: 'AuthorizedPickups', params: { childId } };
+    }
+    if (screen === 'PickupPass' || type === 'parent_pickup') {
+      return { name: 'PickupPass', params: { childId } };
+    }
+    if (screen === 'ReportAbsence' || type === 'parent_absence') {
+      return { name: 'ReportAbsence', params: { childId } };
+    }
+    if (screen === 'ParentDayRecap' || type === 'daily_recap') {
+      const logDate = value(payload, 'logDate', 'log_date', 'date');
+      return childId && logDate
+        ? { name: 'ParentDayRecap', params: { childId, childName: payload.childName, logDate } }
+        : parentHome(payload);
+    }
     if (screen === 'ParentPrivacyData' || type === 'parent_data_request') {
       return { name: 'ParentPrivacyData' };
     }
@@ -98,7 +115,13 @@ export function resolveNotificationRoute(payload = {}, role = 'parent') {
     if (screen === 'Medication' || type === 'medication') {
       return {
         name: 'Medication',
-        params: { childId, authorizationId, medicationLogId, linkedAt: Date.now() },
+        params: {
+          childId,
+          authorizationId,
+          medicationLogId,
+          compose: composeMedication,
+          linkedAt: Date.now(),
+        },
       };
     }
     if (screen === 'EventDetail' && announcementId) {
@@ -129,6 +152,15 @@ export function resolveNotificationRoute(payload = {}, role = 'parent') {
   if (screen === 'RoomRatios' || type === 'ratio_alert') {
     return { name: 'RoomRatios', params: { roomId: value(payload, 'roomId', 'room_id') } };
   }
+  if (screen === 'StaffConversation' || type === 'staff_message') {
+    return {
+      name: 'StaffConversation',
+      params: {
+        conversationId: value(payload, 'conversationId', 'conversation_id'),
+        otherProfileId: value(payload, 'otherProfileId', 'other_profile_id'),
+      },
+    };
+  }
   if (screen === 'Attendance' || type === 'attendance_absence') {
     return { name: 'RollCall', params: { childId } };
   }
@@ -143,6 +175,9 @@ export function resolveNotificationRoute(payload = {}, role = 'parent') {
   }
   if (screen === 'TimeOffDetail' && value(payload, 'requestId', 'request_id')) {
     return { name: 'TimeOffDetail', params: { requestId: value(payload, 'requestId', 'request_id') } };
+  }
+  if (screen === 'MyTime' || type === 'schedule_update') {
+    return { name: 'MyTime' };
   }
   if (screen === 'CredentialRenewal' || type === 'cert_expiry') {
     return { name: 'CredentialRenewal', params: { credentialId: value(payload, 'credentialId', 'credential_id') } };

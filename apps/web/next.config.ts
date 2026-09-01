@@ -6,7 +6,7 @@ const nextConfig: NextConfig = {
   // instead of covering the admin avatar with Next's floating badge.
   devIndicators: { position: "bottom-right" },
   experimental: {
-    serverActions: { bodySizeLimit: "6mb" },
+    serverActions: { bodySizeLimit: "12mb" },
   },
 };
 

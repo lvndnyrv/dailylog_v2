@@ -192,6 +192,41 @@ export async function updateStaffAction(
       expires_on: expires[i]?.trim() || null,
     }))
     .filter((c) => c.item);
+  const timePattern = /^([01]\d|2[0-3]):[0-5]\d$/;
+  const scheduleClassroomId = str(formData, "schedule_classroom_id");
+  if (scheduleClassroomId && !UUID.test(scheduleClassroomId)) {
+    return { error: "The educator's assigned room is invalid." };
+  }
+  const schedule: Array<{
+    weekday: number;
+    starts_local: string;
+    ends_local: string;
+    unpaid_break_minutes: number;
+    classroom_id: string | null;
+  }> = [];
+  for (let weekday = 1; weekday <= 7; weekday += 1) {
+    if (str(formData, `schedule_enabled_${weekday}`) !== "1") continue;
+    const startsLocal = str(formData, `schedule_start_${weekday}`);
+    const endsLocal = str(formData, `schedule_end_${weekday}`);
+    const breakMinutes = Number(str(formData, `schedule_break_${weekday}`) || "0");
+    if (!timePattern.test(startsLocal) || !timePattern.test(endsLocal) || endsLocal <= startsLocal) {
+      return { error: "Every enabled schedule day needs an end time after its start time." };
+    }
+    const shiftMinutes = (
+      Number(endsLocal.slice(0, 2)) * 60 + Number(endsLocal.slice(3, 5))
+      - Number(startsLocal.slice(0, 2)) * 60 - Number(startsLocal.slice(3, 5))
+    );
+    if (!Number.isInteger(breakMinutes) || breakMinutes < 0 || breakMinutes >= shiftMinutes) {
+      return { error: "Each unpaid break must be shorter than that day's shift." };
+    }
+    schedule.push({
+      weekday,
+      starts_local: startsLocal,
+      ends_local: endsLocal,
+      unpaid_break_minutes: breakMinutes,
+      classroom_id: scheduleClassroomId || null,
+    });
+  }
 
   try {
     await updateStaffMember(supabase, staffId, {
@@ -204,6 +239,11 @@ export async function updateStaffAction(
       { p_staff_member_id: staffId, p_credentials: certifications },
     );
     if (credentialError) throw credentialError;
+    const { error: scheduleError } = await supabase.rpc("save_staff_regular_schedule", {
+      p_staff_member_id: staffId,
+      p_schedule: schedule,
+    });
+    if (scheduleError) throw scheduleError;
   } catch (err) {
     return { error: err instanceof Error ? err.message : "Could not save changes." };
   }

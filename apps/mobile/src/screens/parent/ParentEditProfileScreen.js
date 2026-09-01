@@ -33,8 +33,10 @@ function Field({ label, required, value, onChangeText, error, ...inputProps }) {
         onChangeText={onChangeText}
         style={[styles.input, error && styles.inputError]}
         placeholderTextColor={colors.textFaint}
+        accessibilityLabel={`${label}${required ? ' required' : ''}`}
+        accessibilityHint={error || undefined}
       />
-      {error ? <Text style={styles.fieldError}>{error}</Text> : null}
+      {error ? <Text style={styles.fieldError} accessibilityLiveRegion="polite">{error}</Text> : null}
     </View>
   );
 }
@@ -196,7 +198,12 @@ export default function ParentEditProfileScreen({ navigation }) {
             <Text style={styles.photoTitle}>Profile photo</Text>
             <Text style={styles.photoHint}>Visible to your family and center staff</Text>
           </View>
-          <TouchableOpacity style={styles.photoButton} onPress={choosePhoto}>
+          <TouchableOpacity
+            style={styles.photoButton}
+            onPress={choosePhoto}
+            accessibilityRole="button"
+            accessibilityLabel="Change profile photo"
+          >
             <Text style={styles.photoButtonText}>Change</Text>
           </TouchableOpacity>
         </View>
@@ -247,7 +254,12 @@ export default function ParentEditProfileScreen({ navigation }) {
             <Text style={styles.securityTitle}>Password</Text>
             <Text style={styles.securityHint}>Change it through a secure emailed link</Text>
           </View>
-          <TouchableOpacity onPress={sendPasswordReset} disabled={sendingReset}>
+          <TouchableOpacity
+            onPress={sendPasswordReset}
+            disabled={sendingReset}
+            accessibilityRole="button"
+            accessibilityLabel="Change password"
+          >
             {sendingReset
               ? <ActivityIndicator color={colors.primary} />
               : <Text style={styles.resetText}>Change</Text>}

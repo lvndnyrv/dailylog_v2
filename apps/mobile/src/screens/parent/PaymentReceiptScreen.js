@@ -6,6 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 
 import { Button } from '../../components/ui';
+import { useAuth } from '../../hooks/useAuth';
 import { useParentBilling } from '../../hooks/useParentBilling';
 import { usePaymentReceiptLink } from '../../hooks/usePaymentReceiptLink';
 import { navigate as navigateRoot } from '../../lib/navigationRef';
@@ -40,19 +41,25 @@ function deliveryCopy(receipt) {
   if (receipt.email_status === 'failed') {
     return { icon: 'alert-circle-outline', text: `Receipt saved here · email delivery is delayed for ${receipt.receipt_email}`, danger: true };
   }
+  if (receipt.email_status === 'not_queued') {
+    return { icon: 'alert-circle-outline', text: `Receipt saved here · email delivery is not queued for ${receipt.receipt_email}`, danger: true };
+  }
   return { icon: 'mail-outline', text: `Receipt saved for ${receipt.receipt_email}`, danger: false };
 }
 
 export default function PaymentReceiptScreen({ navigation, route }) {
   const routeReceipt = route.params?.receipt || null;
-  const { getPaymentReceipt } = useParentBilling();
-  const { paymentId: linkedPaymentId, finishReceipt } = usePaymentReceiptLink();
+  const { signOut } = useAuth();
+  const { getPaymentReceipt, resendPaymentReceipt } = useParentBilling();
+  const { paymentId: linkedPaymentId, beginReceipt, finishReceipt } = usePaymentReceiptLink();
   const paymentId = linkedPaymentId || route.params?.paymentId || routeReceipt?.payment_id;
   const [receipt, setReceipt] = useState(routeReceipt);
   const [loading, setLoading] = useState(!routeReceipt);
   const [error, setError] = useState('');
   const [retryKey, setRetryKey] = useState(0);
   const [sharing, setSharing] = useState(false);
+  const [resending, setResending] = useState(false);
+  const [switchingAccount, setSwitchingAccount] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -119,6 +126,29 @@ export default function PaymentReceiptScreen({ navigation, route }) {
     }
   }
 
+  async function resendReceipt() {
+    setResending(true);
+    try {
+      const refreshed = await resendPaymentReceipt(paymentId);
+      setReceipt(refreshed);
+      Alert.alert('Receipt queued', `We’ll email another copy to ${refreshed.receipt_email}.`);
+    } catch (resendError) {
+      Alert.alert('Receipt not queued', resendError.message || 'Try again in a few minutes.');
+    } finally {
+      setResending(false);
+    }
+  }
+
+  async function useAnotherAccount() {
+    setSwitchingAccount(true);
+    try {
+      if (paymentId) await beginReceipt(paymentId);
+      await signOut();
+    } finally {
+      setSwitchingAccount(false);
+    }
+  }
+
   if (loading && !receipt) {
     return (
       <SafeAreaView style={sharedStyles.safeArea} edges={['top']}>
@@ -138,6 +168,15 @@ export default function PaymentReceiptScreen({ navigation, route }) {
           <Text style={styles.stateTitle}>Receipt unavailable</Text>
           <Text style={styles.stateText}>{error || 'This receipt could not be loaded.'}</Text>
           {paymentId ? <Button label="Try again" onPress={() => setRetryKey((value) => value + 1)} style={styles.stateButton} /> : null}
+          {paymentId ? (
+            <Button
+              label="Use another account"
+              onPress={useAnotherAccount}
+              loading={switchingAccount}
+              variant="ghost"
+              style={styles.stateButtonSecondary}
+            />
+          ) : null}
           <TouchableOpacity onPress={() => leaveLinkedReceipt('BillingHome')} style={styles.returnButton}>
             <Text style={styles.returnText}>Return to billing</Text>
           </TouchableOpacity>
@@ -175,6 +214,15 @@ export default function PaymentReceiptScreen({ navigation, route }) {
         ) : null}
 
         <View style={styles.spacer} />
+        {receipt.receipt_email && ['failed', 'not_queued'].includes(receipt.email_status) ? (
+          <Button
+            label={resending ? 'Queuing receipt…' : 'Email receipt again'}
+            onPress={resendReceipt}
+            loading={resending}
+            variant="ghost"
+            style={styles.resendButton}
+          />
+        ) : null}
         <Button label={sharing ? 'Preparing receipt…' : 'Share receipt'} onPress={shareReceipt} loading={sharing} variant="ghost" style={styles.shareButton} />
         <Button label="Done" onPress={() => leaveLinkedReceipt('BillingHome')} style={styles.doneButton} />
         <TouchableOpacity
@@ -195,6 +243,7 @@ const styles = StyleSheet.create({
   stateTitle: { color: colors.textPrimary, fontFamily: fonts.black, fontSize: 22, marginTop: spacing.lg },
   stateText: { maxWidth: 310, color: colors.textMuted, fontFamily: fonts.regular, fontSize: 14, lineHeight: 21, textAlign: 'center', marginTop: spacing.sm },
   stateButton: { alignSelf: 'stretch', marginTop: spacing.xl },
+  stateButtonSecondary: { alignSelf: 'stretch', marginTop: spacing.sm },
   errorCircle: { width: 72, height: 72, borderRadius: 36, backgroundColor: colors.dangerLight, alignItems: 'center', justifyContent: 'center' },
   returnButton: { minHeight: 48, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.lg, marginTop: spacing.sm },
   returnText: { color: colors.textMuted, fontFamily: fonts.bold, fontSize: 14 },
@@ -214,6 +263,7 @@ const styles = StyleSheet.create({
   emailTextDanger: { color: colors.danger },
   spacer: { flex: 1, minHeight: spacing.xxl },
   shareButton: { width: '100%', marginBottom: spacing.md },
+  resendButton: { width: '100%', marginBottom: spacing.md },
   doneButton: { width: '100%' },
   viewInvoiceButton: { minHeight: 48, alignItems: 'center', justifyContent: 'center', marginTop: spacing.sm },
   viewInvoiceText: { color: colors.textMuted, fontFamily: fonts.bold, fontSize: 14 },

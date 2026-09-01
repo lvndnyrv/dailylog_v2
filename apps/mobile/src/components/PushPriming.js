@@ -97,6 +97,7 @@ export function PushPrimingModal() {
   }
 
   const isParent = profile?.role === 'parent';
+  const childName = parentFamily.selectedChild?.first_name?.trim();
 
   return (
     <Modal
@@ -111,10 +112,10 @@ export function PushPrimingModal() {
           <View style={styles.iconDisc}>
             <Ionicons name="notifications-outline" size={29} color={colors.primary} />
           </View>
-          <Text style={styles.title}>Never miss an update</Text>
+          <Text style={styles.title}>{isParent ? 'Stay in the loop' : 'Never miss an update'}</Text>
           <Text style={styles.body}>
             {isParent
-              ? "Get notified the moment your child's daily log is ready, when an educator messages you, or if an incident needs your attention."
+              ? `Get notified when ${childName || 'your child'} is checked in, when new photos arrive, and when an educator messages you.`
               : 'Get notified when parents message you or reply to updates about children in your classroom.'}
           </Text>
           <Button

@@ -142,6 +142,8 @@ Deno.serve(async (request) => {
       'enqueue_staff_credential_expiry_reminders'
     );
     if (reminderError) throw reminderError;
+    const { error: complianceError } = await supabase.rpc('enqueue_compliance_due_reminders');
+    if (complianceError) throw complianceError;
     const { error: waitlistError } = await supabase.rpc(
       'process_overdue_waitlist_checkins'
     );

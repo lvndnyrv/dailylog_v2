@@ -30,6 +30,7 @@ declare
   v_chain_followup constant uuid := '42790000-0000-4000-a000-000000000005';
   v_chain_friday date;
   v_chain_monday date;
+  v_guard_date date;
   v_reopens_on date;
   v_hub jsonb;
   v_count int;
@@ -219,20 +220,79 @@ begin
   end if;
   raise notice 'PASS: room move updates publish only to linked guardians';
 
+  v_failed := false;
+  begin
+    perform public.complete_room_transition_plan(v_plan);
+  exception when others then
+    v_failed := true;
+  end;
+  if not v_failed then
+    raise exception 'FAIL: a parent completed an office room move plan';
+  end if;
+
   perform pg_temp.impersonate('authenticated', v_admin);
+  update public.children child
+  set classroom_id = plan.from_classroom_id
+  from public.room_transition_plans plan
+  where child.id = v_child and plan.id = v_plan;
+  perform public.complete_room_transition_plan(v_plan);
+
+  select count(*) into v_count
+  from public.children child
+  join public.room_transition_plans plan on plan.child_id = child.id
+  where plan.id = v_plan
+    and plan.status = 'completed'
+    and child.classroom_id = plan.to_classroom_id;
+  if v_count <> 1 then
+    raise exception 'FAIL: completing a room move did not atomically update the child and plan';
+  end if;
+
+  perform pg_temp.impersonate('authenticated', v_parent);
+  v_hub := public.get_parent_schedule_hub();
+  if not jsonb_path_exists(
+    v_hub,
+    '$.room_moves[*] ? (@.id == "42710000-0000-4000-a000-000000000001" && @.status == "completed")'
+  ) then
+    raise exception 'FAIL: completed room move disappeared from the family plan';
+  end if;
+  select count(*) into v_count
+  from public.notifications notification
+  where notification.profile_id = v_parent
+    and notification.payload->>'transitionId' = v_plan::text
+    and notification.title like '%room move is complete';
+  if v_count <> 1 then
+    raise exception 'FAIL: room move completion did not inform the linked guardian';
+  end if;
+  raise notice 'PASS: room move completion updates the real assignment and family plan atomically';
+
+  -- Pick three open weekdays dynamically. Fixed offsets can collide with the
+  -- rolling Group 27 demo closures as the fixture is reseeded over time.
+  perform pg_temp.impersonate('authenticated', v_admin);
+  v_guard_date := current_date + 120;
+  loop
+    exit when extract(isodow from v_guard_date) between 1 and 3
+      and not exists (
+        select 1 from public.center_closures closure
+        where closure.daycare_id = v_daycare
+          and daterange(closure.starts_on, closure.ends_on, '[]')
+            && daterange(v_guard_date, v_guard_date + 2, '[]')
+      );
+    v_guard_date := v_guard_date + 1;
+  end loop;
+
   insert into public.enrollment_tour_slots (
     id, daycare_id, starts_at, ends_at, status
   ) values (
     v_open_slot,
     v_daycare,
-    (current_date + 120 + time '10:00') at time zone 'America/Toronto',
-    (current_date + 120 + time '10:45') at time zone 'America/Toronto',
+    (v_guard_date + time '10:00') at time zone 'America/Toronto',
+    (v_guard_date + time '10:45') at time zone 'America/Toronto',
     'open'
   );
   insert into public.center_closures (
     daycare_id, starts_on, ends_on, reason, family_visible
   ) values (
-    v_daycare, current_date + 120, current_date + 120,
+    v_daycare, v_guard_date, v_guard_date,
     'Tour availability guard', false
   );
   select count(*) into v_count
@@ -247,8 +307,8 @@ begin
   ) values (
     v_booked_slot,
     v_daycare,
-    (current_date + 121 + time '10:00') at time zone 'America/Toronto',
-    (current_date + 121 + time '10:45') at time zone 'America/Toronto',
+    (v_guard_date + 1 + time '10:00') at time zone 'America/Toronto',
+    (v_guard_date + 1 + time '10:45') at time zone 'America/Toronto',
     'booked'
   );
   v_failed := false;
@@ -256,7 +316,7 @@ begin
     insert into public.center_closures (
       daycare_id, starts_on, ends_on, reason, family_visible
     ) values (
-      v_daycare, current_date + 121, current_date + 121,
+      v_daycare, v_guard_date + 1, v_guard_date + 1,
       'Booked tour conflict', false
     );
   exception when others then
@@ -269,7 +329,7 @@ begin
   insert into public.center_closures (
     daycare_id, starts_on, ends_on, reason, family_visible
   ) values (
-    v_daycare, current_date + 122, current_date + 122,
+    v_daycare, v_guard_date + 2, v_guard_date + 2,
     'Closed-day action guard', false
   );
   v_failed := false;
@@ -278,8 +338,8 @@ begin
       daycare_id, starts_at, ends_at, status
     ) values (
       v_daycare,
-      (current_date + 122 + time '10:00') at time zone 'America/Toronto',
-      (current_date + 122 + time '10:45') at time zone 'America/Toronto',
+      (v_guard_date + 2 + time '10:00') at time zone 'America/Toronto',
+      (v_guard_date + 2 + time '10:45') at time zone 'America/Toronto',
       'open'
     );
   exception when others then
@@ -294,7 +354,7 @@ begin
     insert into public.attendance_records (
       daycare_id, child_id, date, checked_in_at, status
     ) values (
-      v_daycare, v_child, current_date + 122, now(), 'present'
+      v_daycare, v_child, v_guard_date + 2, now(), 'present'
     );
   exception when others then
     v_failed := true;

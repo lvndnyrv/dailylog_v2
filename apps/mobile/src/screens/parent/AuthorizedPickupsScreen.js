@@ -11,14 +11,17 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useFocusEffect } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useAuth } from '../../hooks/useAuth';
+import { useParentFamily } from '../../hooks/useParentFamily';
 import {
   addAuthorizedPickup,
   getParentPickupOptions,
   removeAuthorizedPickup,
 } from '../../hooks/usePickupVerification';
+import { supabase } from '../../lib/supabase';
 import { colors, fonts, radius, spacing } from '../../theme';
 
 function initials(name) {
@@ -28,27 +31,46 @@ function initials(name) {
 
 function PickupPersonRow({ person, currentUserId, onRemove }) {
   const isSelf = person.source_id === currentUserId;
+  const pending = person.approval_status === 'pending';
+  const rejected = person.approval_status === 'rejected';
+  const removed = person.source_type === 'pickup'
+    && !person.is_active && person.approval_status === 'approved';
+  const muted = removed || rejected;
+  const emergency = /emergency/i.test(person.relationship || '');
   return (
-    <View style={[styles.personRow, !person.is_active && styles.personRowRemoved]}>
-      <View style={[styles.avatar, !person.is_active && styles.avatarRemoved]}>
-        <Text style={[styles.avatarText, !person.is_active && styles.avatarTextRemoved]}>
+    <View style={[
+      styles.personRow,
+      pending && styles.personRowPending,
+      muted && styles.personRowRemoved,
+    ]}>
+      <View style={[styles.avatar, muted && styles.avatarRemoved, pending && styles.avatarPending]}>
+        <Text style={[styles.avatarText, muted && styles.avatarTextRemoved, pending && styles.avatarTextPending]}>
           {initials(person.full_name)}
         </Text>
       </View>
       <View style={styles.personCopy}>
         <View style={styles.personNameRow}>
-          <Text style={[styles.personName, !person.is_active && styles.removedText]} numberOfLines={1}>
+          <Text style={[styles.personName, muted && styles.removedText]} numberOfLines={1}>
             {isSelf ? 'You' : person.full_name}
           </Text>
           {person.is_primary && <Text style={styles.primaryBadge}>Primary</Text>}
-          {!person.is_active && <Text style={styles.removedBadge}>Removed</Text>}
+          {emergency && person.is_active && <Text style={styles.emergencyBadge}>Emergency</Text>}
+          {pending && <Text style={styles.pendingBadge}>Under review</Text>}
+          {rejected && <Text style={styles.rejectedBadge}>Not approved</Text>}
+          {removed && <Text style={styles.removedBadge}>Removed</Text>}
         </View>
-        <Text style={[styles.personRelationship, !person.is_active && styles.removedText]}>
+        <Text style={[styles.personRelationship, muted && styles.removedText]}>
           {person.relationship || 'Authorized pickup'}
           {person.phone ? ` · ${person.phone}` : ''}
         </Text>
+        {pending && (
+          <Text style={styles.reviewText}>The center will verify this person before their first pickup.</Text>
+        )}
+        {rejected && person.review_note && (
+          <Text style={styles.rejectedNote}>{person.review_note}</Text>
+        )}
       </View>
-      {person.source_type === 'pickup' && person.is_active && !person.is_primary && (
+      {person.source_type === 'pickup' && !removed && !person.is_primary && (
         <TouchableOpacity
           style={styles.removeButton}
           onPress={() => onRemove(person)}
@@ -71,6 +93,7 @@ function AddPickupSheet({ visible, onClose, onAdded }) {
   const [phone, setPhone] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
+  const [fieldErrors, setFieldErrors] = useState({});
 
   useEffect(() => {
     if (visible) {
@@ -78,12 +101,17 @@ function AddPickupSheet({ visible, onClose, onAdded }) {
       setRelationship('');
       setPhone('');
       setError(null);
+      setFieldErrors({});
     }
   }, [visible]);
 
   async function save() {
-    if (!fullName.trim() || !relationship.trim()) {
-      setError('Full name and relationship are required.');
+    const nextErrors = {};
+    if (!fullName.trim()) nextErrors.fullName = 'Full name is required.';
+    if (!relationship.trim()) nextErrors.relationship = 'Relationship is required.';
+    if (Object.keys(nextErrors).length > 0) {
+      setFieldErrors(nextErrors);
+      setError('Complete the required fields highlighted in red.');
       return;
     }
     setSaving(true);
@@ -110,28 +138,40 @@ function AddPickupSheet({ visible, onClose, onAdded }) {
           <View style={styles.grabber} />
           <Text style={styles.sheetTitle}>Add authorized pickup</Text>
           <Text style={styles.sheetText}>
-            Only add someone you trust to take this child home. Educators still verify their pass at the door.
+            Add someone you trust to take this child home. The center reviews them before their first pickup and educators check photo ID at the door.
           </Text>
           <Text style={styles.inputLabel}>Full name *</Text>
           <TextInput
-            style={styles.input}
+            style={[styles.input, fieldErrors.fullName && styles.inputInvalid]}
             value={fullName}
-            onChangeText={(value) => { setFullName(value); setError(null); }}
+            onChangeText={(value) => {
+              setFullName(value);
+              setFieldErrors((current) => ({ ...current, fullName: null }));
+              setError(null);
+            }}
             placeholder="e.g. Sarah Turner"
             placeholderTextColor={colors.textFaint}
             autoCapitalize="words"
             maxLength={120}
+            accessibilityLabel="Full name required"
           />
+          {fieldErrors.fullName && <Text style={styles.fieldError}>{fieldErrors.fullName}</Text>}
           <Text style={styles.inputLabel}>Relationship *</Text>
           <TextInput
-            style={styles.input}
+            style={[styles.input, fieldErrors.relationship && styles.inputInvalid]}
             value={relationship}
-            onChangeText={(value) => { setRelationship(value); setError(null); }}
+            onChangeText={(value) => {
+              setRelationship(value);
+              setFieldErrors((current) => ({ ...current, relationship: null }));
+              setError(null);
+            }}
             placeholder="e.g. Grandparent"
             placeholderTextColor={colors.textFaint}
             autoCapitalize="words"
             maxLength={80}
+            accessibilityLabel="Relationship required"
           />
+          {fieldErrors.relationship && <Text style={styles.fieldError}>{fieldErrors.relationship}</Text>}
           <Text style={styles.inputLabel}>Phone number (optional)</Text>
           <TextInput
             style={styles.input}
@@ -150,7 +190,7 @@ function AddPickupSheet({ visible, onClose, onAdded }) {
           >
             {saving
               ? <ActivityIndicator color={colors.white} />
-              : <Text style={styles.saveButtonText}>Add authorized pickup</Text>}
+              : <Text style={styles.saveButtonText}>Send for center review</Text>}
           </TouchableOpacity>
           <TouchableOpacity style={styles.cancelButton} onPress={onClose}>
             <Text style={styles.cancelButtonText}>Cancel</Text>
@@ -163,11 +203,17 @@ function AddPickupSheet({ visible, onClose, onAdded }) {
 
 export default function AuthorizedPickupsScreen({ navigation, route }) {
   const { profile } = useAuth();
-  const child = route.params?.child || null;
+  const family = useParentFamily();
+  const routeChildId = route.params?.childId || route.params?.child?.id;
+  const child = route.params?.child
+    || family.children.find((candidate) => candidate.id === routeChildId)
+    || family.selectedChild
+    || null;
   const [people, setPeople] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [showAdd, setShowAdd] = useState(false);
+  const [notice, setNotice] = useState(null);
 
   const load = useCallback(async () => {
     if (!child?.id) {
@@ -187,11 +233,25 @@ export default function AuthorizedPickupsScreen({ navigation, route }) {
     }
   }, [child?.id]);
 
-  useEffect(() => { load(); }, [load]);
+  useFocusEffect(useCallback(() => {
+    load();
+  }, [load]));
+
+  useEffect(() => {
+    if (!child?.id) return undefined;
+    const channel = supabase
+      .channel(`parent-pickups:${child.id}`)
+      .on('postgres_changes', {
+        event: '*', schema: 'public', table: 'child_pickups', filter: `child_id=eq.${child.id}`,
+      }, () => load())
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [child?.id, load]);
 
   async function add(values) {
     await addAuthorizedPickup(child.id, values);
     await load();
+    setNotice('Sent for center review. This person cannot pick up until the center approves them.');
   }
 
   function confirmRemove(person) {
@@ -215,12 +275,20 @@ export default function AuthorizedPickupsScreen({ navigation, route }) {
   }
 
   const active = people.filter((person) => person.is_active);
-  const removed = people.filter((person) => !person.is_active);
+  const pending = people.filter((person) => person.approval_status === 'pending');
+  const rejected = people.filter((person) => person.approval_status === 'rejected');
+  const removed = people.filter((person) => person.source_type === 'pickup'
+    && !person.is_active && person.approval_status === 'approved');
 
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={() => navigation.goBack()}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+        >
           <Ionicons name="chevron-back" size={21} color={colors.textPrimary} />
         </TouchableOpacity>
         <View style={styles.headerCopy}>
@@ -236,6 +304,16 @@ export default function AuthorizedPickupsScreen({ navigation, route }) {
             Educators release {child?.first_name || 'your child'} only after a current pass matches someone on this list.
           </Text>
         </View>
+
+        {notice && (
+          <View style={styles.noticeCard}>
+            <Ionicons name="checkmark-circle" size={20} color={colors.success} />
+            <Text style={styles.noticeText}>{notice}</Text>
+            <TouchableOpacity onPress={() => setNotice(null)} accessibilityLabel="Dismiss message">
+              <Ionicons name="close" size={18} color={colors.textMuted} />
+            </TouchableOpacity>
+          </View>
+        )}
 
         {loading ? (
           <ActivityIndicator style={styles.loader} size="large" color={colors.primary} />
@@ -262,6 +340,34 @@ export default function AuthorizedPickupsScreen({ navigation, route }) {
               <Ionicons name="add" size={21} color={colors.white} />
               <Text style={styles.addButtonText}>Add authorized pickup</Text>
             </TouchableOpacity>
+
+            {pending.length > 0 && (
+              <>
+                <Text style={styles.sectionTitle}>Waiting for center review</Text>
+                <View style={[styles.listCard, styles.pendingListCard]}>
+                  {pending.map((person, index) => (
+                    <View key={`${person.source_type}:${person.source_id}`}>
+                      {index > 0 && <View style={styles.divider} />}
+                      <PickupPersonRow person={person} currentUserId={profile?.id} onRemove={confirmRemove} />
+                    </View>
+                  ))}
+                </View>
+              </>
+            )}
+
+            {rejected.length > 0 && (
+              <>
+                <Text style={[styles.sectionTitle, styles.removedTitle]}>Not approved</Text>
+                <View style={styles.listCard}>
+                  {rejected.map((person, index) => (
+                    <View key={`${person.source_type}:${person.source_id}`}>
+                      {index > 0 && <View style={styles.divider} />}
+                      <PickupPersonRow person={person} currentUserId={profile?.id} onRemove={confirmRemove} />
+                    </View>
+                  ))}
+                </View>
+              </>
+            )}
 
             {removed.length > 0 && (
               <>
@@ -308,6 +414,12 @@ const styles = StyleSheet.create({
     padding: spacing.lg, borderRadius: radius.xl, backgroundColor: colors.primaryLight,
   },
   infoText: { flex: 1, color: colors.textSecondary, fontSize: 12.5, lineHeight: 18, fontFamily: fonts.regular },
+  noticeCard: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm,
+    marginTop: spacing.md, padding: spacing.md, borderWidth: 1,
+    borderColor: '#BFE5D3', borderRadius: radius.md, backgroundColor: colors.successLight,
+  },
+  noticeText: { flex: 1, color: colors.textSecondary, fontSize: 12, lineHeight: 17, fontFamily: fonts.bold },
   loader: { marginTop: 80 },
   sectionTitle: { marginTop: spacing.xl, marginBottom: spacing.sm, color: colors.textPrimary, fontSize: 15, fontFamily: fonts.black },
   removedTitle: { color: colors.textMuted },
@@ -320,13 +432,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md, paddingVertical: spacing.md,
   },
   personRowRemoved: { backgroundColor: '#FAFBFD' },
+  personRowPending: { backgroundColor: '#FFFCF5' },
   avatar: {
     width: 42, height: 42, alignItems: 'center', justifyContent: 'center',
     borderRadius: 21, backgroundColor: colors.primaryLight,
   },
   avatarRemoved: { backgroundColor: '#EEF2F7' },
+  avatarPending: { backgroundColor: '#FFF1D8' },
   avatarText: { color: colors.primary, fontSize: 12.5, fontFamily: fonts.bold },
   avatarTextRemoved: { color: colors.textFaint },
+  avatarTextPending: { color: colors.amber },
   personCopy: { flex: 1, minWidth: 0 },
   personNameRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   personName: { flexShrink: 1, color: colors.textPrimary, fontSize: 14, fontFamily: fonts.bold },
@@ -336,15 +451,30 @@ const styles = StyleSheet.create({
     paddingHorizontal: 7, paddingVertical: 2, borderRadius: radius.full,
     backgroundColor: colors.successLight, color: colors.success, fontSize: 9.5, fontFamily: fonts.bold,
   },
+  emergencyBadge: {
+    paddingHorizontal: 7, paddingVertical: 2, borderRadius: radius.full,
+    backgroundColor: '#F0EAFE', color: '#6F4BB8', fontSize: 9.5, fontFamily: fonts.bold,
+  },
+  pendingBadge: {
+    paddingHorizontal: 7, paddingVertical: 2, borderRadius: radius.full,
+    backgroundColor: '#FFF1D8', color: colors.amber, fontSize: 9.5, fontFamily: fonts.bold,
+  },
+  rejectedBadge: {
+    paddingHorizontal: 7, paddingVertical: 2, borderRadius: radius.full,
+    backgroundColor: colors.dangerLight, color: colors.danger, fontSize: 9.5, fontFamily: fonts.bold,
+  },
   removedBadge: {
     paddingHorizontal: 7, paddingVertical: 2, borderRadius: radius.full,
     backgroundColor: '#EEF2F7', color: colors.textFaint, fontSize: 9.5, fontFamily: fonts.bold,
   },
+  reviewText: { marginTop: 4, color: colors.amber, fontSize: 10.5, lineHeight: 14, fontFamily: fonts.bold },
+  rejectedNote: { marginTop: 4, color: colors.danger, fontSize: 10.5, lineHeight: 14, fontFamily: fonts.regular },
   removeButton: {
     width: 36, height: 36, alignItems: 'center', justifyContent: 'center',
     borderRadius: 18, backgroundColor: colors.dangerLight,
   },
   divider: { height: 1, marginLeft: 66, backgroundColor: colors.borderSoft },
+  pendingListCard: { borderColor: '#F2D394' },
   addButton: {
     minHeight: 52, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
     gap: spacing.sm, marginTop: spacing.lg, borderRadius: radius.md, backgroundColor: colors.primary,
@@ -373,6 +503,8 @@ const styles = StyleSheet.create({
     borderColor: colors.border, borderRadius: radius.md, backgroundColor: colors.surface,
     color: colors.textPrimary, fontSize: 14, fontFamily: fonts.regular,
   },
+  inputInvalid: { borderColor: colors.danger, backgroundColor: '#FFF8F8' },
+  fieldError: { marginTop: 5, color: colors.danger, fontSize: 11, fontFamily: fonts.bold },
   saveButton: {
     minHeight: 54, alignItems: 'center', justifyContent: 'center',
     marginTop: spacing.xl, borderRadius: radius.md, backgroundColor: colors.primary,

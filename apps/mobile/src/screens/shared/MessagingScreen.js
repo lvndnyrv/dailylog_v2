@@ -15,7 +15,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
@@ -80,6 +80,7 @@ function relationshipLabel(value) {
 export default function MessagingScreen({ route, navigation }) {
   const { childId, childName: routeChildName } = route.params;
   const { profile } = useAuth();
+  const insets = useSafeAreaInsets();
   const [messages, setMessages] = useState([]);
   const [child, setChild] = useState(null);
   const [conversationId, setConversationId] = useState(null);
@@ -154,6 +155,22 @@ export default function MessagingScreen({ route, navigation }) {
           setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 100);
         },
       )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'messages',
+          filter: `child_id=eq.${childId}`,
+        },
+        async (payload) => {
+          const updated = await loadMessage(payload.new.id, payload.new);
+          if (!active) return;
+          setMessages((current) => current.map((message) => (
+            message.id === updated.id ? updated : message
+          )));
+        },
+      )
       .subscribe();
 
     return () => {
@@ -211,34 +228,14 @@ export default function MessagingScreen({ route, navigation }) {
     if (error) console.log('Message read receipt failed:', error.message);
   }
 
-  async function ensureConversation(daycareId) {
+  async function ensureConversation() {
     if (conversationId) return conversationId;
 
-    const { data: existing } = await supabase
-      .from('conversations')
-      .select('id')
-      .eq('child_id', childId)
-      .is('archived_at', null)
-      .order('created_at', { ascending: true })
-      .limit(1)
-      .maybeSingle();
-    if (existing?.id) {
-      setConversationId(existing.id);
-      return existing.id;
-    }
-
     const { data, error } = await supabase
-      .from('conversations')
-      .insert({
-        daycare_id: daycareId,
-        child_id: childId,
-        kind: 'direct',
-      })
-      .select('id')
-      .single();
+      .rpc('get_or_create_child_conversation', { p_child_id: childId });
     if (error) throw error;
-    setConversationId(data.id);
-    return data.id;
+    setConversationId(data);
+    return data;
   }
 
   async function prepareAttachment(option) {
@@ -383,7 +380,7 @@ export default function MessagingScreen({ route, navigation }) {
     const messageId = newId();
     let uploadedPath = null;
     try {
-      const threadId = await ensureConversation(daycareId);
+      const threadId = await ensureConversation();
       const attachmentFields = await uploadAttachment(attachment, messageId);
       uploadedPath = attachmentFields.attachment_path;
       const row = {
@@ -542,8 +539,8 @@ export default function MessagingScreen({ route, navigation }) {
     <SafeAreaView style={styles.safeArea} edges={['top']}>
       <KeyboardAvoidingView
         style={styles.container}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={0}
+        behavior={Platform.OS === 'ios' ? 'height' : undefined}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top : 0}
       >
         <View style={styles.header}>
           <TouchableOpacity
@@ -590,6 +587,7 @@ export default function MessagingScreen({ route, navigation }) {
             keyExtractor={(message) => message.id}
             renderItem={renderMessage}
             contentContainerStyle={[styles.messageList, !messages.length && styles.messageListEmpty]}
+            keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}
             keyboardShouldPersistTaps="handled"
             ListEmptyComponent={
               <View style={styles.emptyWrap}>

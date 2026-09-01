@@ -83,6 +83,9 @@ export function extractNotificationDestination(url) {
     case 'daily-log':
     case 'dailylog':
       return { ...common, type: 'daily_log', logDate: param('date', 'log_date') };
+    case 'day-recap':
+    case 'daily-recap':
+      return { ...common, type: 'daily_recap', screen: 'ParentDayRecap', logDate: param('date', 'log_date') };
     case 'weekly':
     case 'weekly-summary':
       return {
@@ -130,16 +133,31 @@ export function extractNotificationDestination(url) {
       return { ...common, type: 'room_move', screen: 'ParentRoomMove', transitionId: param('transition_id', 'transition') };
     case 'event':
       return { ...common, screen: 'EventDetail', announcementId: param('announcement_id', 'announcement') };
+    case 'announcement':
+    case 'announcements':
+      return { ...common, type: 'announcement', screen: 'Announcements' };
     case 'medication':
       return {
         ...common,
         type: 'medication',
         screen: 'Medication',
+        compose: ['1', 'true', 'yes'].includes(
+          String(param('compose') || '').toLowerCase()
+        ),
         authorizationId: param('authorization_id', 'authorization'),
         medicationLogId: param('medication_log_id', 'medication_log', 'dose'),
       };
     case 'notifications':
       return { ...common, screen: 'ParentNotifications' };
+    case 'pickup':
+    case 'pickup-pass':
+      return { ...common, type: 'parent_pickup', screen: 'PickupPass' };
+    case 'authorized-pickups':
+    case 'pickup-people':
+      return { ...common, type: 'pickup_reviewed', screen: 'AuthorizedPickups' };
+    case 'absence':
+    case 'report-absence':
+      return { ...common, type: 'parent_absence', screen: 'ReportAbsence' };
     case 'privacy':
     case 'privacy-data':
       return { ...common, type: 'parent_data_request', screen: 'ParentPrivacyData' };

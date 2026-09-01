@@ -178,11 +178,12 @@ export async function submitEnrollmentInquiry(
     p_daycare_id: values.daycareId,
     p_guardian_name: values.guardianName,
     p_guardian_email: values.guardianEmail,
-    p_guardian_phone: values.guardianPhone ?? null,
+    // Supabase's generated function Args do not preserve nullable SQL inputs.
+    p_guardian_phone: (values.guardianPhone ?? null) as unknown as string,
     p_child_full_name: values.childFullName,
-    p_child_date_of_birth: values.childDateOfBirth ?? null,
-    p_classroom_id: values.classroomId ?? null,
-    p_desired_start: values.desiredStart ?? null,
+    p_child_date_of_birth: (values.childDateOfBirth ?? null) as unknown as string,
+    p_classroom_id: (values.classroomId ?? null) as unknown as string,
+    p_desired_start: (values.desiredStart ?? null) as unknown as string,
     p_days_per_week: values.daysPerWeek,
   });
   if (error) throw error;

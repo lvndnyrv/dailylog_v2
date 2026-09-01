@@ -241,10 +241,17 @@ export function AttendanceView({
                     {timeOf(attendance.checked_in_at, timeZone)}
                   </span>
                   <span className="truncate text-[12px] text-muted">
-                    {attendance.dropped_off_by ?? "—"}
+                    {attendance.dropped_off_by ??
+                      attendance.checked_in_by_profile?.full_name ??
+                      "—"}
                     {attendance.method === "kiosk" && (
                       <span className="ml-1 text-[10.5px] font-bold text-primary">
                         · verified PIN
+                      </span>
+                    )}
+                    {attendance.method === "educator" && attendance.checked_in_by_profile && (
+                      <span className="ml-1 text-[10.5px] font-bold text-primary">
+                        · educator check-in
                       </span>
                     )}
                   </span>

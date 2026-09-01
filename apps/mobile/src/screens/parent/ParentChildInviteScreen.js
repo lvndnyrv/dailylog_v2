@@ -113,6 +113,12 @@ export default function ParentChildInviteScreen({ navigation, route }) {
     if (code.length <= 4) return code;
     return `${code.slice(0, 4)}-${code.slice(4)}`;
   }, [code]);
+  const relationshipOptions = useMemo(() => {
+    const invitedRelationship = preview?.relationship?.trim();
+    return invitedRelationship && !RELATIONSHIPS.includes(invitedRelationship)
+      ? [invitedRelationship, ...RELATIONSHIPS]
+      : RELATIONSHIPS;
+  }, [preview?.relationship]);
 
   useEffect(() => {
     const normalized = normalizedCode(incomingCode);
@@ -148,7 +154,7 @@ export default function ParentChildInviteScreen({ navigation, route }) {
       if (previewError) throw previewError;
       setCode(normalized);
       setPreview(data);
-      setRelationship(RELATIONSHIPS.includes(data?.relationship) ? data.relationship : 'Parent');
+      setRelationship(data?.relationship?.trim() || 'Parent');
       if (data?.already_linked) setStage('success');
       else setStage('confirm');
     } catch (loadError) {
@@ -312,7 +318,7 @@ export default function ParentChildInviteScreen({ navigation, route }) {
                 <View style={styles.infoIcon}>
                   <Ionicons name="shield-checkmark-outline" size={19} color={colors.primary} />
                 </View>
-                <Text style={styles.infoText}>Codes are unique to your family and time-limited. The code is checked before anything is linked.</Text>
+                <Text style={styles.infoText}>Codes are unique to your family and expire in 7 days. The code is checked before anything is linked.</Text>
               </View>
             </>
           ) : (
@@ -337,7 +343,7 @@ export default function ParentChildInviteScreen({ navigation, route }) {
 
               <Text style={styles.relationshipLabel}>Your relationship</Text>
               <View style={styles.relationships}>
-                {RELATIONSHIPS.map((option) => (
+                {relationshipOptions.map((option) => (
                   <TouchableOpacity
                     key={option}
                     onPress={() => setRelationship(option)}

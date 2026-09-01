@@ -1,14 +1,15 @@
 import { StartForm } from "./start-form";
 
-// Screen 10e — self-serve center signup. The design shows three fields; a
-// password field is added so the owner can actually sign in (DECISIONS.md).
+// Screen 10e — approved center signup. Registration uses the same platform-
+// issued, email-bound code as mobile so neither surface can self-promote a
+// random account to owner admin.
 export default function StartPage() {
   return (
     <>
       <div>
         <h1 className="text-[19px] font-extrabold text-ink">Start your center</h1>
         <p className="mt-0.5 text-[12.5px] leading-normal text-muted">
-          Free for 14 days · no card · your data stays yours.
+          Set up the center DailyLog approved for your administrator email.
         </p>
       </div>
       <StartForm />

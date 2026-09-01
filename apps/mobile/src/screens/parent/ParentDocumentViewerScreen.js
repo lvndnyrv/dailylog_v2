@@ -1,9 +1,10 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
-  ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View,
+  ActivityIndicator, Alert, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { useFocusEffect } from '@react-navigation/native';
 
 import { Button } from '../../components/ui';
 import { useParentDocuments } from '../../hooks/useParentDocuments';
@@ -78,22 +79,24 @@ export default function ParentDocumentViewerScreen({ navigation, route }) {
   } = useParentDocuments();
   const [busy, setBusy] = useState('');
 
-  useEffect(() => {
+  useFocusEffect(useCallback(() => {
     refresh().catch(() => {});
-  }, [refresh]);
+  }, [refresh]));
 
-  const liveChild = useMemo(
-    () => (hub?.children || []).find((item) => item.id === childId) || null,
-    [childId, hub],
-  );
-  const liveRecord = useMemo(
-    () => (liveChild?.records || []).find((item) => (
-      item.id === recordId && (!sourceType || item.source_type === sourceType)
-    )) || null,
-    [liveChild, recordId, sourceType],
-  );
-  const record = liveRecord;
-  const child = liveChild;
+  const resolved = useMemo(() => {
+    const children = hub?.children || [];
+    const candidates = childId
+      ? [...children.filter((item) => item.id === childId), ...children.filter((item) => item.id !== childId)]
+      : children;
+    for (const candidateChild of candidates) {
+      const candidateRecord = (candidateChild.records || []).find((item) => (
+        item.id === recordId && (!sourceType || item.source_type === sourceType)
+      ));
+      if (candidateRecord) return { child: candidateChild, record: candidateRecord };
+    }
+    return { child: null, record: null };
+  }, [childId, hub, recordId, sourceType]);
+  const { child, record } = resolved;
   const daycare = hub?.daycare;
   const profile = hub?.profile;
 
@@ -151,7 +154,16 @@ export default function ParentDocumentViewerScreen({ navigation, route }) {
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
       <ParentAccountHeader navigation={navigation} title={record.title} subtitle={fileMeta} />
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        refreshControl={<RefreshControl refreshing={loading} onRefresh={() => refresh().catch(() => {})} tintColor={colors.primary} />}
+      >
+        {loadError ? (
+          <TouchableOpacity style={styles.syncWarning} onPress={() => refresh().catch(() => {})}>
+            <Ionicons name="cloud-offline-outline" size={17} color={colors.amber} />
+            <Text style={styles.syncWarningText}>Could not refresh this document. Tap to try again.</Text>
+          </TouchableOpacity>
+        ) : null}
         <View style={styles.statusRow}>
           <View style={styles.fileIdentity}>
             <View style={styles.fileIcon}><Ionicons name="document-text-outline" size={22} color={colors.success} /></View>
@@ -232,6 +244,8 @@ const styles = StyleSheet.create({
   securityText: { flex: 1, color: colors.textSecondary, fontFamily: fonts.regular, fontSize: 11.5, lineHeight: 17 },
   messageLink: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm, paddingVertical: spacing.sm },
   messageText: { color: colors.primary, fontFamily: fonts.bold, fontSize: 13 },
+  syncWarning: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md, backgroundColor: colors.amberLight, borderRadius: radius.lg },
+  syncWarningText: { flex: 1, color: colors.amber, fontFamily: fonts.bold, fontSize: 11.5 },
   errorText: { color: colors.danger, fontFamily: fonts.regular, fontSize: 14, textAlign: 'center' },
   retryButton: { marginTop: spacing.lg, minWidth: 210 },
   unavailableIcon: { width: 70, height: 70, borderRadius: 35, backgroundColor: colors.primaryLight, alignItems: 'center', justifyContent: 'center', marginBottom: spacing.md },

@@ -30,6 +30,11 @@ begin
     return;
   end if;
 
+  -- This fixture intentionally restores the newest report to the unsigned
+  -- parent state after an end-to-end acknowledgment test.
+  delete from public.incident_acknowledgments
+   where incident_id = '52000000-0000-4000-a000-000000000020';
+
   insert into public.incident_reports (
     id, daycare_id, child_id, educator_id, classroom_id, occurred_at,
     location, severity, injury_type, injury_side, body_parts, description,
@@ -59,6 +64,18 @@ begin
     now() - interval '18 days', v_director, now() - interval '18 days' + interval '20 minutes',
     now() - interval '18 days' + interval '20 minutes',
     now() - interval '18 days' + interval '3 hours', 'Lucia Castillo', v_parent
+  ),
+  (
+    '52000000-0000-4000-a000-000000000022', v_daycare, v_child, v_reporter,
+    v_room, now() - interval '1 day', 'Gym', 'serious',
+    'Head bump', 'front', array['Forehead'],
+    'Mateo collided with another child during indoor movement time. He remained alert and responsive while the family and director were contacted.',
+    'A cold pack was applied and Mateo was monitored continuously until pickup.',
+    v_reporter, array[(select full_name from public.profiles where id = v_director)],
+    v_director, 'Internal follow-up: director review remains required.', 'submitted',
+    now() - interval '1 day', null, null,
+    now() - interval '1 day', now() - interval '1 day' + interval '25 minutes',
+    'Lucia Castillo', v_parent
   )
   on conflict (id) do update set
     occurred_at = excluded.occurred_at,
@@ -88,6 +105,12 @@ begin
     'Lucia Castillo', 'parent-incident-v1',
     'I confirm that I was informed of this incident and reviewed the report provided by the childcare center.',
     now() - interval '18 days' + interval '3 hours'
+  ), (
+    '52100000-0000-4000-a000-000000000022', v_daycare,
+    '52000000-0000-4000-a000-000000000022', v_child, v_parent,
+    'Lucia Castillo', 'parent-incident-v1',
+    'I confirm that I was informed of this incident and reviewed the report provided by the childcare center.',
+    now() - interval '1 day' + interval '25 minutes'
   ) on conflict (incident_id) do update set
     parent_id = excluded.parent_id,
     signed_name = excluded.signed_name,

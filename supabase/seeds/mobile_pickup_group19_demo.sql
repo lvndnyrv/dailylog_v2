@@ -43,20 +43,59 @@ begin
    where parent_id = '00000000-0000-4000-a000-000000000012'
      and child_id = '30000000-0000-4000-a000-000000000002';
 
+  -- Re-running the demo after parent-flow testing must not leave duplicate
+  -- pending/removed cards for the named examples. Keep any referenced handoff
+  -- history intact; the mobile list also collapses repeated lifecycle rows.
+  delete from public.child_pickups pickup
+   where pickup.child_id = '30000000-0000-4000-a000-000000000013'
+     and lower(btrim(pickup.full_name)) in ('elena ruiz', 'rafael torres')
+     and pickup.id not in (
+       '41900000-0000-4000-a000-000000000021',
+       '41900000-0000-4000-a000-000000000022'
+     )
+     and not exists (
+       select 1 from public.pickup_plans plan where plan.pickup_id = pickup.id
+     )
+     and not exists (
+       select 1 from public.pickup_passes pass where pass.pickup_id = pickup.id
+     );
+
   insert into public.child_pickups (
-    id, daycare_id, child_id, full_name, relationship, phone, pin, created_by
+    id, daycare_id, child_id, full_name, relationship, phone, pin, created_by,
+    approval_status, requested_by, requested_at, reviewed_by, reviewed_at,
+    review_note, archived_at
   ) values
     ('41900000-0000-4000-a000-000000000019', v_daycare,
      '30000000-0000-4000-a000-000000000013', 'Carmen Castillo',
-     'Grandmother', '416-555-0192', '6173', v_owner),
+     'Grandmother', '416-555-0192', '6173', v_owner,
+     'approved', null, null, v_owner, now() - interval '6 months', null, null),
     ('41900000-0000-4000-a000-000000000020', v_daycare,
      '30000000-0000-4000-a000-000000000018', 'Ana Diaz',
-     'Aunt', '416-555-0120', '9084', v_owner)
+     'Aunt', '416-555-0120', '9084', v_owner,
+     'approved', null, null, v_owner, now() - interval '4 months', null, null),
+    ('41900000-0000-4000-a000-000000000021', v_daycare,
+     '30000000-0000-4000-a000-000000000013', 'Elena Ruiz',
+     'Aunt · emergency contact', '416-555-0147', '3618',
+     '00000000-0000-4000-a000-000000000023',
+     'pending', '00000000-0000-4000-a000-000000000023', now() - interval '2 hours',
+     null, null, null, null),
+    ('41900000-0000-4000-a000-000000000022', v_daycare,
+     '30000000-0000-4000-a000-000000000013', 'Rafael Torres',
+     'Former neighbour', null, '4825',
+     '00000000-0000-4000-a000-000000000023',
+     'approved', '00000000-0000-4000-a000-000000000023', now() - interval '1 year',
+     v_owner, now() - interval '1 year', null, now() - interval '4 months')
   on conflict (id) do update set
     full_name = excluded.full_name,
     relationship = excluded.relationship,
     phone = excluded.phone,
-    archived_at = null;
+    approval_status = excluded.approval_status,
+    requested_by = excluded.requested_by,
+    requested_at = excluded.requested_at,
+    reviewed_by = excluded.reviewed_by,
+    reviewed_at = excluded.reviewed_at,
+    review_note = excluded.review_note,
+    archived_at = excluded.archived_at;
 
   -- Three upcoming hand-offs and one completed example.
   insert into public.attendance_records (

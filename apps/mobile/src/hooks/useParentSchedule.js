@@ -24,15 +24,18 @@ export function useParentSchedule() {
   const refresh = useCallback(async () => {
     setLoading(true);
     setError('');
-    const { data, error: loadError } = await supabase.rpc('get_parent_schedule_hub');
-    setLoading(false);
-    if (loadError) {
-      const message = loadError.message || 'The family calendar could not be loaded.';
+    try {
+      const { data, error: loadError } = await supabase.rpc('get_parent_schedule_hub');
+      if (loadError) throw loadError;
+      setHub(data);
+      return data;
+    } catch (loadError) {
+      const message = loadError?.message || 'The family calendar could not be loaded.';
       setError(message);
       throw new Error(message);
+    } finally {
+      setLoading(false);
     }
-    setHub(data);
-    return data;
   }, []);
 
   const addClosureToCalendar = useCallback(async (closure, daycare) => {

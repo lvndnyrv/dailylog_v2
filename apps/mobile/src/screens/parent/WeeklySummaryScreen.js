@@ -80,7 +80,7 @@ function displayMood(value) {
   return normalized ? `${normalized[0].toUpperCase()}${normalized.slice(1).toLowerCase()}` : 'Mood';
 }
 
-function summarizeWeek({ logs, meals, sleeps, activities, diapers, weekStart }) {
+function summarizeWeek({ logs, meals, sleeps, activities, diapers, attendance, weekStart }) {
   const weekEnd = endOfWeek(weekStart, { weekStartsOn: 1 });
   const weekLogs = logs.filter((log) => log.log_date >= format(weekStart, 'yyyy-MM-dd')
     && log.log_date <= format(weekEnd, 'yyyy-MM-dd'));
@@ -91,6 +91,12 @@ function summarizeWeek({ logs, meals, sleeps, activities, diapers, weekStart }) 
   const weekDiapers = diapers.filter((entry) => logIds.has(entry.daily_log_id));
   const logById = new Map(weekLogs.map((log) => [log.id, log]));
   const logByDate = new Map(weekLogs.map((log) => [log.log_date, log]));
+  const attendanceByDate = new Map(
+    attendance
+      .filter((record) => record.date >= format(weekStart, 'yyyy-MM-dd')
+        && record.date <= format(weekEnd, 'yyyy-MM-dd'))
+      .map((record) => [record.date, record]),
+  );
 
   const moodCounts = {};
   weekLogs.forEach((log) => (log.moods || []).forEach((mood) => {
@@ -125,7 +131,30 @@ function summarizeWeek({ logs, meals, sleeps, activities, diapers, weekStart }) 
   const dayBreakdown = eachDayOfInterval({ start: weekStart, end: weekEnd }).map((date) => {
     const dateString = format(date, 'yyyy-MM-dd');
     const log = logByDate.get(dateString);
-    if (!log) return { date, dateString, hasLog: false };
+    const attendanceRecord = attendanceByDate.get(dateString);
+    const absent = ['absent', 'excused'].includes(attendanceRecord?.status);
+    const isFuture = isAfter(startOfDay(date), startOfDay(new Date()));
+    const isWeekend = [0, 6].includes(date.getDay());
+    if (!log) {
+      return {
+        date,
+        dateString,
+        hasLog: false,
+        hasAttendance: Boolean(attendanceRecord),
+        attendance: attendanceRecord || null,
+        status: absent
+          ? 'absent'
+          : attendanceRecord?.checked_out_at
+            ? 'completed'
+            : attendanceRecord?.checked_in_at
+              ? 'live'
+              : isFuture
+                ? 'upcoming'
+                : isWeekend
+                  ? 'weekend'
+                  : 'no_update',
+      };
+    }
     const dayMeals = weekMeals.filter((meal) => meal.daily_log_id === log.id);
     const dayActivities = weekActivities.filter((activity) => activity.daily_log_id === log.id);
     const sleepMinutes = sleepByLog[log.id] || 0;
@@ -136,6 +165,15 @@ function summarizeWeek({ logs, meals, sleeps, activities, diapers, weekStart }) 
       date,
       dateString,
       hasLog: true,
+      hasAttendance: Boolean(attendanceRecord),
+      attendance: attendanceRecord || null,
+      status: absent
+        ? 'absent'
+        : log.sent_to_parents || attendanceRecord?.checked_out_at
+          ? 'completed'
+          : attendanceRecord?.checked_in_at
+            ? 'live'
+            : 'draft',
       sent: Boolean(log.sent_to_parents),
       moods: log.moods || [],
       mealCount: dayMeals.length,
@@ -161,6 +199,9 @@ function summarizeWeek({ logs, meals, sleeps, activities, diapers, weekStart }) 
     bestDay,
     logCount: weekLogs.length,
     sentCount: weekLogs.filter((log) => log.sent_to_parents).length,
+    absenceCount: [...attendanceByDate.values()].filter((record) => ['absent', 'excused'].includes(record.status)).length,
+    attendanceCount: attendanceByDate.size,
+    hasWeekActivity: weekLogs.length > 0 || attendanceByDate.size > 0,
     mealCountsByDay: dayBreakdown.map((day) => day.mealCount || 0),
     sleepCountsByDay: dayBreakdown.map((day) => day.sleepMinutes || 0),
     activityCount: weekActivities.length,
@@ -270,6 +311,14 @@ export default function WeeklySummaryScreen({ route }) {
       let sleeps = [];
       let activities = [];
       let diapers = [];
+      const attendanceResult = await supabase
+        .from('attendance_records')
+        .select('date, checked_in_at, checked_out_at, status, absence_reason, notes')
+        .eq('child_id', childId)
+        .gte('date', from)
+        .lte('date', to)
+        .order('date');
+      if (attendanceResult.error) throw attendanceResult.error;
       if (logIds.length) {
         const results = await Promise.all([
           supabase.from('meal_entries').select('*').in('daily_log_id', logIds),
@@ -282,7 +331,7 @@ export default function WeeklySummaryScreen({ route }) {
         [meals, sleeps, activities, diapers] = results.map((result) => result.data || []);
       }
 
-      const source = { logs, meals, sleeps, activities, diapers };
+      const source = { logs, meals, sleeps, activities, diapers, attendance: attendanceResult.data || [] };
       setData({
         current: summarizeWeek({ ...source, weekStart }),
         previous: summarizeWeek({ ...source, weekStart: previousWeekStart }),
@@ -306,23 +355,31 @@ export default function WeeklySummaryScreen({ route }) {
   const isCurrentWeek = format(weekStart, 'yyyy-MM-dd')
     === format(startOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd');
   const labels = current?.dayBreakdown.map((day) => format(day.date, 'EEE')) || [];
-  const noLogDays = current?.dayBreakdown.filter((day) => !day.hasLog
-    && ![0, 6].includes(day.date.getDay())
-    && !isAfter(startOfDay(day.date), startOfDay(new Date()))) || [];
+  const noLogDays = current?.dayBreakdown.filter((day) => day.status === 'no_update') || [];
 
   const story = useMemo(() => {
+    if (!current?.logCount && current?.absenceCount) return `${childName} was away for ${current.absenceCount} day${current.absenceCount === 1 ? '' : 's'} this week.`;
     if (!current?.logCount) return `There are no daily logs for ${childName} in this week yet.`;
     const mood = current.topMoods[0]?.[0]?.toLowerCase();
     const activity = current.topActivities[0]?.[0];
     const parts = [`${childName} had ${current.logCount} day${current.logCount === 1 ? '' : 's'} recorded`];
     if (mood) parts.push(`was most often ${mood}`);
     if (activity) parts.push(`and enjoyed ${activity} most`);
-    return `${parts.join(', ')}. ${current.totalMeals} meals and ${minutesToDuration(current.totalSleepMinutes)} of naps were logged.`;
+    const absenceText = current.absenceCount ? ` ${current.absenceCount} absence${current.absenceCount === 1 ? ' was' : 's were'} recorded.` : '';
+    return `${parts.join(', ')}. ${current.totalMeals} meals and ${minutesToDuration(current.totalSleepMinutes)} of naps were logged.${absenceText}`;
   }, [childName, current]);
 
   const openDay = (day) => {
-    if (!day.hasLog) return;
-    navigation.navigate('ParentHome', { childId, logDate: day.dateString });
+    if (!day.hasLog && !day.hasAttendance) return;
+    const params = { childId, childName, logDate: day.dateString };
+    if (['completed', 'absent'].includes(day.status)) {
+      const rootNavigation = navigation.getParent();
+      if (rootNavigation?.getState()?.routeNames?.includes('ParentDayRecap')) rootNavigation.navigate('ParentDayRecap', params);
+      else navigation.navigate('ParentDayRecap', params);
+      return;
+    }
+    if (navigation.getState()?.routeNames?.includes('ParentHome')) navigation.navigate('ParentHome', params);
+    else navigation.navigate('ParentTabs', { screen: 'ParentHome', params });
   };
 
   const messageCenter = () => {
@@ -347,14 +404,19 @@ export default function WeeklySummaryScreen({ route }) {
           <TouchableOpacity
             key={day.dateString}
             accessibilityRole="button"
-            accessibilityLabel={`${format(day.date, 'EEEE, MMMM d')}${day.hasLog ? ', open daily log' : ', no log'}`}
-            disabled={!day.hasLog}
+            accessibilityLabel={`${format(day.date, 'EEEE, MMMM d')}, ${day.status.replace('_', ' ')}`}
+            disabled={!day.hasLog && !day.hasAttendance}
             onPress={() => openDay(day)}
             style={styles.dayColumn}
           >
             <Text style={styles.dayName}>{format(day.date, 'EEE')}</Text>
-            <View style={[styles.dayCircle, day.hasLog && styles.dayCircleLogged]}>
-              <Text style={[styles.dayNumber, day.hasLog && styles.dayNumberLogged]}>{format(day.date, 'd')}</Text>
+            <View style={[
+              styles.dayCircle,
+              day.hasLog && styles.dayCircleLogged,
+              day.status === 'absent' && styles.dayCircleAbsent,
+              day.status === 'live' && styles.dayCircleLive,
+            ]}>
+              <Text style={[styles.dayNumber, (day.hasLog || day.status === 'absent' || day.status === 'live') && styles.dayNumberLogged]}>{format(day.date, 'd')}</Text>
             </View>
             {mood ? <Ionicons name={mood.icon} size={14} color={mood.color} /> : <View style={styles.dayMoodSpacer} />}
           </TouchableOpacity>
@@ -433,16 +495,22 @@ export default function WeeklySummaryScreen({ route }) {
         {current.dayBreakdown.map((day) => (
           <TouchableOpacity
             key={day.dateString}
-            disabled={!day.hasLog}
+            disabled={!day.hasLog && !day.hasAttendance}
             onPress={() => openDay(day)}
             style={styles.dayRow}
           >
             <Text style={styles.dayRowDate}>{format(day.date, 'EEE d')}</Text>
-            {!day.hasLog ? <Text style={styles.dayRowEmpty}>No log</Text> : (
+            {day.status === 'absent' ? (
+              <View style={styles.dayRowDetails}>
+                <View style={styles.absentChip}><Text style={styles.absentChipText}>Absent</Text></View>
+                <Ionicons name="chevron-forward" size={16} color={colors.textFaint} />
+              </View>
+            ) : !day.hasLog ? <Text style={styles.dayRowEmpty}>{day.status === 'weekend' ? 'Weekend' : day.status === 'upcoming' ? 'Upcoming' : day.status === 'completed' ? 'Attendance only' : 'No update'}</Text> : (
               <View style={styles.dayRowDetails}>
                 <Ionicons name={day.moods[0] ? moodMeta(day.moods[0]).icon : 'ellipse-outline'} size={16} color={day.moods[0] ? moodMeta(day.moods[0]).color : colors.textFaint} />
                 <Text style={styles.dayRowStat}>{day.mealCount} meals</Text>
                 {day.sleepMinutes ? <Text style={styles.dayRowStat}>{minutesToDuration(day.sleepMinutes)} nap</Text> : null}
+                <Text style={[styles.dayStatus, day.status === 'live' && styles.dayStatusLive]}>{day.status === 'completed' ? 'Sent' : day.status === 'live' ? 'Live' : 'Draft'}</Text>
                 <Ionicons name="chevron-forward" size={16} color={colors.textFaint} />
               </View>
             )}
@@ -549,6 +617,13 @@ export default function WeeklySummaryScreen({ route }) {
           </View>
           <View style={styles.reportRow}>
             <View>
+              <Text style={styles.reportTitle}>Attendance records</Text>
+              <Text style={styles.reportMeta}>{current.absenceCount} absent · {Math.max(current.attendanceCount - current.absenceCount, 0)} attended</Text>
+            </View>
+            <Text style={styles.reportValue}>{current.attendanceCount}</Text>
+          </View>
+          <View style={styles.reportRow}>
+            <View>
               <Text style={styles.reportTitle}>Care activities recorded</Text>
               <Text style={styles.reportMeta}>Meals, naps, activities and care checks</Text>
             </View>
@@ -612,7 +687,7 @@ export default function WeeklySummaryScreen({ route }) {
 
       {loading ? (
         <View style={styles.loadingWrap}><ActivityIndicator size="large" color={colors.primary} /></View>
-      ) : !current?.logCount ? (
+      ) : !current?.hasWeekActivity ? (
         <View style={styles.emptyCard}>
           <View style={styles.emptyIcon}><Ionicons name="calendar-outline" size={28} color={colors.primary} /></View>
           <Text style={styles.emptyTitle}>No logs this week yet</Text>
@@ -659,6 +734,8 @@ const styles = StyleSheet.create({
   dayName: { color: colors.textMuted, fontFamily: fonts.bold, fontSize: 10, marginBottom: 5 },
   dayCircle: { width: 31, height: 31, borderRadius: radius.full, backgroundColor: colors.bg, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center', marginBottom: 5 },
   dayCircleLogged: { backgroundColor: colors.primary, borderColor: colors.primary },
+  dayCircleAbsent: { backgroundColor: colors.amber, borderColor: colors.amber },
+  dayCircleLive: { backgroundColor: colors.success, borderColor: colors.success },
   dayNumber: { color: colors.textSecondary, fontFamily: fonts.bold, fontSize: 12 },
   dayNumberLogged: { color: colors.white },
   dayMoodSpacer: { height: 14 },
@@ -688,6 +765,10 @@ const styles = StyleSheet.create({
   dayRowEmpty: { color: colors.textFaint, fontFamily: fonts.regular, fontSize: 12 },
   dayRowDetails: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: spacing.sm },
   dayRowStat: { color: colors.textSecondary, fontFamily: fonts.regular, fontSize: 11 },
+  dayStatus: { color: colors.textFaint, fontFamily: fonts.bold, fontSize: 9, textTransform: 'uppercase' },
+  dayStatusLive: { color: colors.success },
+  absentChip: { backgroundColor: colors.amberLight, borderRadius: radius.full, paddingHorizontal: spacing.sm, paddingVertical: 4 },
+  absentChipText: { color: colors.amber, fontFamily: fonts.bold, fontSize: 10 },
   storyHero: { alignItems: 'center', backgroundColor: colors.purpleLight, borderColor: '#D9CCF3', paddingVertical: spacing.xxl },
   storyHeroIcon: { width: 54, height: 54, borderRadius: radius.full, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center', marginBottom: spacing.md },
   storyEyebrow: { color: colors.purple, fontFamily: fonts.black, fontSize: 10, letterSpacing: 1.2 },

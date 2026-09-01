@@ -1,5 +1,12 @@
 import React, { useCallback, useMemo } from 'react';
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import {
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -67,7 +74,16 @@ export default function ParentRoomMoveScreen({ navigation, route }) {
   return (
     <SafeAreaView style={scheduleStyles.safeArea}>
       <ScheduleHeader navigation={navigation} title={completed ? `${plan.child_first_name}'s new room` : `A change for ${plan.child_first_name}`} />
-      <ScrollView contentContainerStyle={scheduleStyles.content}>
+      <ScrollView
+        contentContainerStyle={scheduleStyles.content}
+        refreshControl={(
+          <RefreshControl
+            refreshing={schedule.loading && Boolean(schedule.hub)}
+            onRefresh={() => schedule.refresh().catch(() => {})}
+            tintColor={colors.primary}
+          />
+        )}
+      >
         <View style={styles.heroCard}>
           <Text style={styles.heroText}>
             {completed

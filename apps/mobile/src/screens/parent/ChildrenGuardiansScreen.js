@@ -2,7 +2,9 @@ import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   ScrollView,
   Share,
   StyleSheet,
@@ -58,8 +60,10 @@ function Field({ label, value, onChangeText, placeholder, error, keyboardType })
         keyboardType={keyboardType}
         autoCapitalize={keyboardType === 'email-address' ? 'none' : 'words'}
         autoCorrect={keyboardType !== 'email-address'}
+        accessibilityLabel={`${label} required`}
+        accessibilityHint={error || undefined}
       />
-      {error ? <Text style={styles.fieldError}>{error}</Text> : null}
+      {error ? <Text style={styles.fieldError} accessibilityLiveRegion="polite">{error}</Text> : null}
     </View>
   );
 }
@@ -103,7 +107,10 @@ function InviteGuardianSheet({ visible, child, onClose, onCreated }) {
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <View style={styles.overlay}>
+      <KeyboardAvoidingView
+        style={styles.overlay}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
         <TouchableOpacity style={styles.dismissArea} activeOpacity={1} onPress={onClose} />
         <View style={styles.sheet}>
           <View style={styles.grabber} />
@@ -134,7 +141,7 @@ function InviteGuardianSheet({ visible, child, onClose, onCreated }) {
             <Text style={styles.cancelButtonText}>Cancel</Text>
           </TouchableOpacity>
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -226,11 +233,11 @@ export default function ChildrenGuardiansScreen({ navigation, route }) {
               <TouchableOpacity
                 onPress={() => {
                   family.selectChild(child.id);
-                  navigation.navigate('AuthorizedPickups', { child });
+                  navigation.navigate('ParentChildDetails', { childId: child.id, child });
                 }}
                 accessibilityRole="button"
               >
-                <Text style={styles.pickupsLink}>Pickups</Text>
+                <Text style={styles.detailsLink}>Details</Text>
               </TouchableOpacity>
             </View>
 
@@ -313,7 +320,7 @@ const styles = StyleSheet.create({
   childCopy: { flex: 1, minWidth: 0 },
   childName: { color: colors.textPrimary, fontFamily: fonts.black, fontSize: 16 },
   childMeta: { color: colors.textMuted, fontFamily: fonts.regular, fontSize: 12.5, marginTop: 2 },
-  pickupsLink: { color: colors.primary, fontFamily: fonts.bold, fontSize: 12 },
+  detailsLink: { color: colors.primary, fontFamily: fonts.bold, fontSize: 12 },
   divider: { height: 1, backgroundColor: colors.borderSoft, marginVertical: spacing.md },
   guardianTitle: {
     color: colors.textFaint, fontFamily: fonts.bold, fontSize: 10.5,

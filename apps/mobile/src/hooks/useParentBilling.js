@@ -89,6 +89,14 @@ export function useParentBilling() {
     return data;
   }, []);
 
+  const resendPaymentReceipt = useCallback(async (paymentId) => {
+    const { data, error: resendError } = await supabase.rpc('resend_parent_payment_receipt', {
+      p_payment_id: paymentId,
+    });
+    if (resendError) throw new Error(messageFor(resendError, 'The receipt email could not be queued.'));
+    return data;
+  }, []);
+
   return {
     home,
     loading,
@@ -100,5 +108,6 @@ export function useParentBilling() {
     addDemoPaymentMethod,
     removePaymentMethod,
     getPaymentReceipt,
+    resendPaymentReceipt,
   };
 }

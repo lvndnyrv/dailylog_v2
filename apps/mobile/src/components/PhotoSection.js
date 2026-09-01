@@ -24,8 +24,9 @@ export function PhotoSection({ logId, childId, readOnly = false }) {
     loadPhotos();
 
     // Real-time updates so parents see photos as they're added
+    const channelInstance = `${Date.now()}:${Math.random().toString(36).slice(2)}`;
     const channel = supabase
-      .channel(`photos:${logId}`)
+      .channel(`photos:${logId}:${channelInstance}`)
       .on('postgres_changes', {
         event: '*', schema: 'public', table: 'photos',
         filter: `daily_log_id=eq.${logId}`,

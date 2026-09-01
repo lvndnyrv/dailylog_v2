@@ -7,7 +7,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { useParentBilling } from '../../hooks/useParentBilling';
 import { colors, fonts, radius, spacing } from '../../theme';
-import { money, monthLabel, ScreenHeader, sharedStyles, shortDate } from './ParentBillingShared';
+import {
+  isPaymentMethodExpired, money, monthLabel, ScreenHeader, sharedStyles, shortDate,
+} from './ParentBillingShared';
 
 function dueCopy(dueOn) {
   if (!dueOn) return 'No payment due';
@@ -63,6 +65,8 @@ export default function BillingHomeScreen({ navigation }) {
   const preferences = home?.preferences || {};
   const methods = home?.payment_methods || [];
   const defaultMethod = methods.find((method) => method.id === preferences.default_payment_method_id);
+  const autopayNeedsAttention = Boolean(preferences.autopay_enabled)
+    && (!defaultMethod || isPaymentMethodExpired(defaultMethod));
   const balance = home?.current_balance_cents || 0;
 
   return (
@@ -106,20 +110,39 @@ export default function BillingHomeScreen({ navigation }) {
               ) : null}
             </View>
 
-            <TouchableOpacity style={[styles.autopayCard, !preferences.autopay_enabled && styles.autopayOff]} onPress={() => navigation.navigate('ParentPaymentMethods')}>
+            <TouchableOpacity
+              style={[
+                styles.autopayCard,
+                !preferences.autopay_enabled && styles.autopayOff,
+                autopayNeedsAttention && styles.autopayAttention,
+              ]}
+              onPress={() => navigation.navigate('ParentPaymentMethods')}
+              accessibilityRole="button"
+              accessibilityLabel={autopayNeedsAttention ? 'Autopay needs attention. Manage payment methods' : undefined}
+            >
               <View style={styles.autopayIcon}>
                 <Ionicons
-                  name={preferences.autopay_enabled ? 'checkmark' : 'card-outline'}
+                  name={autopayNeedsAttention ? 'alert-outline' : preferences.autopay_enabled ? 'checkmark' : 'card-outline'}
                   size={18}
-                  color={preferences.autopay_enabled ? colors.success : colors.primary}
+                  color={autopayNeedsAttention ? colors.danger : preferences.autopay_enabled ? colors.success : colors.primary}
                 />
               </View>
-              <Text style={[styles.autopayText, !preferences.autopay_enabled && styles.autopayOffText]} numberOfLines={2}>
-                {preferences.autopay_enabled
+              <Text style={[
+                styles.autopayText,
+                !preferences.autopay_enabled && styles.autopayOffText,
+                autopayNeedsAttention && styles.autopayAttentionText,
+              ]} numberOfLines={2}>
+                {autopayNeedsAttention
+                  ? 'Autopay needs attention · choose a current method'
+                  : preferences.autopay_enabled
                   ? `Autopay is on${defaultMethod ? ` · ${defaultMethod.brand} ···· ${defaultMethod.last4}` : ''}`
                   : 'Autopay is off'}
               </Text>
-              <Text style={[styles.manageText, !preferences.autopay_enabled && styles.managePrimary]}>Manage</Text>
+              <Text style={[
+                styles.manageText,
+                !preferences.autopay_enabled && styles.managePrimary,
+                autopayNeedsAttention && styles.autopayAttentionText,
+              ]}>Manage</Text>
             </TouchableOpacity>
 
             <View style={styles.sectionHeading}>
@@ -164,9 +187,11 @@ const styles = StyleSheet.create({
   balanceHelp: { color: 'rgba(255,255,255,0.7)', fontFamily: fonts.regular, fontSize: 11.5, lineHeight: 17, textAlign: 'center', marginTop: spacing.sm },
   autopayCard: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, backgroundColor: colors.successLight, borderRadius: radius.lg, paddingHorizontal: 15, paddingVertical: spacing.md, marginTop: spacing.lg },
   autopayOff: { backgroundColor: colors.primaryLight },
+  autopayAttention: { backgroundColor: colors.dangerLight, borderWidth: 1, borderColor: 'rgba(194,65,65,0.18)' },
   autopayIcon: { width: 34, height: 34, borderRadius: 17, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
   autopayText: { flex: 1, color: '#1B6B45', fontFamily: fonts.bold, fontSize: 13 },
   autopayOffText: { color: colors.textPrimary },
+  autopayAttentionText: { color: colors.danger },
   manageText: { color: colors.success, fontFamily: fonts.bold, fontSize: 12.5 },
   managePrimary: { color: colors.primary },
   sectionHeading: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginTop: spacing.lg, marginBottom: spacing.md },

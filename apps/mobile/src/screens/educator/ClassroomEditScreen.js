@@ -71,7 +71,11 @@ export default function ClassroomEditScreen({ route, navigation }) {
     >
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
+        <TouchableOpacity
+          onPress={() => navigation.goBack()}
+          accessibilityRole="button"
+          accessibilityLabel="Back to classroom"
+        >
           <Text style={styles.back}>← Back</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Edit classroom</Text>
@@ -156,7 +160,6 @@ const styles = StyleSheet.create({
   dangerTitle: { fontSize: 15, fontWeight: '600', color: colors.danger, marginBottom: spacing.xs },
   dangerText: { fontSize: 13, color: colors.textSecondary, lineHeight: 18 },
 });
-
 
 
 

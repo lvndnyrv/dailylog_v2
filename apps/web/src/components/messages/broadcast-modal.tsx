@@ -21,6 +21,9 @@ export function BroadcastModal({
     {},
   );
   const [audience, setAudience] = useState("");
+  const [rsvpEnabled, setRsvpEnabled] = useState(false);
+  const [eventAt, setEventAt] = useState("");
+  const [eventEndsAt, setEventEndsAt] = useState("");
 
   const chip = (active: boolean) =>
     `cursor-pointer rounded-full px-3 py-1.5 text-xs ${
@@ -88,10 +91,68 @@ export function BroadcastModal({
               Pin to the top
             </label>
             <label className="flex items-center gap-2 text-[12.5px] font-semibold text-body">
-              <input type="checkbox" name="rsvp_enabled" className="size-4 rounded accent-[var(--primary)]" />
+              <input
+                type="checkbox"
+                name="rsvp_enabled"
+                checked={rsvpEnabled}
+                onChange={(event) => setRsvpEnabled(event.target.checked)}
+                className="size-4 rounded accent-[var(--primary)]"
+              />
               Ask for RSVPs
             </label>
           </div>
+
+          {rsvpEnabled ? (
+            <fieldset className="rounded-[15px] border-[1.5px] border-[#D6E1F0] bg-canvas p-4">
+              <legend className="px-1 text-[13px] font-bold text-ink">Event details</legend>
+              <input
+                type="hidden"
+                name="event_at"
+                value={eventAt ? new Date(eventAt).toISOString() : ""}
+              />
+              <input
+                type="hidden"
+                name="event_ends_at"
+                value={eventEndsAt ? new Date(eventEndsAt).toISOString() : ""}
+              />
+              <div className="mt-1 grid grid-cols-2 gap-3">
+                <label className="col-span-2 flex flex-col gap-[7px] text-[13px] font-bold text-ink">
+                  Starts
+                  <input
+                    type="datetime-local"
+                    value={eventAt}
+                    onChange={(event) => setEventAt(event.target.value)}
+                    required
+                    className="rounded-[13px] border-[1.5px] border-[#D6E1F0] bg-card px-4 py-3 text-[14px] font-normal text-ink outline-none focus:border-primary"
+                  />
+                </label>
+                <label className="col-span-2 flex flex-col gap-[7px] text-[13px] font-bold text-ink">
+                  Ends
+                  <input
+                    type="datetime-local"
+                    value={eventEndsAt}
+                    onChange={(event) => setEventEndsAt(event.target.value)}
+                    required
+                    className="rounded-[13px] border-[1.5px] border-[#D6E1F0] bg-card px-4 py-3 text-[14px] font-normal text-ink outline-none focus:border-primary"
+                  />
+                </label>
+                <label className="col-span-2 flex flex-col gap-[7px] text-[13px] font-bold text-ink">
+                  Location
+                  <input
+                    type="text"
+                    name="event_location"
+                    required
+                    maxLength={240}
+                    placeholder="Fairy Lake Park · North shelter"
+                    className="rounded-[13px] border-[1.5px] border-[#D6E1F0] bg-card px-4 py-3 text-[14px] font-normal text-ink outline-none placeholder:text-faint focus:border-primary"
+                  />
+                </label>
+              </div>
+              <p className="mt-3 text-[11px] leading-relaxed text-muted">
+                Families will see the event details and can reply Yes, Maybe, or No in the parent app.
+              </p>
+            </fieldset>
+          ) : null}
 
           {state.error && <Notice tone="error">{state.error}</Notice>}
 

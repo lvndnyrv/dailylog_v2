@@ -122,6 +122,18 @@ begin
       (v_week_start + 4 + time '16:45') at time zone v_timezone,
       60, 'mobile', 'submitted', 'Group 17 demo · early finish', v_profile_id, null, null);
 
+  -- Do not fabricate completed time for today or a future weekday. Those rows
+  -- made a real clock-in overlap a pre-filled entry and inflated payroll totals.
+  delete from public.staff_time_entries
+   where id in (
+    '54100000-0000-4000-a000-000000000001',
+    '54100000-0000-4000-a000-000000000002',
+    '54100000-0000-4000-a000-000000000003',
+    '54100000-0000-4000-a000-000000000004',
+    '54100000-0000-4000-a000-000000000005'
+   )
+     and timezone(v_timezone, clocked_in_at)::date >= v_today;
+
   -- Keep one live timer for the clocked-in variant without disturbing a real
   -- clock-in an educator may already have created while testing.
   if not exists (

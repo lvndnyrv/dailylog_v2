@@ -41,9 +41,42 @@ export async function acceptStaffInvite(
   if (error) throw error;
 }
 
-// Creates the center and promotes the caller to owner_admin (10e).
-export async function startCenter(client: Client, centerName: string): Promise<string> {
-  const { data, error } = await client.rpc('start_center', { p_center_name: centerName });
+export interface CenterRegistrationPreview {
+  center_name: string;
+  expires_at: string;
+}
+
+// Public preflight only. The code remains unconsumed until the authenticated,
+// guarded center-setup RPC succeeds.
+export async function checkCenterRegistrationCode(
+  client: Client,
+  code: string,
+  email: string,
+): Promise<CenterRegistrationPreview | null> {
+  const { data, error } = await client.rpc('check_center_registration_code', {
+    p_code: code,
+    p_email: email,
+  });
   if (error) throw error;
-  return data;
+  return data?.[0] ?? null;
+}
+
+export async function completeCenterSetup(
+  client: Client,
+  values: {
+    centerName: string;
+    address: string;
+    phone: string;
+    registrationCode: string;
+  },
+): Promise<void> {
+  const { error } = await client.rpc('complete_center_setup', {
+    p_center_name: values.centerName,
+    p_address: values.address,
+    p_phone: values.phone,
+    p_classrooms: [],
+    p_educator_emails: [],
+    p_registration_code: values.registrationCode,
+  });
+  if (error) throw error;
 }

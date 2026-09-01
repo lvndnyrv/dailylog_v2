@@ -34,16 +34,24 @@ export function money(cents, currency = 'CAD') {
   }).format(cents / 100);
 }
 
-export function ScheduleHeader({ navigation, title }) {
+export function ScheduleHeader({ navigation, title, close = false }) {
+  function leaveScreen() {
+    if (navigation.canGoBack()) {
+      navigation.goBack();
+      return;
+    }
+    navigation.navigate('ParentTabs', { screen: 'ParentHome' });
+  }
+
   return (
     <View style={styles.header}>
       <TouchableOpacity
         style={styles.back}
-        onPress={() => navigation.goBack()}
+        onPress={leaveScreen}
         accessibilityRole="button"
-        accessibilityLabel="Go back"
+        accessibilityLabel={close ? 'Close' : 'Go back'}
       >
-        <Ionicons name="chevron-back" size={20} color={colors.textPrimary} />
+        <Ionicons name={close ? 'close' : 'chevron-back'} size={20} color={colors.textPrimary} />
       </TouchableOpacity>
       <Text style={styles.headerTitle} numberOfLines={2}>{title}</Text>
     </View>

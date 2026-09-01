@@ -83,8 +83,11 @@ import ClassroomConsentsScreen from './src/screens/educator/ClassroomConsentsScr
 import InboxScreen           from './src/screens/educator/InboxScreen';
 import ClassroomEditScreen   from './src/screens/educator/ClassroomEditScreen';
 import MealMenuScreen        from './src/screens/educator/MealMenuScreen';
+import StaffMessagesScreen   from './src/screens/educator/StaffMessagesScreen';
+import StaffConversationScreen from './src/screens/educator/StaffConversationScreen';
 import ParentHomeScreen      from './src/screens/parent/ParentHomeScreen';
 import WeeklySummaryScreen   from './src/screens/parent/WeeklySummaryScreen';
+import ParentDayRecapScreen  from './src/screens/parent/ParentDayRecapScreen';
 import ParentMessagesScreen  from './src/screens/parent/ParentMessagesScreen';
 import IncidentDetailScreen  from './src/screens/parent/IncidentDetailScreen';
 import ParentIncidentsScreen from './src/screens/parent/ParentIncidentsScreen';
@@ -108,6 +111,7 @@ import ParentEditProfileScreen from './src/screens/parent/ParentEditProfileScree
 import ParentNotificationSettingsScreen from './src/screens/parent/ParentNotificationSettingsScreen';
 import ParentNotificationsScreen from './src/screens/parent/ParentNotificationsScreen';
 import ChildrenGuardiansScreen from './src/screens/parent/ChildrenGuardiansScreen';
+import ParentChildDetailsScreen from './src/screens/parent/ParentChildDetailsScreen';
 import ParentPrivacyDataScreen from './src/screens/parent/ParentPrivacyDataScreen';
 import ParentDocumentsScreen from './src/screens/parent/ParentDocumentsScreen';
 import ParentDocumentUploadScreen from './src/screens/parent/ParentDocumentUploadScreen';
@@ -350,7 +354,13 @@ function ParentTabsContent() {
 function ParentConsentGate() {
   const { profile } = useAuth();
   const family = useParentFamily();
-  if (profile?.role !== 'parent' || !family.pendingConsentChild) return null;
+  const childInvite = useParentChildInvite();
+  if (
+    profile?.role !== 'parent'
+    || childInvite.hydrating
+    || childInvite.code
+    || !family.pendingConsentChild
+  ) return null;
   return (
     <ConsentScreen
       childId={family.pendingConsentChild.id}
@@ -655,6 +665,8 @@ function RootNavigator() {
           <Stack.Screen name="ChildConsents"  component={ChildConsentsScreen}  options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="ClassroomConsents" component={ClassroomConsentsScreen} options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="EditProfile"     component={EditProfileScreen}     options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="StaffMessages"   component={StaffMessagesScreen}   options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="StaffConversation" component={StaffConversationScreen} options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="Messaging"       component={MessagingScreen}       options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="Announcements"   component={AnnouncementsScreen}   options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="Medication"      component={MedicationScreen}      options={{ animation: 'slide_from_right' }} />
@@ -692,6 +704,8 @@ function RootNavigator() {
           <Stack.Screen name="ChildConsents"  component={ChildConsentsScreen}  options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="ClassroomConsents" component={ClassroomConsentsScreen} options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="EditProfile"     component={EditProfileScreen}     options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="StaffMessages"   component={StaffMessagesScreen}   options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="StaffConversation" component={StaffConversationScreen} options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="Messaging"       component={MessagingScreen}       options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="Announcements"   component={AnnouncementsScreen}   options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="Medication"      component={MedicationScreen}      options={{ animation: 'slide_from_right' }} />
@@ -701,6 +715,7 @@ function RootNavigator() {
         <>
           <Stack.Screen name="ParentTabs"      component={ParentTabs} />
           <Stack.Screen name="WeeklySummary"   component={WeeklySummaryScreen}   options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="ParentDayRecap"  component={ParentDayRecapScreen}  options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="IncidentDetail"  component={IncidentDetailScreen}  options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="ParentIncidents" component={ParentIncidentsScreen} options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="IncidentAcknowledged" component={IncidentAcknowledgedScreen} options={{ animation: 'fade' }} />
@@ -719,6 +734,7 @@ function RootNavigator() {
           <Stack.Screen name="ParentNotificationSettings" component={ParentNotificationSettingsScreen} options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="ParentNotifications" component={ParentNotificationsScreen} options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="ChildrenGuardians" component={ChildrenGuardiansScreen} options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="ParentChildDetails" component={ParentChildDetailsScreen} options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="ParentChildInvite" component={ParentChildInviteScreen} options={{ animation: 'slide_from_bottom' }} />
           <Stack.Screen name="ParentPrivacyData" component={ParentPrivacyDataScreen} options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="ParentEditProfile" component={ParentEditProfileScreen} options={{ animation: 'slide_from_right' }} />

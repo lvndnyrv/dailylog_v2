@@ -64,6 +64,27 @@ export async function createBroadcastAction(
   const title = str(formData, "title");
   const body = str(formData, "body");
   if (!title || !body) return { error: "Title and message are required." };
+  const rsvpEnabled = formData.get("rsvp_enabled") === "on";
+  const eventAtValue = str(formData, "event_at");
+  const eventEndsAtValue = str(formData, "event_ends_at");
+  const eventLocation = str(formData, "event_location");
+  let eventAt: string | null = null;
+  let eventEndsAt: string | null = null;
+
+  if (rsvpEnabled) {
+    if (!eventAtValue || !eventEndsAtValue || !eventLocation) {
+      return { error: "Event start, end, and location are required when collecting RSVPs." };
+    }
+    const starts = new Date(eventAtValue);
+    const ends = new Date(eventEndsAtValue);
+    if (Number.isNaN(starts.getTime()) || Number.isNaN(ends.getTime())) {
+      return { error: "Enter a valid event start and end time." };
+    }
+    if (starts <= new Date()) return { error: "The event must start in the future." };
+    if (ends <= starts) return { error: "The event end must be after its start." };
+    eventAt = starts.toISOString();
+    eventEndsAt = ends.toISOString();
+  }
 
   try {
     await createBroadcast(supabase, {
@@ -73,8 +94,10 @@ export async function createBroadcastAction(
       body,
       classroom_id: str(formData, "classroom_id") || null,
       pinned: formData.get("pinned") === "on",
-      rsvp_enabled: formData.get("rsvp_enabled") === "on",
-      event_at: str(formData, "event_at") ? new Date(str(formData, "event_at")).toISOString() : null,
+      rsvp_enabled: rsvpEnabled,
+      event_at: eventAt,
+      event_ends_at: eventEndsAt,
+      event_location: rsvpEnabled ? eventLocation : null,
     });
   } catch (err) {
     return { error: err instanceof Error ? err.message : "Could not send the broadcast." };

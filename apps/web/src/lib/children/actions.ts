@@ -9,6 +9,8 @@ import {
   enqueueEmailNotification,
   getMyProfile,
   removePickup,
+  resolvePickupSecurityEvent,
+  reviewParentPickup,
   saveMedicationAuthorization,
   setChildConsent,
   unlinkParent,
@@ -273,6 +275,35 @@ export async function removePickupAction(formData: FormData): Promise<void> {
   revalidatePath(`/children/${childId}`);
 }
 
+export async function reviewPickupAction(formData: FormData): Promise<void> {
+  const supabase = await getServerSupabase();
+  const childId = str(formData, "child_id");
+  const decision = str(formData, "decision");
+  if (decision !== "approved" && decision !== "rejected") {
+    throw new Error("Choose approve or reject.");
+  }
+  await reviewParentPickup(
+    supabase,
+    str(formData, "pickup_id"),
+    decision,
+    str(formData, "review_note") || null,
+  );
+  revalidatePath(`/children/${childId}`);
+}
+
+export async function resolvePickupSecurityEventAction(formData: FormData): Promise<void> {
+  const supabase = await getServerSupabase();
+  const profile = await getMyProfile(supabase);
+  const childId = str(formData, "child_id");
+  const eventId = str(formData, "event_id");
+  if (!profile || !UUID.test(childId) || !UUID.test(eventId)) {
+    throw new Error("Pickup security event not found.");
+  }
+  await resolvePickupSecurityEvent(supabase, eventId, childId, profile.id);
+  revalidatePath(`/children/${childId}`);
+  revalidatePath("/notifications");
+}
+
 export async function saveMedicationAction(
   _prev: ChildActionState,
   formData: FormData,
@@ -457,7 +488,7 @@ export async function resendParentInviteAction(formData: FormData): Promise<void
 
   await supabase
     .from("child_invite_codes")
-    .update({ expires_at: new Date(Date.now() + 14 * 86400000).toISOString() })
+    .update({ expires_at: new Date(Date.now() + 7 * 86400000).toISOString() })
     .eq("id", inviteId);
   await enqueueEmailNotification(supabase, {
     daycareId: profile.daycare_id,

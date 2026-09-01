@@ -72,6 +72,34 @@ export async function listMedicalRegister(client: Client): Promise<MedicalRegist
   return (data ?? []) as unknown as MedicalRegisterRow[];
 }
 
+export interface ConsentRegisterRow {
+  id: string;
+  first_name: string;
+  last_name: string;
+  classroom: { id: string; name: string } | null;
+  consents: {
+    id: string;
+    kind: string;
+    granted: boolean;
+    updated_at: string | null;
+  }[];
+}
+
+export async function listConsentRegister(client: Client): Promise<ConsentRegisterRow[]> {
+  const { data, error } = await client
+    .from('children')
+    .select(
+      `id, first_name, last_name,
+       classroom:classrooms(id, name),
+       consents(id, kind, granted, updated_at)`,
+    )
+    .is('archived_at', null)
+    .order('first_name');
+
+  if (error) throw error;
+  return (data ?? []) as unknown as ConsentRegisterRow[];
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Child profile (19a)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -83,6 +111,21 @@ export interface ChildPickup {
   phone: string | null;
   pin: string;
   is_primary: boolean;
+  approval_status: 'pending' | 'approved' | 'rejected';
+  requested_at: string | null;
+  reviewed_at: string | null;
+  review_note: string | null;
+}
+
+export interface PickupSecurityEvent {
+  id: string;
+  attempted_name: string | null;
+  notes: string | null;
+  status: 'open' | 'resolved';
+  created_at: string;
+  resolved_at: string | null;
+  reporter: { full_name: string } | null;
+  resolver: { full_name: string } | null;
 }
 
 export interface PendingParentInvite {
@@ -140,6 +183,7 @@ export async function getChildProfile(client: Client, childId: string) {
     invitesRes,
     documentsRes,
     documentRequestsRes,
+    pickupSecurityRes,
   ] = await Promise.all([
     client
       .from('children')
@@ -153,13 +197,17 @@ export async function getChildProfile(client: Client, childId: string) {
       .single(),
     client
       .from('child_pickups')
-      .select('id, full_name, relationship, phone, pin, is_primary')
+      .select(
+        'id, full_name, relationship, phone, pin, is_primary, approval_status, requested_at, reviewed_at, review_note',
+      )
       .eq('child_id', childId)
       .is('archived_at', null)
       .order('is_primary', { ascending: false }),
     client
       .from('medication_authorizations')
-      .select('id, parent_id, name, dosage, schedule, notes, active, parent:profiles(full_name)')
+      .select(
+        'id, parent_id, name, dosage, schedule, notes, active, parent:profiles!medication_authorizations_parent_id_fkey(full_name)',
+      )
       .eq('child_id', childId)
       .order('active', { ascending: false }),
     client
@@ -192,10 +240,26 @@ export async function getChildProfile(client: Client, childId: string) {
       .eq('child_id', childId)
       .neq('status', 'cancelled')
       .order('requested_at', { ascending: false }),
+    client
+      .from('pickup_security_events')
+      .select(
+        `id, attempted_name, notes, status, created_at, resolved_at,
+         reporter:profiles!pickup_security_events_reported_by_fkey(full_name),
+         resolver:profiles!pickup_security_events_resolved_by_fkey(full_name)`,
+      )
+      .eq('child_id', childId)
+      .order('created_at', { ascending: false })
+      .limit(10),
   ]);
 
   if (childRes.error) throw childRes.error;
+  if (pickupsRes.error) throw pickupsRes.error;
+  if (medsRes.error) throw medsRes.error;
+  if (consentsRes.error) throw consentsRes.error;
+  if (invitesRes.error) throw invitesRes.error;
+  if (documentsRes.error) throw documentsRes.error;
   if (documentRequestsRes.error) throw documentRequestsRes.error;
+  if (pickupSecurityRes.error) throw pickupSecurityRes.error;
   return {
     child: childRes.data,
     pickups: (pickupsRes.data ?? []) as ChildPickup[],
@@ -204,6 +268,7 @@ export async function getChildProfile(client: Client, childId: string) {
     pendingInvites: (invitesRes.data ?? []) as PendingParentInvite[],
     documents: (documentsRes.data ?? []) as ChildDocument[],
     documentRequests: (documentRequestsRes.data ?? []) as unknown as ParentDocumentRequestReviewRow[],
+    pickupSecurityEvents: (pickupSecurityRes.data ?? []) as unknown as PickupSecurityEvent[],
   };
 }
 
@@ -263,6 +328,39 @@ export async function removePickup(client: Client, pickupId: string): Promise<vo
     .from('child_pickups')
     .update({ archived_at: new Date().toISOString() })
     .eq('id', pickupId);
+  if (error) throw error;
+}
+
+export async function reviewParentPickup(
+  client: Client,
+  pickupId: string,
+  decision: 'approved' | 'rejected',
+  note?: string | null,
+): Promise<void> {
+  const { error } = await client.rpc('review_parent_authorized_pickup', {
+    p_pickup_id: pickupId,
+    p_decision: decision,
+    ...(note != null ? { p_note: note } : {}),
+  });
+  if (error) throw error;
+}
+
+export async function resolvePickupSecurityEvent(
+  client: Client,
+  eventId: string,
+  childId: string,
+  resolvedBy: string,
+): Promise<void> {
+  const { error } = await client
+    .from('pickup_security_events')
+    .update({
+      status: 'resolved',
+      resolved_by: resolvedBy,
+      resolved_at: new Date().toISOString(),
+    })
+    .eq('id', eventId)
+    .eq('child_id', childId)
+    .eq('status', 'open');
   if (error) throw error;
 }
 

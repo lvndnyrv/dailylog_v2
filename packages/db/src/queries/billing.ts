@@ -56,8 +56,9 @@ export async function createInvoice(
   lines: InvoiceLineInput[],
 ): Promise<string> {
   const { data, error } = await client.rpc('create_invoice', {
-    p_child_id: childId,
-    p_billed_to: billedTo,
+    // Supabase's generated function Args do not preserve nullable SQL inputs.
+    p_child_id: childId as unknown as string,
+    p_billed_to: billedTo as unknown as string,
     p_due_on: dueOn,
     p_lines: lines as unknown as Json,
   });

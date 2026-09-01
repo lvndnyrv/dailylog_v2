@@ -93,7 +93,9 @@ begin
   if not v_failed then raise exception 'FAIL: expired card enabled autopay'; end if;
   raise notice 'PASS: expired methods cannot pay invoices or enable autopay';
 
-  perform pg_temp.impersonate('postgres');
+  -- This is rollback-only fixture setup, so use the same trusted role that
+  -- production maintenance jobs use to cross the billing mutation guard.
+  perform pg_temp.impersonate('service_role');
   update public.invoices set status = 'void' where id = v_invoice;
   perform pg_temp.impersonate('authenticated', v_parent);
   v_failed := false;

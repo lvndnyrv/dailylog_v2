@@ -265,6 +265,23 @@ export async function planRoomTransitionAction(
   return { ok: true };
 }
 
+export async function completeRoomTransitionAction(
+  _prev: RoomActionState,
+  formData: FormData,
+): Promise<RoomActionState> {
+  const supabase = await getServerSupabase();
+  const planId = str(formData, "plan_id");
+  if (!planId) return { error: "A room transition plan is required." };
+
+  const { error } = await supabase.rpc("complete_room_transition_plan", {
+    p_plan_id: planId,
+  });
+  if (error) return { error: error.message };
+
+  revalidatePath("/rooms");
+  return { ok: true };
+}
+
 export async function updateRoomCombinationsAction(
   _prev: RoomActionState,
   formData: FormData,

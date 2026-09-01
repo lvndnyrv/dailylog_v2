@@ -174,6 +174,27 @@ begin
   end if;
   raise notice 'PASS: educator role matrix grants care work and denies billing';
 
+  -- Linked demo databases may already have an open shift. Remove it as the
+  -- test harness role inside this rollback-only transaction before exercising
+  -- a fresh clock cycle. Closing it at `now()` would overlap the intentional
+  -- five-minute test entry and correctly trip the database overlap guard.
+  if exists (
+    select 1
+      from staff_time_entries
+     where staff_member_id = my_staff_member_id()
+       and clocked_out_at is null
+  ) then
+    perform test_reset_role();
+    delete from staff_time_entries
+     where staff_member_id = (
+       select id from staff_members
+        where profile_id = v_educator
+          and daycare_id = v_daycare
+     )
+       and clocked_out_at is null;
+    perform test_impersonate(v_educator);
+  end if;
+
   v_uuid := clock_in(null, now() - interval '5 minutes');
   perform clock_out(now(), 0);
   select count(*) into n from staff_time_entries

@@ -5,6 +5,7 @@ import type {
   BillingSummary,
   IncidentRow,
   RoomLiveStatus,
+  ComplianceDueItem,
 } from "@dailylog/db/queries";
 import { initials, isOverRatio } from "@dailylog/shared";
 import Link from "next/link";
@@ -64,6 +65,7 @@ export function DashboardView({
   offers,
   certIssues,
   staffing,
+  complianceDue = [],
   openIncident = false,
 }: {
   rooms: RoomLiveStatus[];
@@ -74,6 +76,7 @@ export function DashboardView({
   offers: Offer[];
   certIssues: CertIssue[];
   staffing: Staffing[];
+  complianceDue?: ComplianceDueItem[];
   openIncident?: boolean;
 }) {
   const router = useRouter();
@@ -98,7 +101,7 @@ export function DashboardView({
     isOverRatio(Number(room.present_count), room.educators.length, room.ratio_children_per_educator);
   const overRooms = rooms.filter(roomOver);
 
-  const attention = overRooms.length + certIssues.length + incidents.length + offers.length;
+  const attention = overRooms.length + certIssues.length + incidents.length + offers.length + complianceDue.length;
 
   return (
     <div className="flex flex-1 flex-col p-7">
@@ -197,10 +200,17 @@ export function DashboardView({
                     detail={cert.missing
                       ? (cert.room ? `Required for staff assigned to ${cert.room}` : "Required credential")
                       : cert.room ? `Certified staff in ${cert.room}` : "Renewal needed"}
-                    action={<GhostPill href="/compliance">Send reminder</GhostPill>}
+                    action={<GhostPill href="/compliance">Review credential</GhostPill>}
                   />
                 );
               })}
+
+              {complianceDue.map(item => (
+                <AttentionRow key={`compliance-${item.id}`} dot="warning"
+                  title={`${item.title} ${item.days_left < 0 ? "is overdue" : item.days_left === 0 ? "is due today" : `is due in ${item.days_left} days`}`}
+                  detail={item.kind === "drill" ? "Scheduled drill · log the result in Compliance" : "Center document · upload a current replacement"}
+                  action={<GhostPill href="/compliance">Review</GhostPill>} />
+              ))}
 
               {incidents.map((incident) => (
                 <AttentionRow

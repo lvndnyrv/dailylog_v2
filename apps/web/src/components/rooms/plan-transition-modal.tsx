@@ -5,12 +5,16 @@ import type {
   RoomTransition,
   RoomTransitionPlanRow,
 } from "@dailylog/db/queries";
-import { useActionState } from "react";
+import { useActionState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { Modal } from "@/components/ui/modal";
 import { Notice } from "@/components/ui/notice";
-import { planRoomTransitionAction, type RoomActionState } from "@/lib/rooms/actions";
+import {
+  completeRoomTransitionAction,
+  planRoomTransitionAction,
+  type RoomActionState,
+} from "@/lib/rooms/actions";
 
 export function PlanTransitionModal({
   transition,
@@ -27,8 +31,16 @@ export function PlanTransitionModal({
     planRoomTransitionAction,
     {},
   );
+  const [completion, completeAction, completing] = useActionState<RoomActionState, FormData>(
+    completeRoomTransitionAction,
+    {},
+  );
   const suggestedDate = plan?.move_on ?? transitionDate(transition);
   const suggestedTransition = transitionWeekDates(suggestedDate);
+
+  useEffect(() => {
+    if (completion.ok) onClose();
+  }, [completion.ok, onClose]);
 
   return (
     <Modal onClose={onClose} width={430}>
@@ -41,6 +53,29 @@ export function PlanTransitionModal({
           preserves the current room until the move day.
         </p>
       </div>
+
+      {plan ? (
+        <form
+          action={completeAction}
+          className="rounded-[13px] border border-[#CBE7D8] bg-[#F5FBF8] p-3.5"
+          onSubmit={(event) => {
+            if (!window.confirm(`Move ${transition.first_name} to the new room now?`)) {
+              event.preventDefault();
+            }
+          }}
+        >
+          <input type="hidden" name="plan_id" value={plan.id} />
+          <div className="flex items-center gap-3">
+            <span className="min-w-0 flex-1 text-[11.5px] leading-relaxed text-muted">
+              Ready now? Completing the plan changes the child&apos;s home room immediately and tells the family.
+            </span>
+            <Button type="submit" className="shrink-0 px-3 py-2 text-[11.5px]" disabled={completing}>
+              {completing ? "Moving…" : "Complete move"}
+            </Button>
+          </div>
+          {completion.error ? <Notice tone="error">{completion.error}</Notice> : null}
+        </form>
+      ) : null}
 
       <form action={action} className="flex flex-col gap-4">
         <input type="hidden" name="child_id" value={transition.child_id} />

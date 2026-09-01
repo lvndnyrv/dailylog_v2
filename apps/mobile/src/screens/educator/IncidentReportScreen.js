@@ -140,6 +140,15 @@ export default function IncidentReportScreen({ route, navigation }) {
   const [saving, setSaving] = useState(false);
   const [hydrated, setHydrated] = useState(!initialReportId);
 
+  function returnToIncidentHub() {
+    const routes = navigation.getState()?.routes || [];
+    if (routes.some(item => item.name === 'IncidentHub')) {
+      navigation.popTo('IncidentHub');
+      return;
+    }
+    navigation.navigate('IncidentHub');
+  }
+
   useEffect(() => {
     if (!profile?.daycare_id) return;
     supabase
@@ -261,7 +270,7 @@ export default function IncidentReportScreen({ route, navigation }) {
         result.queued
           ? 'The report will sync automatically when this device reconnects.'
           : 'You can finish it from the incident hub.',
-        [{ text: 'Done', onPress: () => navigation.navigate('IncidentHub') }],
+        [{ text: 'Done', onPress: returnToIncidentHub }],
       );
     }
     return id;
@@ -414,7 +423,7 @@ export default function IncidentReportScreen({ route, navigation }) {
           </View>
 
           <View style={styles.submittedSpacer} />
-          <Button label="Back to incidents" onPress={() => navigation.navigate('IncidentHub')} style={styles.fullButton} />
+          <Button label="Back to incidents" onPress={returnToIncidentHub} style={styles.fullButton} />
         </View>
       </View>
     );
@@ -424,14 +433,24 @@ export default function IncidentReportScreen({ route, navigation }) {
     <View style={styles.container}>
       <View style={styles.header}>
         {stage === 'review' ? (
-          <TouchableOpacity onPress={() => setStage('capture')} style={styles.headerCircle}>
+          <TouchableOpacity
+            onPress={() => setStage('capture')}
+            style={styles.headerCircle}
+            accessibilityRole="button"
+            accessibilityLabel="Back to incident details"
+          >
             <Ionicons name="chevron-back" size={21} color={colors.textPrimary} />
           </TouchableOpacity>
         ) : (
           <View style={styles.headerSpacer} />
         )}
         <Text style={styles.headerTitle}>{stage === 'review' ? 'Review report' : 'New incident'}</Text>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerCircle}>
+        <TouchableOpacity
+          onPress={() => navigation.goBack()}
+          style={styles.headerCircle}
+          accessibilityRole="button"
+          accessibilityLabel="Close incident report"
+        >
           <Ionicons name="close" size={20} color={colors.textMuted} />
         </TouchableOpacity>
       </View>

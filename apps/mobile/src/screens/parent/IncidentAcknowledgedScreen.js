@@ -10,6 +10,7 @@ export default function IncidentAcknowledgedScreen({ navigation, route }) {
   const child = route.params?.child;
   const result = route.params?.result;
   const acknowledgedAt = result?.acknowledgedAt ? new Date(result.acknowledgedAt) : new Date();
+  const directorReviewPending = Boolean(result?.directorReviewPending);
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
       <View style={styles.content}>
@@ -24,8 +25,12 @@ export default function IncidentAcknowledgedScreen({ navigation, route }) {
           <Text style={styles.signedMeta}>Parent · {format(acknowledgedAt, 'MMMM d, yyyy')}</Text>
         </View>
         <View style={styles.receiptNote}>
-          <Ionicons name="shield-checkmark-outline" size={18} color={colors.success} />
-          <Text style={styles.receiptText}>This receipt remains available in {child?.first_name || 'your child'}’s incident report history.</Text>
+          <Ionicons name={directorReviewPending ? 'time-outline' : 'shield-checkmark-outline'} size={18} color={directorReviewPending ? colors.amber : colors.success} />
+          <Text style={styles.receiptText}>
+            {directorReviewPending
+              ? `Your acknowledgment is saved. The director is still reviewing ${child?.first_name || 'your child'}’s report.`
+              : `This receipt remains available in ${child?.first_name || 'your child'}’s incident report history.`}
+          </Text>
         </View>
       </View>
       <View style={styles.footer}>

@@ -107,9 +107,10 @@ export function useDailyLog(childId, date = new Date(), { createIfMissing = fals
   // educator to create today's log and keeps moods, notes and sent status live.
   useEffect(() => {
     if (!childId) return undefined;
+    const channelInstance = `${Date.now()}:${Math.random().toString(36).slice(2)}`;
 
     const channel = supabase
-      .channel(`daily-log:${childId}:${dateStr}`)
+      .channel(`daily-log:${childId}:${dateStr}:${channelInstance}`)
       .on('postgres_changes', {
         event: '*',
         schema: 'public',
@@ -136,12 +137,13 @@ export function useDailyLog(childId, date = new Date(), { createIfMissing = fals
   // Real-time subscriptions so parent view updates live
   useEffect(() => {
     if (!log?.id) return;
+    const channelInstance = `${Date.now()}:${Math.random().toString(36).slice(2)}`;
 
     const tables = ['meal_entries', 'diaper_entries', 'sleep_entries', 'activity_entries', 'supply_requests'];
     const setters = { meal_entries: setMeals, diaper_entries: setDiapers, sleep_entries: setSleeps, activity_entries: setActivities, supply_requests: setSupplies };
 
     const channels = tables.map(table =>
-      supabase.channel(`${table}:${log.id}`)
+      supabase.channel(`${table}:${log.id}:${channelInstance}`)
         .on('postgres_changes', {
           event: '*', schema: 'public', table,
           filter: `daily_log_id=eq.${log.id}`,

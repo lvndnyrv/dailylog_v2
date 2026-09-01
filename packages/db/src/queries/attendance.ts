@@ -9,7 +9,12 @@ export interface AttendanceDayRow {
   first_name: string;
   last_name: string;
   classroom: { id: string; name: string } | null;
-  attendance: Tables<'attendance_records'>[];
+  attendance: Array<
+    Tables<'attendance_records'> & {
+      checked_in_by_profile: { id: string; full_name: string } | null;
+      checked_out_by_profile: { id: string; full_name: string } | null;
+    }
+  >;
 }
 
 // Every active child with their (0 or 1) attendance record for the day (8a).
@@ -22,7 +27,11 @@ export async function listAttendanceDay(
     .select(
       `id, first_name, last_name,
        classroom:classrooms(id, name),
-       attendance:attendance_records(*)`,
+       attendance:attendance_records(
+         *,
+         checked_in_by_profile:profiles!attendance_records_checked_in_by_fkey(id, full_name),
+         checked_out_by_profile:profiles!attendance_records_checked_out_by_fkey(id, full_name)
+       )`,
     )
     .eq('attendance.date', date)
     .is('archived_at', null)

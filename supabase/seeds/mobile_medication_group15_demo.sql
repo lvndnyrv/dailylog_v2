@@ -7,7 +7,8 @@ update medication_authorizations
        end_date = current_date + 60,
        signed_name = 'Chidi Okafor',
        signed_at = coalesce(signed_at, created_at)
- where id = '52000000-0000-4000-a000-000000000002';
+ where id = '52000000-0000-4000-a000-000000000002'
+   and signed_at is null;
 
 update medication_authorizations
    set route = 'Injection',
@@ -16,7 +17,8 @@ update medication_authorizations
        end_date = current_date + 35,
        signed_name = 'Marc Danyar',
        signed_at = coalesce(signed_at, created_at)
- where id = '51900000-0000-4000-a000-000000000001';
+ where id = '51900000-0000-4000-a000-000000000001'
+   and signed_at is null;
 
 update medication_authorizations
    set route = 'Inhaled',
@@ -28,6 +30,7 @@ update medication_authorizations
   from profiles parent
  where medication_authorizations.parent_id = parent.id
    and medication_authorizations.active
+   and medication_authorizations.signed_at is null
    and (
      lower(medication_authorizations.name) like '%inhaler%'
      or lower(medication_authorizations.dosage) like '%puff%'

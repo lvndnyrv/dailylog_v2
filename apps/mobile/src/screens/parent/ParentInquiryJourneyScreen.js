@@ -2,9 +2,11 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  AppState,
   KeyboardAvoidingView,
   Linking,
   Platform,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -22,6 +24,13 @@ import { useParentInquiryJourney } from '../../hooks/useParentInquiryJourney';
 import { colors, fonts, radius, spacing } from '../../theme';
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function replyWindow(hours) {
+  const value = Number(hours);
+  if (!Number.isFinite(value) || value <= 24) return 'one business day';
+  const days = Math.ceil(value / 24);
+  return `${days} business days`;
+}
 
 function prettyDate(value, pattern = 'EEE, MMM d') {
   if (!value) return 'To be confirmed';
@@ -145,7 +154,7 @@ function InquiryForm({ center, busy, onSubmit }) {
       <Text style={styles.eyebrow}>NOW ENROLLING</Text>
       <Text style={styles.title}>Ask about a spot</Text>
       <Text style={styles.subtitle}>
-        Tell us a little about your child — {center?.name || 'the center'} will reply within one business day. No account needed.
+        Tell us a little about your child — {center?.name || 'the center'} will reply within {replyWindow(center?.reply_hours)}. No account needed.
       </Text>
 
       <Input label="Child's full name (required)" value={childName} onChangeText={clear('childName', setChildName)} placeholder="Nora Adeyemi" error={errors.childName} />
@@ -167,6 +176,8 @@ function InquiryForm({ center, busy, onSubmit }) {
             key={program.id}
             style={[styles.programChip, classroomId === program.id && styles.programChipSelected]}
             onPress={() => clear('classroomId', setClassroomId)(program.id)}
+            accessibilityRole="radio"
+            accessibilityState={{ selected: classroomId === program.id }}
           >
             <Text style={[styles.programChipText, classroomId === program.id && styles.programChipTextSelected]}>{program.name}</Text>
           </TouchableOpacity>
@@ -181,6 +192,8 @@ function InquiryForm({ center, busy, onSubmit }) {
             key={value}
             style={[styles.dayChip, days === value && styles.programChipSelected]}
             onPress={() => setDays(value)}
+            accessibilityRole="radio"
+            accessibilityState={{ selected: days === value }}
           >
             <Text style={[styles.programChipText, days === value && styles.programChipTextSelected]}>{value} days / week</Text>
           </TouchableOpacity>
@@ -203,7 +216,7 @@ function InquiryReceived({ journey, onBook, onContact }) {
     <View>
       <CenterIdentity center={journey.daycare} program={journey.program} />
       <Text style={styles.title}>Thanks — we&apos;ve got your{`\n`}inquiry for {child}</Text>
-      <Text style={styles.subtitle}>We&apos;ll be in touch within one business day. Here&apos;s what happens next:</Text>
+      <Text style={styles.subtitle}>We&apos;ll be in touch within {replyWindow(journey.daycare?.reply_hours)}. Here&apos;s what happens next:</Text>
       <Progress active="Tour" />
       <View style={styles.card}>
         <Text style={styles.eyebrow}>NEXT STEP</Text>
@@ -343,7 +356,7 @@ function WaitlistPlace({ journey, onChangePlans, onOffer }) {
   );
 }
 
-function WaitlistCheckin({ journey, busy, proactive, onKeep, onRemove }) {
+function WaitlistCheckin({ journey, busy, proactive, onKeep, onRemove, onBack }) {
   const waitlist = journey.waitlist || {};
   const waitingSince = waitlist.joined_at
     ? formatDistanceToNowStrict(new Date(waitlist.joined_at))
@@ -358,7 +371,39 @@ function WaitlistCheckin({ journey, busy, proactive, onKeep, onRemove }) {
       <View style={styles.placePill}><Text style={styles.placeNumber}>#{waitlist.position || '—'}</Text><Text style={styles.placeText}>Your current place in line</Text></View>
       <PageAction label="Yes, keep my spot" onPress={onKeep} loading={busy} />
       <PageAction label="Remove me from the list" onPress={onRemove} secondary disabled={busy} />
+      {proactive ? (
+        <TouchableOpacity onPress={onBack} style={styles.textLink} disabled={busy}>
+          <Text style={styles.textLinkLabelMuted}>Back to my waitlist place</Text>
+        </TouchableOpacity>
+      ) : null}
       <Text style={styles.checkinNote}>No reply keeps your spot for now. After {waitlist.archive_after || 2} unanswered check-ins, the entry is archived—not deleted—and the center can restore it later.</Text>
+    </View>
+  );
+}
+
+function ClosedInquiry({ journey, onContact, onFinish }) {
+  return (
+    <View style={styles.centered}>
+      <View style={styles.neutralIcon}><Ionicons name="mail-open-outline" size={32} color={colors.textMuted} /></View>
+      <Text style={styles.titleCentered}>This inquiry is closed</Text>
+      <Text style={styles.subtitleCentered}>
+        {journey.child?.first_name || 'Your child'}&apos;s inquiry is no longer active. The center kept the family record, so you can contact them if your plans change.
+      </Text>
+      <PageAction label="Contact the center" onPress={onContact} />
+      <PageAction label="Return to DailyLog" onPress={onFinish} secondary />
+    </View>
+  );
+}
+
+function EnrollmentComplete({ journey, onFinish }) {
+  return (
+    <View style={styles.centered}>
+      <View style={styles.successIcon}><Ionicons name="checkmark" size={36} color={colors.success} /></View>
+      <Text style={styles.titleCentered}>Enrollment complete</Text>
+      <Text style={styles.subtitleCentered}>
+        {journey.child?.first_name || 'Your child'} is enrolled. Continue to DailyLog to see the family account and next steps.
+      </Text>
+      <PageAction label="Continue to DailyLog" onPress={onFinish} />
     </View>
   );
 }
@@ -399,21 +444,44 @@ export default function ParentInquiryJourneyScreen() {
   const [mode, setMode] = useState(null);
   const [selectedSlot, setSelectedSlot] = useState(null);
 
+  const slotKey = useMemo(
+    () => (inquiry.journey?.open_tour_slots || []).map((slot) => slot.id).join('|'),
+    [inquiry.journey?.open_tour_slots],
+  );
+
   const naturalMode = useMemo(() => {
     if (!inquiry.code) return 'form';
     if (!inquiry.journey) return 'loading';
+    if (inquiry.journey.stage === 'enrolled') return 'enrolled';
+    if (
+      inquiry.journey.stage === 'withdrawn'
+      && inquiry.journey.waitlist?.status === 'archived'
+      && !inquiry.journey.waitlist?.joined_at
+    ) return 'closed';
     if (inquiry.journey.waitlist?.status === 'archived') return 'archived';
     if (inquiry.journey.waitlist?.checkin_due) return 'checkin';
-    if (['active', 'offer'].includes(inquiry.journey.waitlist?.status)) return 'waitlist';
+    if (inquiry.journey.offer?.available || ['active', 'offer'].includes(inquiry.journey.waitlist?.status)) return 'waitlist';
     if (inquiry.journey.tour) return 'booked';
     return 'received';
   }, [inquiry.code, inquiry.journey]);
 
   useEffect(() => {
     setMode(null);
-    const first = inquiry.journey?.open_tour_slots?.[0]?.id;
-    if (first) setSelectedSlot(first);
   }, [inquiry.journey?.id, inquiry.journey?.tour?.id]);
+
+  useEffect(() => {
+    const slots = inquiry.journey?.open_tour_slots || [];
+    setSelectedSlot((current) => (
+      slots.some((slot) => slot.id === current) ? current : (slots[0]?.id || null)
+    ));
+  }, [inquiry.journey?.id, slotKey]);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active' && (inquiry.code || inquiry.centerId)) inquiry.refresh();
+    });
+    return () => subscription.remove();
+  }, [inquiry.centerId, inquiry.code, inquiry.refresh]);
 
   const visibleMode = mode || naturalMode;
 
@@ -470,13 +538,19 @@ export default function ParentInquiryJourneyScreen() {
     );
   }
 
-  function contact() {
+  async function contact() {
     const phone = inquiry.journey?.daycare?.phone || inquiry.center?.phone;
     if (!phone) {
       Alert.alert('Contact the center', 'The center has not added a public phone number yet.');
       return;
     }
-    Linking.openURL(`sms:${phone.replace(/[^+\d]/g, '')}`);
+    const url = `sms:${phone.replace(/[^+\d]/g, '')}`;
+    try {
+      if (!(await Linking.canOpenURL(url))) throw new Error('Messaging is unavailable.');
+      await Linking.openURL(url);
+    } catch {
+      Alert.alert('Contact the center', `Call ${phone} to speak with the enrollment team.`);
+    }
   }
 
   async function keepSpot() {
@@ -522,15 +596,27 @@ export default function ParentInquiryJourneyScreen() {
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
       <KeyboardAvoidingView style={styles.flexOne} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+        <ScrollView
+          contentContainerStyle={styles.content}
+          keyboardShouldPersistTaps="handled"
+          refreshControl={(
+            <RefreshControl
+              refreshing={inquiry.loading && Boolean(inquiry.center || inquiry.journey)}
+              onRefresh={inquiry.refresh}
+              tintColor={colors.primary}
+            />
+          )}
+        >
           {visibleMode === 'form' ? <InquiryForm center={inquiry.center} busy={inquiry.busy} onSubmit={submit} /> : null}
           {visibleMode === 'received' ? <InquiryReceived journey={inquiry.journey} onBook={() => setMode('booking')} onContact={contact} /> : null}
           {visibleMode === 'booking' ? <TourBooking journey={inquiry.journey} selected={selectedSlot} setSelected={setSelectedSlot} busy={inquiry.busy} onConfirm={book} onBack={() => setMode(null)} onContact={contact} /> : null}
           {visibleMode === 'booked' ? <TourBooked journey={inquiry.journey} busy={inquiry.busy} onCalendar={calendar} onDirections={directions} onReschedule={() => setMode('booking')} onCancel={cancelTour} onContact={contact} /> : null}
           {visibleMode === 'waitlist' ? <WaitlistPlace journey={inquiry.journey} onChangePlans={() => setMode('checkin-proactive')} onOffer={openOffer} /> : null}
-          {visibleMode === 'checkin' || visibleMode === 'checkin-proactive' ? <WaitlistCheckin journey={inquiry.journey} busy={inquiry.busy} proactive={visibleMode === 'checkin-proactive'} onKeep={keepSpot} onRemove={removeSpot} /> : null}
+          {visibleMode === 'checkin' || visibleMode === 'checkin-proactive' ? <WaitlistCheckin journey={inquiry.journey} busy={inquiry.busy} proactive={visibleMode === 'checkin-proactive'} onKeep={keepSpot} onRemove={removeSpot} onBack={() => setMode(null)} /> : null}
           {visibleMode === 'archived' ? <Archived journey={inquiry.journey} onContact={contact} onFinish={inquiry.finishJourney} /> : null}
-          {visibleMode !== 'form' && visibleMode !== 'archived' ? (
+          {visibleMode === 'closed' ? <ClosedInquiry journey={inquiry.journey} onContact={contact} onFinish={inquiry.finishJourney} /> : null}
+          {visibleMode === 'enrolled' ? <EnrollmentComplete journey={inquiry.journey} onFinish={inquiry.finishJourney} /> : null}
+          {!['archived', 'closed', 'enrolled'].includes(visibleMode) ? (
             <TouchableOpacity onPress={inquiry.finishJourney} style={styles.exitLink}><Text style={styles.exitText}>Close and return to DailyLog</Text></TouchableOpacity>
           ) : null}
         </ScrollView>

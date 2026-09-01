@@ -13,6 +13,7 @@ const PUBLIC_PATHS = [
   "/start",
   "/signed-out",
   "/inquire",
+  "/inspection",
 ];
 
 export async function proxy(request: NextRequest) {

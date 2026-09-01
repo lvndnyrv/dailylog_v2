@@ -13,6 +13,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import QRCode from 'qrcode';
 
 import { useAuth } from '../../hooks/useAuth';
+import { useParentFamily } from '../../hooks/useParentFamily';
 import {
   createMobilePickupPass,
   getParentPickupOptions,
@@ -34,10 +35,16 @@ function QrMatrix({ value, size = 244 }) {
   return (
     <View
       style={[styles.qrQuietZone, { width: size, height: size }]}
+      accessible
       accessibilityRole="image"
       accessibilityLabel="Short-lived pickup QR code"
     >
-      <View style={styles.qrGrid}>
+      <View
+        style={styles.qrGrid}
+        accessible={false}
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
+      >
         {Array.from({ length: matrix.size }, (_, row) => (
           <View key={row} style={styles.qrRow}>
             {Array.from({ length: matrix.size }, (_, column) => (
@@ -63,7 +70,12 @@ function formatCountdown(seconds) {
 
 export default function PickupPassScreen({ navigation, route }) {
   const { profile } = useAuth();
-  const child = route.params?.child || null;
+  const family = useParentFamily();
+  const routeChildId = route.params?.childId || route.params?.child?.id;
+  const child = route.params?.child
+    || family.children.find((candidate) => candidate.id === routeChildId)
+    || family.selectedChild
+    || null;
   const [options, setOptions] = useState([]);
   const [selected, setSelected] = useState(null);
   const [pass, setPass] = useState(null);
@@ -256,7 +268,7 @@ export default function PickupPassScreen({ navigation, route }) {
         <View style={styles.securityNote}>
           <Ionicons name="shield-checkmark-outline" size={17} color="#AFC2D9" />
           <Text style={styles.securityText}>
-            The code expires automatically, works once, and cannot check out a different child.
+            Only center-approved pickup people appear here. The code expires automatically, works once, and cannot check out a different child.
           </Text>
         </View>
       </ScrollView>

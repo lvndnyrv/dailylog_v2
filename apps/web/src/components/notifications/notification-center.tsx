@@ -5,7 +5,7 @@ import type {
   NotificationPreferenceRow,
   NotificationRow,
 } from "@dailylog/db/queries";
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   createContext,
   useCallback,
@@ -82,6 +82,7 @@ export function NotificationCenterProvider({
   initialDeliverySettings: NotificationDeliverySettingsRow | null;
   children: React.ReactNode;
 }) {
+  const router = useRouter();
   const [notifications, setNotifications] = useState(initialNotifications);
   const [preferences, setPreferences] = useState(() => normalizedPreferences(initialPreferences));
   const [quietHoursEnabled, setQuietHoursEnabled] = useState(
@@ -212,9 +213,10 @@ export function NotificationCenterProvider({
         <UrgentNotificationToast
           notification={toast}
           onDismiss={() => setToast(null)}
-          onOpen={() => {
+          onOpen={(href) => {
             void markRead(toast.id);
             setToast(null);
+            router.push(href);
           }}
         />
       )}
@@ -235,7 +237,7 @@ function UrgentNotificationToast({
 }: {
   notification: NotificationRow;
   onDismiss: () => void;
-  onOpen: () => void;
+  onOpen: (href: string) => void;
 }) {
   const presentation = notificationPresentation(notification);
   const Icon = presentation.icon;
@@ -258,13 +260,13 @@ function UrgentNotificationToast({
           </span>
         )}
         <span className="mt-2.5 flex gap-2">
-          <Link
-            href={presentation.href}
-            onClick={onOpen}
+          <button
+            type="button"
+            onClick={() => onOpen(presentation.href)}
             className="rounded-btn bg-primary px-3.5 py-[7px] text-[11.5px] font-bold text-white hover:bg-primary-hover"
           >
             {presentation.actionLabel}
-          </Link>
+          </button>
           <button
             type="button"
             onClick={onDismiss}

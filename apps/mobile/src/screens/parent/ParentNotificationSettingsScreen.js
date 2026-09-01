@@ -130,6 +130,7 @@ export default function ParentNotificationSettingsScreen({ navigation }) {
               onValueChange={toggleQuiet}
               trackColor={{ false: '#CBD7E6', true: colors.success }}
               thumbColor={colors.white}
+              accessibilityLabel="Quiet hours notifications"
             />
           </View>
         ) : null}

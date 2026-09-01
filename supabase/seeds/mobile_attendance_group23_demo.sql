@@ -24,7 +24,9 @@ begin
   ) values (
     '42300000-0000-4000-a000-000000000001', v_daycare,
     v_today - 365, time '18:00', 5, 100, 4000, 3, v_owner
-  ) on conflict (daycare_id, effective_from) do update set
+  ) on conflict (id) do update set
+    daycare_id = excluded.daycare_id,
+    effective_from = excluded.effective_from,
     closing_time = excluded.closing_time,
     grace_minutes = excluded.grace_minutes,
     fee_per_minute_cents = excluded.fee_per_minute_cents,
@@ -78,6 +80,39 @@ begin
     dropped_off_by = excluded.dropped_off_by,
     picked_up_by = excluded.picked_up_by;
 
+  -- The enrollment and room demo seeds add three more Preschool children.
+  -- Keep every non-scenario child present so this seed remains useful after
+  -- those fixtures are refreshed or an extra enrolled child is added.
+  insert into public.attendance_records (
+    daycare_id, child_id, date, checked_in_at, checked_in_by,
+    method, status, notes, dropped_off_by
+  )
+  select v_daycare, child.id, v_today,
+         now() - interval '1 hour 10 minutes', v_maria,
+         'educator', 'present', 'Morning room roll call', 'Authorized guardian'
+    from public.children child
+   where child.classroom_id = v_room
+     and child.archived_at is null
+     and child.id not in (
+       '30000000-0000-4000-a000-000000000013',
+       '30000000-0000-4000-a000-000000000014',
+       '30000000-0000-4000-a000-000000000015',
+       '30000000-0000-4000-a000-000000000016',
+       '30000000-0000-4000-a000-000000000017',
+       '30000000-0000-4000-a000-000000000018'
+     )
+  on conflict (child_id, date) do update set
+    checked_in_at = excluded.checked_in_at,
+    checked_in_by = excluded.checked_in_by,
+    checked_out_at = null,
+    checked_out_by = null,
+    method = excluded.method,
+    status = excluded.status,
+    absence_reason = null,
+    notes = excluded.notes,
+    dropped_off_by = excluded.dropped_off_by,
+    picked_up_by = null;
+
   delete from public.attendance_records
    where child_id = '30000000-0000-4000-a000-000000000017'
      and date = v_today;
@@ -95,12 +130,15 @@ begin
     '30000000-0000-4000-a000-000000000014',
     '00000000-0000-4000-a000-000000000024', 'Miguel Reyes',
     'Father', v_today, now() - interval '22 minutes', 'expected', v_owner
-  ) on conflict (child_id, scheduled_on) where status = 'expected'
-  do update set
+  ) on conflict (id) do update set
+    daycare_id = excluded.daycare_id,
+    child_id = excluded.child_id,
     presenter_profile_id = excluded.presenter_profile_id,
     pickup_id = null,
     presenter_name = excluded.presenter_name,
     relationship = excluded.relationship,
+    scheduled_on = excluded.scheduled_on,
     scheduled_for = excluded.scheduled_for,
+    status = excluded.status,
     created_by = excluded.created_by;
 end $$;

@@ -25,6 +25,7 @@ const SEVERITY = {
 function ReportRow({ report, onPress }) {
   const tone = SEVERITY[report.severity] || SEVERITY.minor;
   const date = new Date(report.occurred_at);
+  const directorReviewPending = report.director_review_required || report.status === 'submitted';
   return (
     <TouchableOpacity style={styles.reportRow} onPress={onPress} activeOpacity={0.72} accessibilityRole="button">
       <View style={[styles.reportIcon, { backgroundColor: tone.bg }]}>
@@ -35,6 +36,8 @@ function ReportRow({ report, onPress }) {
           <Text style={styles.reportTitle}>{report.injury_type}</Text>
           {report.action_required ? (
             <View style={styles.actionBadge}><Text style={styles.actionBadgeText}>Review</Text></View>
+          ) : directorReviewPending ? (
+            <Ionicons name="time-outline" size={18} color={colors.amber} />
           ) : (
             <Ionicons name="checkmark-circle" size={18} color={colors.success} />
           )}
@@ -45,7 +48,9 @@ function ReportRow({ report, onPress }) {
         <Text style={styles.reportStatus}>
           {report.action_required
             ? `${tone.label} incident · acknowledgment needed`
-            : `Acknowledged by ${report.acknowledgment?.signed_name || report.parent_acknowledge_name || 'parent'}`}
+            : directorReviewPending
+              ? `Acknowledged by ${report.acknowledgment?.signed_name || report.parent_acknowledge_name || 'parent'} · director review pending`
+              : `Acknowledged by ${report.acknowledgment?.signed_name || report.parent_acknowledge_name || 'parent'}`}
         </Text>
       </View>
       <Ionicons name="chevron-forward" size={18} color={colors.textFaint} />

@@ -1,6 +1,10 @@
 "use client";
 
-import type { MedicalRegisterRow, RosterChild } from "@dailylog/db/queries";
+import type {
+  ConsentRegisterRow,
+  MedicalRegisterRow,
+  RosterChild,
+} from "@dailylog/db/queries";
 import { childSetupChecklist, formatAge } from "@dailylog/shared";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -28,6 +32,7 @@ export function RosterView({
   childrenRows,
   classrooms,
   medical,
+  consentRows,
   startingSoon,
   openCreate,
   initialTab,
@@ -35,6 +40,7 @@ export function RosterView({
   childrenRows: RosterChild[];
   classrooms: Classroom[];
   medical: MedicalRegisterRow[];
+  consentRows: ConsentRegisterRow[];
   startingSoon: number;
   openCreate: boolean;
   initialTab: ChildrenTab;
@@ -62,7 +68,7 @@ export function RosterView({
     setRoomFilter(null);
     setQuery("");
     const url = nextTab === "all" ? "/children" : `/children?tab=${nextTab}`;
-    window.history.replaceState(null, "", url);
+    router.replace(url, { scroll: false });
   };
 
   return (
@@ -182,15 +188,7 @@ export function RosterView({
 
         {tab === "medical" && <MedicalRegister rows={medical} />}
 
-        {tab === "consents" && (
-          <div className="flex flex-col items-center gap-2 rounded-2xl border-[1.5px] border-[#D6E1F0] bg-card px-6 py-12 text-center">
-            <span className="text-[13px] font-extrabold text-ink">No consent records yet</span>
-            <span className="max-w-sm text-[12.5px] leading-relaxed text-muted">
-              Parents grant per-child consents (photos, sunscreen, outings) from
-              their app — statuses roll up here as they come in.
-            </span>
-          </div>
-        )}
+        {tab === "consents" && <ConsentRegister rows={consentRows} />}
       </div>
 
       {creating && (
@@ -453,6 +451,67 @@ function MedicalRegister({ rows }: { rows: MedicalRegisterRow[] }) {
       <p className="text-center text-[11.5px] text-faint print:hidden">
         Aggregates every child&apos;s medical record into one reviewable list — the
         safety view Attendance, Rooms and Incidents each only saw a slice of.
+      </p>
+    </div>
+  );
+}
+
+const CONSENT_REGISTER_KINDS = [
+  { kind: "Photo & media consent", label: "Photos" },
+  { kind: "Field-trip permission", label: "Trips" },
+  { kind: "Water / splash play", label: "Water" },
+  { kind: "Sunscreen application", label: "Sunscreen" },
+] as const;
+
+function ConsentRegister({ rows }: { rows: ConsentRegisterRow[] }) {
+  const statuses = rows.flatMap((row) => CONSENT_REGISTER_KINDS.map(({ kind }) =>
+    row.consents.find((consent) => consent.kind === kind),
+  ));
+  const allowed = statuses.filter((consent) => consent?.granted).length;
+  const declined = statuses.filter((consent) => consent && !consent.granted).length;
+  const unanswered = statuses.filter((consent) => !consent).length;
+
+  return (
+    <div data-children-consent-register className="flex flex-col gap-3.5">
+      <div className="grid grid-cols-3 gap-3">
+        <MedicalSummaryCard value={allowed} label="Allowed permissions" className="border-[#CBE8DA] bg-[#F2FAF6] text-success" />
+        <MedicalSummaryCard value={declined} label="Declined permissions" className="border-[#F0D2D2] bg-[#FDF3F3] text-danger" />
+        <MedicalSummaryCard value={unanswered} label="Awaiting family response" className="border-[#F0E2C4] bg-[#FFFBF2] text-warning-text" />
+      </div>
+
+      <div className="overflow-hidden rounded-2xl border-[1.5px] border-[#D6E1F0] bg-card">
+        <div className={`grid grid-cols-[1.45fr_.8fr_repeat(4,.7fr)] gap-2.5 border-b-[1.5px] border-[#EDF3FB] bg-[#F8FBFE] px-[18px] py-3 ${HEAD}`}>
+          <span>CHILD</span>
+          <span>ROOM</span>
+          {CONSENT_REGISTER_KINDS.map(({ kind, label }) => <span key={kind}>{label}</span>)}
+        </div>
+        {rows.map((row) => (
+          <Link
+            key={row.id}
+            href={`/children/${row.id}`}
+            aria-label={`Review permissions for ${row.first_name} ${row.last_name}`}
+            className="grid grid-cols-[1.45fr_.8fr_repeat(4,.7fr)] items-center gap-2.5 border-b border-[#EDF3FB] px-[18px] py-3 last:border-b-0 hover:bg-[#F8FBFE] focus-visible:bg-[#F8FBFE] focus-visible:outline-none"
+          >
+            <span className="flex items-center gap-2.5">
+              <Avatar name={`${row.first_name} ${row.last_name}`} size={28} />
+              <span className="text-[13px] font-bold text-ink">{row.first_name} {row.last_name}</span>
+            </span>
+            <span className="text-[12px] text-muted">{row.classroom?.name ?? "—"}</span>
+            {CONSENT_REGISTER_KINDS.map(({ kind }) => {
+              const consent = row.consents.find((candidate) => candidate.kind === kind);
+              const label = !consent ? "Not set" : consent.granted ? "Allowed" : "Declined";
+              const tone = !consent
+                ? "bg-warning-bg text-warning-text"
+                : consent.granted
+                  ? "bg-[#E4F3EC] text-success"
+                  : "bg-[#FAEBEB] text-danger";
+              return <span key={kind}><span className={`whitespace-nowrap rounded-full px-2 py-[3px] text-[10.5px] font-bold ${tone}`}>{label}</span></span>;
+            })}
+          </Link>
+        ))}
+      </div>
+      <p className="text-center text-[11.5px] text-faint">
+        Declined and unanswered permissions are treated as restricted in educator workflows.
       </p>
     </div>
   );

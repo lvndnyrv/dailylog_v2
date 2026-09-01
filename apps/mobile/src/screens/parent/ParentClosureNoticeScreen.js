@@ -1,6 +1,7 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import {
   Alert,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -16,6 +17,7 @@ import { colors, fonts, radius, spacing } from '../../theme';
 import {
   ScheduleEmpty,
   ScheduleError,
+  ScheduleHeader,
   ScheduleLoading,
   scheduleDate,
   scheduleDateRange,
@@ -51,11 +53,17 @@ export default function ParentClosureNoticeScreen({ navigation, route }) {
   }
 
   if (!schedule.hub && schedule.loading) {
-    return <SafeAreaView style={scheduleStyles.safeArea}><ScheduleLoading /></SafeAreaView>;
+    return (
+      <SafeAreaView style={scheduleStyles.safeArea}>
+        <ScheduleHeader navigation={navigation} title="Center closure" close />
+        <ScheduleLoading />
+      </SafeAreaView>
+    );
   }
   if (!schedule.hub && schedule.error) {
     return (
       <SafeAreaView style={scheduleStyles.safeArea}>
+        <ScheduleHeader navigation={navigation} title="Center closure" close />
         <ScheduleError message={schedule.error} onRetry={schedule.refresh} />
       </SafeAreaView>
     );
@@ -63,6 +71,7 @@ export default function ParentClosureNoticeScreen({ navigation, route }) {
   if (!closure) {
     return (
       <SafeAreaView style={scheduleStyles.safeArea}>
+        <ScheduleHeader navigation={navigation} title="Center closure" close />
         <ScheduleEmpty
           title="No closure to show"
           body={route.params?.closureId
@@ -83,7 +92,17 @@ export default function ParentClosureNoticeScreen({ navigation, route }) {
 
   return (
     <SafeAreaView style={scheduleStyles.safeArea}>
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScheduleHeader navigation={navigation} title="Center closure" close />
+      <ScrollView
+        contentContainerStyle={styles.content}
+        refreshControl={(
+          <RefreshControl
+            refreshing={schedule.loading && Boolean(schedule.hub)}
+            onRefresh={() => schedule.refresh().catch(() => {})}
+            tintColor={colors.primary}
+          />
+        )}
+      >
         <View style={styles.heroIcon}>
           <Ionicons name="calendar-outline" size={32} color={colors.amber} />
         </View>
@@ -134,7 +153,7 @@ export default function ParentClosureNoticeScreen({ navigation, route }) {
           disabled={adding}
           accessibilityRole="button"
         >
-          <Ionicons name="calendar" size={18} color={colors.white} />
+          <Ionicons name="calendar-outline" size={18} color={colors.white} />
           <Text style={scheduleStyles.primaryButtonText}>
             {adding ? 'Opening calendar…' : 'Add to my calendar'}
           </Text>

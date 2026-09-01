@@ -1,9 +1,10 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { useFocusEffect } from '@react-navigation/native';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 
@@ -39,20 +40,22 @@ export default function ParentDocumentUploadScreen({ navigation, route }) {
   const [fileError, setFileError] = useState('');
   const [busy, setBusy] = useState(false);
 
-  useEffect(() => {
+  useFocusEffect(useCallback(() => {
     refresh().catch(() => {});
-  }, [refresh]);
+  }, [refresh]));
 
-  const liveChild = useMemo(
-    () => (hub?.children || []).find((item) => item.id === childId) || null,
-    [childId, hub],
-  );
-  const liveRequest = useMemo(
-    () => (liveChild?.requests || []).find((item) => item.id === requestId) || null,
-    [liveChild, requestId],
-  );
-  const child = liveChild;
-  const request = liveRequest;
+  const resolved = useMemo(() => {
+    const children = hub?.children || [];
+    const candidates = childId
+      ? [...children.filter((item) => item.id === childId), ...children.filter((item) => item.id !== childId)]
+      : children;
+    for (const candidateChild of candidates) {
+      const candidateRequest = (candidateChild.requests || []).find((item) => item.id === requestId);
+      if (candidateRequest) return { child: candidateChild, request: candidateRequest };
+    }
+    return { child: null, request: null };
+  }, [childId, hub, requestId]);
+  const { child, request } = resolved;
   const daycareId = hub?.daycare?.id;
 
   const rejected = request?.status === 'rejected';
@@ -164,6 +167,12 @@ export default function ParentDocumentUploadScreen({ navigation, route }) {
     <SafeAreaView style={styles.safeArea} edges={['top']}>
       <ParentAccountHeader navigation={navigation} title={rejected ? 'Upload another copy' : 'Requested by the office'} subtitle={`${child.first_name}'s private record`} />
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+        {loadError ? (
+          <TouchableOpacity style={styles.syncWarning} onPress={() => refresh().catch(() => {})}>
+            <Ionicons name="cloud-offline-outline" size={17} color={colors.amber} />
+            <Text style={styles.syncWarningText}>Could not refresh this request. Tap to try again.</Text>
+          </TouchableOpacity>
+        ) : null}
         <View style={[styles.requestCard, rejected && styles.rejectedCard]}>
           <Text style={styles.requestTitle}>{request.title}</Text>
           <Text style={[styles.requestMessage, rejected && { color: colors.danger }]}>
@@ -265,6 +274,8 @@ const styles = StyleSheet.create({
   uploadingRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm },
   uploadingText: { color: colors.textMuted, fontFamily: fonts.regular, fontSize: 12 },
   footerText: { color: colors.textFaint, fontFamily: fonts.regular, fontSize: 11.5, lineHeight: 17, textAlign: 'center', paddingHorizontal: spacing.sm },
+  syncWarning: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md, backgroundColor: colors.amberLight, borderRadius: radius.lg },
+  syncWarningText: { flex: 1, color: colors.amber, fontFamily: fonts.bold, fontSize: 11.5 },
   errorText: { color: colors.danger, fontFamily: fonts.regular, fontSize: 14, textAlign: 'center' },
   retryButton: { marginTop: spacing.lg, minWidth: 210 },
   unavailableIcon: { width: 70, height: 70, borderRadius: 35, backgroundColor: colors.primaryLight, alignItems: 'center', justifyContent: 'center', marginBottom: spacing.md },

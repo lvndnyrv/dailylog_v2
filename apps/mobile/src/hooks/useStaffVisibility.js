@@ -31,11 +31,12 @@ export async function setParentConsent(childId, kind, granted) {
   }));
 }
 
-export async function sendEventRsvp(announcementId, response, guests) {
+export async function sendEventRsvp(announcementId, response, guests, childId = null) {
   return unwrap(await supabase.rpc('send_mobile_event_rsvp', {
     p_announcement_id: announcementId,
     p_response: response,
     p_guests: guests,
+    p_child_id: childId,
   }));
 }
 

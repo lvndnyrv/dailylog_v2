@@ -97,7 +97,7 @@ export function PaymentMethodRow({ method, selected, onPress, badge, disabled })
       activeOpacity={0.72}
       style={[sharedStyles.methodRow, selected && sharedStyles.methodRowSelected, expired && sharedStyles.methodRowExpired, disabled && sharedStyles.disabled]}
       accessibilityRole="radio"
-      accessibilityState={{ selected: Boolean(selected), disabled: Boolean(disabled) }}
+      accessibilityState={{ selected: Boolean(selected), disabled: Boolean(disabled || expired) }}
     >
       {row}
     </TouchableOpacity>

@@ -340,6 +340,23 @@ export default function ManageScreen({ navigation }) {
 
       <ClassroomSwitcher />
 
+      <TouchableOpacity
+        style={styles.teamMessagesBtn}
+        onPress={() => navigation.navigate('StaffMessages')}
+        activeOpacity={0.72}
+        accessibilityRole="button"
+        accessibilityLabel="Open private team messages"
+      >
+        <View style={styles.teamMessagesIcon}>
+          <Ionicons name="chatbubbles-outline" size={20} color={colors.primary} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.teamMessagesTitle}>Team messages</Text>
+          <Text style={styles.teamMessagesSub}>Private conversations with administrators and educators</Text>
+        </View>
+        <Ionicons name="chevron-forward" size={19} color={colors.primary} />
+      </TouchableOpacity>
+
       {/* Announcements shortcut */}
       <TouchableOpacity
         style={styles.announcementsBtn}
@@ -636,6 +653,19 @@ const styles = StyleSheet.create({
     fontFamily: fonts.black,
     color: colors.textPrimary,
   },
+
+  teamMessagesBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.md,
+    backgroundColor: colors.surface, borderRadius: radius.lg,
+    borderWidth: 1.5, borderColor: colors.border,
+    padding: spacing.md, marginTop: spacing.lg,
+  },
+  teamMessagesIcon: {
+    width: 38, height: 38, borderRadius: 19,
+    backgroundColor: colors.primaryLight, alignItems: 'center', justifyContent: 'center',
+  },
+  teamMessagesTitle: { fontSize: 14.5, fontFamily: fonts.bold, color: colors.textPrimary },
+  teamMessagesSub: { fontSize: 12, lineHeight: 17, fontFamily: fonts.regular, color: colors.textSecondary, marginTop: 1 },
 
   mealMenuBtn: {
     flexDirection: 'row', alignItems: 'center', gap: spacing.md,

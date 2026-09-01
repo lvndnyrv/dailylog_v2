@@ -1,6 +1,6 @@
 "use client";
 
-import type { StaffRow } from "@dailylog/db/queries";
+import type { StaffRegularScheduleRow, StaffRow } from "@dailylog/db/queries";
 import Link from "next/link";
 import { useState } from "react";
 import { Avatar } from "@/components/ui/avatar";
@@ -26,16 +26,30 @@ export function StaffProfileView({
   member,
   openEdit,
   credentialSubmissions,
+  regularSchedule,
+  currentProfileId,
 }: {
   member: StaffRow;
   openEdit: boolean;
   credentialSubmissions: CredentialSubmissionWithUrl[];
+  regularSchedule: StaffRegularScheduleRow[];
+  currentProfileId: string | null;
 }) {
   const [modal, setModal] = useState<"none" | "edit" | "deactivate">(
     openEdit ? "edit" : "none",
   );
   const profile = member.profile!;
   const certs = member.certifications ?? [];
+  const weekdayNames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  const scheduledMinutes = regularSchedule.reduce((total, day) => {
+    const [startHour = 0, startMinute = 0] = day.starts_local.split(":").map(Number);
+    const [endHour = 0, endMinute = 0] = day.ends_local.split(":").map(Number);
+    return total + Math.max(
+      0,
+      endHour * 60 + endMinute - startHour * 60 - startMinute - day.unpaid_break_minutes,
+    );
+  }, 0);
+  const shortTime = (value: string) => value.slice(0, 5);
 
   const meta = [
     member.job_title ?? ROLE_LABELS[profile.role] ?? profile.role,
@@ -59,14 +73,23 @@ export function StaffProfileView({
           <span className="block text-[12.5px] text-muted">{meta}</span>
         </span>
         <span className="flex-1" />
-        <button
-          type="button"
-          disabled
-          title="Threads are family-based for now — staff messaging isn't built yet"
-          className="rounded-btn border-[1.5px] border-[#D6E1F0] bg-card px-4 py-2.5 text-[13px] font-bold text-faint"
-        >
-          Message
-        </button>
+        {profile.id === currentProfileId ? (
+          <button
+            type="button"
+            disabled
+            title="This is your own profile"
+            className="rounded-btn border-[1.5px] border-[#D6E1F0] bg-card px-4 py-2.5 text-[13px] font-bold text-faint"
+          >
+            Message
+          </button>
+        ) : (
+          <Link
+            href={`/staff/${member.id}/messages`}
+            className="rounded-btn border-[1.5px] border-[#D6E1F0] bg-card px-4 py-2.5 text-[13px] font-bold text-primary hover:bg-canvas"
+          >
+            Message
+          </Link>
+        )}
         <button
           type="button"
           onClick={() => setModal("edit")}
@@ -163,13 +186,46 @@ export function StaffProfileView({
             )}
           </section>
 
-          {/* Schedule — later phase */}
           <section className={card}>
-            <h2 className={`${cardTitle} mb-2`}>Regular schedule</h2>
-            <p className="text-[12.5px] text-faint">
-              Weekly schedules and shift cover arrive with the scheduling
-              feature.
-            </p>
+            <div className="mb-3 flex items-center gap-2">
+              <h2 className={cardTitle}>Regular schedule</h2>
+              {regularSchedule.length > 0 && (
+                <span className="text-[11.5px] text-faint">
+                  {(scheduledMinutes / 60).toFixed(scheduledMinutes % 60 === 0 ? 0 : 1)} h/week
+                </span>
+              )}
+              <span className="flex-1" />
+              <button
+                type="button"
+                onClick={() => setModal("edit")}
+                className="text-[12.5px] font-bold text-primary hover:text-primary-hover"
+              >
+                Edit schedule
+              </button>
+            </div>
+            {regularSchedule.length === 0 ? (
+              <p className="text-[12.5px] text-faint">
+                No regular hours published yet. Add them so this educator sees upcoming shifts in My time.
+              </p>
+            ) : (
+              <div className="grid grid-cols-5 gap-2 max-[1100px]:grid-cols-3">
+                {regularSchedule.map((day) => (
+                  <div key={day.id} className="rounded-xl bg-canvas px-2.5 py-2 text-center">
+                    <span className="block text-[10.5px] font-bold uppercase tracking-[.06em] text-faint">
+                      {weekdayNames[day.weekday - 1]}
+                    </span>
+                    <span className="mt-1 block text-[11.5px] font-bold text-ink">
+                      {shortTime(day.starts_local)}–{shortTime(day.ends_local)}
+                    </span>
+                    {day.classroom && (
+                      <span className="mt-0.5 block truncate text-[10.5px] text-muted">
+                        {day.classroom.name}
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
           </section>
 
           {/* Permissions — read-only summary */}
@@ -245,7 +301,13 @@ export function StaffProfileView({
         </div>
       </main>
 
-      {modal === "edit" && <EditStaffModal member={member} onClose={() => setModal("none")} />}
+      {modal === "edit" && (
+        <EditStaffModal
+          member={member}
+          regularSchedule={regularSchedule}
+          onClose={() => setModal("none")}
+        />
+      )}
 
       {modal === "deactivate" && (
         <Modal onClose={() => setModal("none")}>

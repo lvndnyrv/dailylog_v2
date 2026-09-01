@@ -38,3 +38,6 @@ enable_confirmations = false
 
 [functions.dispatch-notifications]
 verify_jwt = false
+
+[functions.compliance-inspection-document]
+verify_jwt = false # The per-inspection bearer token is checked on every request.

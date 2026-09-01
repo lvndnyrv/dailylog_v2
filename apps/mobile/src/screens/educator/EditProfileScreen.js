@@ -78,7 +78,12 @@ export default function EditProfileScreen({ navigation }) {
 
   return (
     <KeyboardAwareScrollView style={styles.container} contentContainerStyle={styles.content} enableOnAndroid extraScrollHeight={20} keyboardShouldPersistTaps="handled">
-      <TouchableOpacity onPress={() => navigation.goBack()} style={styles.back}>
+      <TouchableOpacity
+        onPress={() => navigation.goBack()}
+        style={styles.back}
+        accessibilityRole="button"
+        accessibilityLabel="Back to settings"
+      >
         <Text style={styles.backText}>← Back</Text>
       </TouchableOpacity>
 

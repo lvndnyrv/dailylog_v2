@@ -72,7 +72,12 @@ export default function UnauthorizedPickupScreen({ navigation, route }) {
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={() => navigation.goBack()}
+          accessibilityRole="button"
+          accessibilityLabel="Back to pickup verification"
+        >
           <Ionicons name="chevron-back" size={21} color={colors.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Pickup safety</Text>

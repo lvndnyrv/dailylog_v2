@@ -21,6 +21,22 @@ export function ClassroomProvider({ children }) {
     }
   }, [profile?.id]);
 
+  useEffect(() => {
+    if (profile?.role !== 'educator' || !profile?.daycare_id) return undefined;
+    const refreshCoverage = () => loadClassrooms({ quiet: true });
+    const channel = supabase
+      .channel(`educator-room-coverage:${profile.id}`)
+      .on('postgres_changes', {
+        event: '*', schema: 'public', table: 'room_coverage_assignments',
+      }, refreshCoverage)
+      .subscribe();
+    const poll = setInterval(refreshCoverage, 60_000);
+    return () => {
+      clearInterval(poll);
+      supabase.removeChannel(channel);
+    };
+  }, [profile?.id, profile?.role, profile?.daycare_id]);
+
   // Admins see every classroom in the daycare (no junction membership needed)
   async function loadAllClassrooms() {
     setLoading(true);
@@ -35,16 +51,42 @@ export function ClassroomProvider({ children }) {
     setLoading(false);
   }
 
-  async function loadClassrooms() {
-    setLoading(true);
+  async function loadClassrooms({ quiet = false } = {}) {
+    if (!quiet) setLoading(true);
 
-    // Get all classrooms this educator belongs to
-    const { data: links } = await supabase
-      .from('educator_classrooms')
-      .select('classroom:classrooms(id, name, age_group)')
-      .eq('educator_id', profile.id);
+    // Permanent memberships and currently active admin coverage are both
+    // operational room access. The database predicate mirrors this union.
+    const [{ data: links }, { data: staff }] = await Promise.all([
+      supabase
+        .from('educator_classrooms')
+        .select('classroom:classrooms(id, name, age_group)')
+        .eq('educator_id', profile.id),
+      supabase
+        .from('staff_members')
+        .select('id')
+        .eq('profile_id', profile.id)
+        .eq('status', 'active')
+        .is('archived_at', null)
+        .maybeSingle(),
+    ]);
 
-    const rooms = (links || []).map(l => l.classroom).filter(Boolean);
+    const now = new Date().toISOString();
+    const { data: coverage } = staff?.id
+      ? await supabase
+        .from('room_coverage_assignments')
+        .select('classroom:classrooms(id, name, age_group)')
+        .eq('staff_member_id', staff.id)
+        .in('status', ['assigned', 'accepted'])
+        .lte('starts_at', now)
+        .gt('ends_at', now)
+      : { data: [] };
+
+    const roomsById = new Map();
+    [...(links || []), ...(coverage || [])]
+      .map(link => link.classroom)
+      .filter(Boolean)
+      .forEach(room => roomsById.set(room.id, room));
+    const rooms = [...roomsById.values()];
 
     // If no junction entries yet but profile has classroom_id, use that
     if (!rooms.length && profile.classroom_id) {
@@ -61,7 +103,7 @@ export function ClassroomProvider({ children }) {
     // Set active to profile's current classroom, or first available
     const current = rooms.find(r => r.id === profile.classroom_id);
     setActive(current || rooms[0] || null);
-    setLoading(false);
+    if (!quiet) setLoading(false);
   }
 
   async function switchClassroom(classroomId) {

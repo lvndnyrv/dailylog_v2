@@ -57,6 +57,54 @@ export async function markThreadRead(client: Client, childId: string): Promise<v
   if (error) throw error;
 }
 
+// ── Private staff conversations ─────────────────────────────────────────────
+
+export type StaffConversationSummary =
+  Database['public']['Functions']['list_my_staff_conversations']['Returns'][number];
+
+export async function getOrCreateStaffConversation(
+  client: Client,
+  otherProfileId: string,
+): Promise<string> {
+  const { data, error } = await client.rpc('get_or_create_staff_conversation', {
+    p_other_profile_id: otherProfileId,
+  });
+  if (error) throw error;
+  return data;
+}
+
+export async function listMyStaffConversations(
+  client: Client,
+): Promise<StaffConversationSummary[]> {
+  const { data, error } = await client.rpc('list_my_staff_conversations');
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function markStaffConversationRead(
+  client: Client,
+  conversationId: string,
+): Promise<number> {
+  const { data, error } = await client.rpc('mark_staff_conversation_read', {
+    p_conversation_id: conversationId,
+  });
+  if (error) throw error;
+  return data;
+}
+
+export async function sendStaffMessage(
+  client: Client,
+  conversationId: string,
+  body: string,
+): Promise<string> {
+  const { data, error } = await client.rpc('send_staff_message', {
+    p_conversation_id: conversationId,
+    p_body: body,
+  });
+  if (error) throw error;
+  return data;
+}
+
 // ── Broadcasts (5b/5c) — announcements the parent app already renders ───────
 
 export interface Broadcast {
@@ -78,7 +126,7 @@ export async function listBroadcasts(client: Client, limit = 12): Promise<Broadc
     .select(
       `id, title, body, pinned, rsvp_enabled, event_at, created_at,
        classroom:classrooms(id, name),
-       author:profiles(full_name),
+       author:profiles!announcements_author_id_fkey(full_name),
        rsvps:announcement_rsvps(response)`,
     )
     .order('created_at', { ascending: false })
@@ -98,6 +146,8 @@ export async function createBroadcast(
     pinned?: boolean;
     rsvp_enabled?: boolean;
     event_at?: string | null;
+    event_ends_at?: string | null;
+    event_location?: string | null;
   },
 ): Promise<void> {
   const { error } = await client.from('announcements').insert(values);

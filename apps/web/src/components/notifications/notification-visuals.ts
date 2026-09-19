@@ -116,6 +116,25 @@ export function notificationPresentation(
         urgent: true,
       };
     }
+    case "parent_document_review": {
+      const childId = payloadString(payload, "childId");
+      const requestId = payloadString(payload, "requestId");
+      const documentAnchor = requestId
+        ? `family-document-${encodeURIComponent(requestId)}`
+        : "family-documents";
+      return {
+        icon: ClipboardList,
+        iconClassName: "bg-tint text-primary",
+        accentClassName: "bg-primary",
+        category: "alerts",
+        source: overrides.source ?? "Child documents",
+        href: overrides.href ?? (childId
+          ? `/children/${encodeURIComponent(childId)}#${documentAnchor}`
+          : "/children"),
+        actionLabel: overrides.actionLabel ?? "Review document",
+        urgent: false,
+      };
+    }
     case "time_off_request":
       return {
         icon: CalendarClock,

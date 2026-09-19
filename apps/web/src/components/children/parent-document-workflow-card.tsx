@@ -31,7 +31,7 @@ export function ParentDocumentWorkflowCard({
   );
 
   return (
-    <section className="rounded-2xl border border-[rgba(23,51,91,.1)] bg-card p-[18px]" aria-labelledby="family-documents-h">
+    <section id="family-documents" className="scroll-mt-28 rounded-2xl border border-[rgba(23,51,91,.1)] bg-card p-[18px]" aria-labelledby="family-documents-h">
       <div className="mb-3 flex items-start gap-2">
         <span className="min-w-0 flex-1">
           <h2 id="family-documents-h" className="text-[14px] font-extrabold text-ink">
@@ -163,7 +163,11 @@ function ReviewSubmissionForm({
   );
 
   return (
-    <form action={action} className="rounded-[14px] border border-[#BCD5F4] bg-[#F4F8FE] p-3.5">
+    <form
+      id={`family-document-${request.id}`}
+      action={action}
+      className="scroll-mt-28 rounded-[14px] border border-[#BCD5F4] bg-[#F4F8FE] p-3.5"
+    >
       <input type="hidden" name="child_id" value={childId} />
       <input type="hidden" name="submission_id" value={submissionId} />
       <div className="flex items-start gap-2.5">

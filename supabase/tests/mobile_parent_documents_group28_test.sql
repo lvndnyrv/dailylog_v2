@@ -33,6 +33,11 @@ declare
   v_orphan_path text;
   v_failed boolean := false;
 begin
+  perform pg_temp.impersonate('postgres');
+  update public.children
+     set archived_at = null,
+         enrolled_on = least(coalesce(enrolled_on, current_date), current_date)
+   where id = v_child;
   if not exists (
     select 1 from storage.buckets bucket
     where bucket.id = 'documents' and bucket.file_size_limit = 10485760

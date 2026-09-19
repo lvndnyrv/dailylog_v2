@@ -383,7 +383,7 @@ export async function reviewTimeOffAction(input: {
       .eq("id", input.requestId)
       .eq("status", "pending")
       .select("id")
-      .single();
+      .maybeSingle();
     if (error) throw error;
     if (!data) return { error: "This request is no longer pending." };
     revalidatePath("/staff");

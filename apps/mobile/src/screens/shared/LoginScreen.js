@@ -7,7 +7,7 @@ import {
   TouchableOpacity,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
+import { KeyboardAwareScrollView } from '../../components/KeyboardAwareScrollView';
 import { useAuth } from '../../hooks/useAuth';
 import { Input, Button } from '../../components/ui';
 import { AuthArtwork, AuthBackButton, BrandMark } from '../../components/AuthVisuals';

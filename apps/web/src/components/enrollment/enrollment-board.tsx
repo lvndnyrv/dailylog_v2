@@ -5,6 +5,7 @@ import type {
   EnrollmentChildRow,
   EnrollmentSettings,
   EnrollmentTourSlotRow,
+  RoomVacancyReview,
   RoomLiveStatus,
 } from "@dailylog/db/queries";
 import { ENROLLMENT_STAGES, formatAge } from "@dailylog/shared";
@@ -21,6 +22,7 @@ import {
   OfferNudgeModal,
   OfferPreviewModal,
   RequestDocumentsModal,
+  RoomVacancyReviewModal,
   SendOfferModal,
   TourOutcomeModal,
   TourSlotsModal,
@@ -52,10 +54,12 @@ type ModalState =
   | "none" | "new" | "share" | "tourSlots" | "rules" | "refresh" | "alumni"
   | "pickTour" | "pickWaitlist" | "pickWithdrawal"
   | { kind: "bookTour" | "familyForm" | "lifecycle" | "documents" | "offer" | "nudge" | "withdrawOffer" | "tourOutcome" | "close" | "preview" | "enroll" | "addWaitlist"; enrollment: Enrollment }
+  | { kind: "vacancyOffer"; review: RoomVacancyReview }
   | { kind: "withdrawChild"; child: EnrollmentChildRow };
 
 export function EnrollmentBoard({
   enrollments,
+  asOf,
   rooms,
   tourSlots,
   settings,
@@ -63,16 +67,21 @@ export function EnrollmentBoard({
   educators,
   daycareId,
   timeZone,
+  vacancyReviews,
+  centerToday,
   initialModal,
 }: {
   enrollments: Enrollment[];
+  asOf: string;
   rooms: RoomLiveStatus[];
   tourSlots: EnrollmentTourSlotRow[];
   settings: EnrollmentSettings;
   enrolledChildren: EnrollmentChildRow[];
-  educators: { id: string; fullName: string }[];
+  educators: { id: string; fullName: string; classroomId: string | null }[];
   daycareId: string;
   timeZone: string;
+  vacancyReviews: RoomVacancyReview[];
+  centerToday: string;
   initialModal?: string;
 }) {
   const router = useRouter();
@@ -89,7 +98,10 @@ export function EnrollmentBoard({
   };
   const applications = enrollments.filter((item) => item.stage === "application");
   const waitlist = enrollments
-    .filter((item) => item.waitlist_status === "active" || item.waitlist_status === "offer")
+    .filter((item) => item.waitlist_status === "active" || (
+      item.waitlist_status === "offer"
+      && (!item.offer_expires_at || item.offer_expires_at > asOf)
+    ))
     .sort((a, b) => (a.waitlist_position ?? 999) - (b.waitlist_position ?? 999));
   const activeChildren = enrolledChildren.filter((child) => !child.archived_at);
   const alumni = enrolledChildren.filter((child) => Boolean(child.archived_at));
@@ -120,7 +132,9 @@ export function EnrollmentBoard({
       {tab === "overview" && (
         <EnrollmentOverview
           enrollments={enrollments}
+          asOf={asOf}
           rooms={rooms}
+          vacancyReviews={vacancyReviews}
           waitlist={waitlist}
           tourSlots={tourSlots}
           onPipeline={() => setTab("pipeline")}
@@ -133,6 +147,7 @@ export function EnrollmentBoard({
           onRefresh={() => setModal("refresh")}
           onAddWaitlist={() => setModal("pickWaitlist")}
           onTours={() => setModal("tourSlots")}
+          onReviewVacancy={(review) => setModal({ kind: "vacancyOffer", review })}
         />
       )}
 
@@ -164,11 +179,12 @@ export function EnrollmentBoard({
       {modal === "pickWithdrawal" && <ChildPicker items={activeChildren} onPick={(child) => setModal({ kind: "withdrawChild", child })} onClose={closeModal} />}
       {typeof modal === "object" && modal.kind === "bookTour" && <BookTourModal enrollment={modal.enrollment} slots={tourSlots} educators={educators} onClose={closeModal} />}
       {typeof modal === "object" && modal.kind === "familyForm" && <FamilyApplicationPreviewModal enrollment={modal.enrollment} onClose={closeModal} />}
-      {typeof modal === "object" && modal.kind === "lifecycle" && <EnrollmentLifecycleModal enrollment={modal.enrollment} onClose={closeModal} />}
+      {typeof modal === "object" && modal.kind === "lifecycle" && <EnrollmentLifecycleModal enrollment={modal.enrollment} educators={educators} centerToday={centerToday} onClose={closeModal} />}
       {typeof modal === "object" && modal.kind === "documents" && <RequestDocumentsModal enrollment={modal.enrollment} onClose={closeModal} />}
       {typeof modal === "object" && modal.kind === "offer" && <SendOfferModal enrollment={modal.enrollment} rooms={rooms} defaultWindow={settings.offer_window_hours} onClose={closeModal} />}
+      {typeof modal === "object" && modal.kind === "vacancyOffer" && <RoomVacancyReviewModal review={modal.review} defaultWindow={settings.offer_window_hours} onClose={closeModal} />}
       {typeof modal === "object" && modal.kind === "nudge" && <OfferNudgeModal enrollment={modal.enrollment} onClose={closeModal} />}
-      {typeof modal === "object" && modal.kind === "withdrawOffer" && <WithdrawOfferModal enrollment={modal.enrollment} nextFamily={nextWaitlisted(waitlist, modal.enrollment)} onClose={closeModal} />}
+      {typeof modal === "object" && modal.kind === "withdrawOffer" && <WithdrawOfferModal enrollment={modal.enrollment} nextFamily={nextWaitlisted(waitlist, modal.enrollment)} reviewNext={settings.auto_offer} onClose={closeModal} />}
       {typeof modal === "object" && modal.kind === "tourOutcome" && <TourOutcomeModal enrollment={modal.enrollment} onClose={closeModal} />}
       {typeof modal === "object" && modal.kind === "close" && <CloseInquiryModal enrollment={modal.enrollment} onClose={closeModal} />}
       {typeof modal === "object" && modal.kind === "preview" && <OfferPreviewModal enrollment={modal.enrollment} roomName={rooms.find((room) => room.id === modal.enrollment.classroom_id)?.name ?? "Program"} onClose={closeModal} />}
@@ -180,16 +196,57 @@ export function EnrollmentBoard({
 }
 
 function EnrollmentOverview({
-  enrollments, rooms, waitlist, tourSlots, onPipeline, onMakeOffer, onNudge, onWithdrawOffer, onPreview, onApplication, onRules, onRefresh, onAddWaitlist, onTours,
+  enrollments, asOf, rooms, vacancyReviews, waitlist, tourSlots, onPipeline, onMakeOffer, onNudge, onWithdrawOffer, onPreview, onApplication, onRules, onRefresh, onAddWaitlist, onTours, onReviewVacancy,
 }: {
-  enrollments: Enrollment[]; rooms: RoomLiveStatus[]; waitlist: Enrollment[]; tourSlots: EnrollmentTourSlotRow[];
-  onPipeline: () => void; onMakeOffer: (item: Enrollment) => void; onNudge: (item: Enrollment) => void; onWithdrawOffer: (item: Enrollment) => void; onPreview: (item: Enrollment) => void; onApplication: (item: Enrollment) => void; onRules: () => void; onRefresh: () => void; onAddWaitlist: () => void; onTours: () => void;
+  enrollments: Enrollment[]; asOf: string; rooms: RoomLiveStatus[]; vacancyReviews: RoomVacancyReview[]; waitlist: Enrollment[]; tourSlots: EnrollmentTourSlotRow[];
+  onPipeline: () => void; onMakeOffer: (item: Enrollment) => void; onNudge: (item: Enrollment) => void; onWithdrawOffer: (item: Enrollment) => void; onPreview: (item: Enrollment) => void; onApplication: (item: Enrollment) => void; onRules: () => void; onRefresh: () => void; onAddWaitlist: () => void; onTours: () => void; onReviewVacancy: (review: RoomVacancyReview) => void;
 }) {
-  const offer = enrollments.find((item) => item.stage === "offer" && ["sent", "viewed"].includes(item.offer_status));
+  const offer = enrollments.find((item) => item.stage === "offer"
+    && ["sent", "viewed"].includes(item.offer_status)
+    && !item.offer_accepted_at
+    && (!item.offer_expires_at || item.offer_expires_at > asOf));
   const upcomingTours = tourSlots.filter((item) => item.status === "booked" && new Date(item.starts_at) > new Date()).slice(0, 3);
   const active = enrollments.filter((item) => item.stage !== "withdrawn");
   return (
     <div className="flex flex-col gap-4">
+      {vacancyReviews.length > 0 && (
+        <section className="rounded-2xl border-[1.5px] border-[#EFCF94] bg-[#FFFDF8] p-4" aria-labelledby="released-spots-heading">
+          <div className="flex items-start gap-3">
+            <span className="grid size-9 shrink-0 place-items-center rounded-full bg-[#FBF3E4] text-lg" aria-hidden>↗</span>
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 id="released-spots-heading" className="text-[15px] font-extrabold text-ink">Newly available spots</h2>
+                <span className="rounded-full bg-[#FBF3E4] px-2 py-1 text-[10px] font-bold text-[#A86D13]">Admin review required</span>
+              </div>
+              <p className="mt-0.5 text-[10.5px] text-muted">A completed room move or closed offer released capacity. Nothing is sent until you review the live match and offer terms.</p>
+            </div>
+          </div>
+          <div className="mt-3 grid gap-2 xl:grid-cols-2">
+            {vacancyReviews.map((review) => {
+              const family = review.candidate_guardian_name?.split(" ").slice(-1)[0] ?? "No match yet";
+              const candidate = review.candidate_enrollment_id
+                ? `${family} · ${review.candidate_child_first_name ?? "Child"}`
+                : review.blocking_reason ?? "No eligible family yet";
+              return (
+                <div key={review.id} className="flex items-center gap-3 rounded-[13px] border border-[#EFD9B5] bg-card px-3.5 py-3">
+                  <span className="min-w-0 flex-1">
+                    <b className="block text-[12.5px] text-ink">{review.room_name} · open {formatDate(review.available_on)}</b>
+                    <span className="block truncate text-[10.5px] text-muted">{candidate}</span>
+                    <span className="block text-[9.5px] text-faint">Released by {review.moved_child_name} · {review.active_waitlist_count} waiting</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => onReviewVacancy(review)}
+                    className={`shrink-0 rounded-full px-3 py-2 text-[10.5px] font-bold ${review.candidate_enrollment_id ? "bg-primary text-white hover:bg-primary-hover" : "border-[1.5px] border-[#D6E1F0] text-muted hover:bg-canvas"}`}
+                  >
+                    {review.candidate_enrollment_id ? "Review offer" : "Review gap"}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-7">
         {rooms.map((room) => {
           const waiting = waitlist.filter((item) => item.classroom_id === room.id).length;
@@ -221,9 +278,14 @@ function PipelineBoard({ enrollments, onBookTour, onTourOutcome, onApplication, 
 }
 
 function PipelineCard({ item, onBookTour, onTourOutcome, onApplication, onOffer, onNudge, onLifecycle, onEnroll, onClose }: { item: Enrollment; onBookTour: (item: Enrollment) => void; onTourOutcome: (item: Enrollment) => void; onApplication: (item: Enrollment) => void; onOffer: (item: Enrollment) => void; onNudge: (item: Enrollment) => void; onLifecycle: (item: Enrollment) => void; onEnroll: (item: Enrollment) => void; onClose: (item: Enrollment) => void }) {
-  const action = item.stage === "inquiry" ? () => onBookTour(item) : item.stage === "tour" ? () => item.tour_at ? onTourOutcome(item) : onBookTour(item) : item.stage === "application" ? () => onApplication(item) : item.stage === "offer" ? () => onNudge(item) : () => onLifecycle(item);
-  const label = item.stage === "inquiry" ? "Book a tour →" : item.stage === "tour" ? item.tour_at ? "Log outcome →" : "Book a tour →" : item.stage === "application" ? "Review →" : item.stage === "offer" ? "Nudge →" : "Open lifecycle →";
-  return <div className={`${card} flex flex-col gap-1 p-3`}><b className="truncate text-[12.5px] text-ink">{familyName(item)} · {item.child_first_name ?? "Child"}</b><span className="text-[10.5px] text-muted">{item.child_date_of_birth ? `${formatAge(item.child_date_of_birth)} · ` : ""}{item.desired_start_date ? `wants ${formatDate(item.desired_start_date)}` : "start date open"}</span><span className="text-[9.5px] text-faint">{item.stage === "tour" && item.tour_at ? `Tour ${formatShortDateTime(item.tour_at)}` : item.stage === "application" ? `Application ${item.application_progress}%` : item.stage === "offer" && item.offer_expires_at ? `Expires ${relativeDeadline(item.offer_expires_at)}` : `Via ${item.source ?? "other"}`}</span><button type="button" onClick={action} className="mt-2 w-full rounded-full border-[1.5px] border-[#D6E1F0] py-1.5 text-[10.5px] font-bold text-primary hover:bg-canvas">{label}</button>{item.stage === "application" && <button type="button" onClick={() => onOffer(item)} className="text-[10px] font-bold text-primary">Send offer</button>}{item.stage === "offer" && <button type="button" onClick={() => onEnroll(item)} className="text-[10px] font-bold text-success">Offer accepted · enroll</button>}{item.stage !== "enrolled" && <button type="button" onClick={() => onClose(item)} className="self-end text-[9.5px] font-bold text-faint hover:text-danger" aria-label={`Close ${familyName(item)} inquiry`}><MoreHorizontal size={14} /></button>}</div>;
+  const accepted = item.stage === "offer" && Boolean(item.offer_accepted_at);
+  const readyToEnroll = accepted
+    && item.offer_status === "accepted"
+    && ((item.offer_deposit_cents ?? 0) === 0 || item.deposit_status === "paid")
+    && Boolean(item.application_submitted_at && item.agreement_signed_at);
+  const action = item.stage === "inquiry" ? () => onBookTour(item) : item.stage === "tour" ? () => item.tour_at ? onTourOutcome(item) : onBookTour(item) : item.stage === "application" ? () => onApplication(item) : item.stage === "offer" ? () => accepted ? onLifecycle(item) : onNudge(item) : () => onLifecycle(item);
+  const label = item.stage === "inquiry" ? "Book a tour →" : item.stage === "tour" ? item.tour_at ? "Log outcome →" : "Book a tour →" : item.stage === "application" ? "Review →" : item.stage === "offer" ? accepted ? "View onboarding →" : "Nudge →" : "Open lifecycle →";
+  return <div className={`${card} flex flex-col gap-1 p-3`}><b className="truncate text-[12.5px] text-ink">{familyName(item)} · {item.child_first_name ?? "Child"}</b><span className="text-[10.5px] text-muted">{item.child_date_of_birth ? `${formatAge(item.child_date_of_birth)} · ` : ""}{item.desired_start_date ? `wants ${formatDate(item.desired_start_date)}` : "start date open"}</span><span className="text-[9.5px] text-faint">{item.stage === "tour" && item.tour_at ? `Tour ${formatShortDateTime(item.tour_at)}` : item.stage === "application" ? `Application ${item.application_progress}%` : item.stage === "offer" && accepted ? "Family onboarding in progress" : item.stage === "offer" && item.offer_expires_at ? `Expires ${relativeDeadline(item.offer_expires_at)}` : `Via ${item.source ?? "other"}`}</span><button type="button" onClick={action} className="mt-2 w-full rounded-full border-[1.5px] border-[#D6E1F0] py-1.5 text-[10.5px] font-bold text-primary hover:bg-canvas">{label}</button>{item.stage === "application" && <button type="button" onClick={() => onOffer(item)} className="text-[10px] font-bold text-primary">Send offer</button>}{readyToEnroll && <button type="button" onClick={() => onEnroll(item)} className="text-[10px] font-bold text-success">Ready · complete enrollment</button>}{item.stage !== "enrolled" && <button type="button" onClick={() => onClose(item)} className="self-end text-[9.5px] font-bold text-faint hover:text-danger" aria-label={`Close ${familyName(item)} inquiry`}><MoreHorizontal size={14} /></button>}</div>;
 }
 
 function ApplicationsList({ applications, rooms, onOpen, onDocuments, onOffer }: { applications: Enrollment[]; rooms: RoomLiveStatus[]; onOpen: (item: Enrollment) => void; onDocuments: (item: Enrollment) => void; onOffer: (item: Enrollment) => void }) {
@@ -241,4 +303,15 @@ function formatDate(value: string): string { return new Intl.DateTimeFormat("en-
 function formatShortDateTime(value: string): string { return new Intl.DateTimeFormat("en-CA", { weekday: "short", hour: "numeric", minute: "2-digit" }).format(new Date(value)); }
 function relativeDeadline(value: string): string { const hours = Math.ceil((new Date(value).getTime() - Date.now()) / 3600000); if (hours <= 0) return "expired"; if (hours < 24) return `in ${hours}h`; return `in ${Math.ceil(hours / 24)}d`; }
 function waitDuration(value: string | null): string { if (!value) return "joined recently"; const days = Math.max(0, Math.floor((Date.now() - new Date(value).getTime()) / 86400000)); return days < 31 ? `waiting ${Math.max(1, days)} days` : `waiting ${Math.floor(days / 30)} months`; }
-function documentCount(value: unknown) { const data = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {}; const statuses = ["immunization", "emergency_contacts", "medical", "handbook"].map((key) => data[key] ?? "missing"); return { received: statuses.filter((item) => item === "received").length, total: statuses.length }; }
+function documentCount(value: unknown) {
+  const data = value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+  const statuses = ["immunization", "emergency_contacts", "medical", "handbook"].map((key) => {
+    const raw = data[key];
+    return raw && typeof raw === "object" && !Array.isArray(raw)
+      ? String((raw as Record<string, unknown>).status ?? "missing")
+      : String(raw ?? "missing");
+  });
+  return { received: statuses.filter((item) => item === "received").length, total: statuses.length };
+}

@@ -54,10 +54,12 @@ export function StaffDelegations({
   delegations,
   staff,
   timeZone,
+  defaultDelegationDays,
 }: {
   delegations: StaffDelegationRow[];
   staff: StaffRow[];
   timeZone: string;
+  defaultDelegationDays: number;
 }) {
   const [granting, setGranting] = useState(false);
   const [openLog, setOpenLog] = useState<string | null>(null);
@@ -155,7 +157,11 @@ export function StaffDelegations({
       </div>
 
       {granting && (
-        <GrantDelegationModal candidates={candidates} onClose={() => setGranting(false)} />
+        <GrantDelegationModal
+          candidates={candidates}
+          defaultDelegationDays={defaultDelegationDays}
+          onClose={() => setGranting(false)}
+        />
       )}
     </div>
   );
@@ -218,16 +224,18 @@ function ActiveDelegation({ item, timeZone }: { item: StaffDelegationRow; timeZo
 
 function GrantDelegationModal({
   candidates,
+  defaultDelegationDays,
   onClose,
 }: {
   candidates: StaffRow[];
+  defaultDelegationDays: number;
   onClose: () => void;
 }) {
   const [accessLevel, setAccessLevel] = useState<"specific_areas" | "full_admin">(
     "specific_areas",
   );
   const [areas, setAreas] = useState<string[]>(["attendance", "enrollment"]);
-  const [endsOn, setEndsOn] = useState(() => addDays(new Date(), 14));
+  const [endsOn, setEndsOn] = useState(() => addDays(new Date(), defaultDelegationDays));
   const [state, action, pending] = useActionState<DelegationActionState, FormData>(
     grantDelegationAction,
     {},
@@ -352,7 +360,7 @@ function GrantDelegationModal({
             className="rounded-[12px] border-[1.5px] border-[#D6E1F0] bg-[#F9FBFE] px-3.5 py-2.5 text-[13.5px] font-bold text-ink outline-none focus:border-[var(--primary)]"
           />
           <span className="flex gap-1.5 pt-0.5">
-            {[7, 14].map((days) => (
+            {[7, defaultDelegationDays].filter((days, index, values) => values.indexOf(days) === index).map((days) => (
               <button
                 key={days}
                 type="button"
@@ -363,7 +371,7 @@ function GrantDelegationModal({
                     : "border-[1.5px] border-[#D6E1F0] bg-white text-body"
                 }`}
               >
-                {days === 7 ? "1 week" : "2 weeks"}
+                {days === 7 ? "1 week" : days === 14 ? "2 weeks" : `${days} days`}
               </button>
             ))}
             <span className="rounded-full border-[1.5px] border-[#D6E1F0] bg-white px-3 py-1 text-[11.5px] font-bold text-body">

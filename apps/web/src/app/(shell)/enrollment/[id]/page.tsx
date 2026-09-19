@@ -1,5 +1,6 @@
 import {
   getEnrollment,
+  getEnrollmentFitCheck,
   getEnrollmentSettings,
   getMyDaycare,
   listEnrollmentTourSlots,
@@ -17,8 +18,9 @@ export default async function EnrollmentApplicationPage({
 }) {
   const { id } = await params;
   const supabase = await getServerSupabase();
-  const [enrollment, rooms, tourSlots, staff, settings, daycare] = await Promise.all([
+  const [enrollment, fitCheck, rooms, tourSlots, staff, settings, daycare] = await Promise.all([
     getEnrollment(supabase, id),
+    getEnrollmentFitCheck(supabase, id),
     listRoomsLive(supabase),
     listEnrollmentTourSlots(supabase),
     listStaff(supabase),
@@ -31,11 +33,16 @@ export default async function EnrollmentApplicationPage({
   return (
     <EnrollmentApplicationView
       enrollment={enrollment}
+      fitCheck={fitCheck}
       rooms={rooms}
       tourSlots={tourSlots}
       educators={staff
         .filter((member) => member.profile?.role === "educator")
-        .map((member) => ({ id: member.profile!.id, fullName: member.profile!.full_name }))}
+        .map((member) => ({
+          id: member.profile!.id,
+          fullName: member.profile!.full_name,
+          classroomId: member.profile!.classroom?.id ?? null,
+        }))}
       offerWindowHours={settings?.offer_window_hours ?? 48}
       timeZone={daycare?.timezone ?? "America/Toronto"}
     />

@@ -4,7 +4,7 @@ import {
   StyleSheet, Alert, Linking, ActivityIndicator, Modal, ScrollView
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
+import { KeyboardAwareScrollView } from '../../components/KeyboardAwareScrollView';
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { supabase } from '../../lib/supabase';
@@ -489,6 +489,31 @@ export default function ChildProfileScreen({ route, navigation }) {
           {dob ? `Born ${formatBirthDate(dob)}` : 'Date of birth not added'}
           {currentClassroom ? ` · ${currentClassroom.name}` : ''}
         </Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        style={styles.dailyReportAction}
+        onPress={() => navigation.navigate('DailyLog', {
+          child: {
+            ...child,
+            first_name: firstName,
+            last_name: lastName,
+            photo_url: photoUrl,
+          },
+          date: format(new Date(), 'yyyy-MM-dd'),
+        })}
+        activeOpacity={0.76}
+        accessibilityRole="button"
+        accessibilityLabel={`Open today's daily report for ${firstName}`}
+      >
+        <View style={styles.dailyReportIcon}>
+          <Ionicons name="today-outline" size={21} color={colors.primary} />
+        </View>
+        <View style={styles.dailyReportCopy}>
+          <Text style={styles.dailyReportTitle}>Today’s daily report</Text>
+          <Text style={styles.dailyReportText}>Log care, activities, notes and approved photos</Text>
+        </View>
+        <Ionicons name="chevron-forward" size={18} color={colors.textFaint} />
       </TouchableOpacity>
 
       {/* Profile completeness nudge */}
@@ -977,6 +1002,30 @@ const styles = StyleSheet.create({
     marginTop: 3,
     textAlign: 'center',
   },
+  dailyReportAction: {
+    minHeight: 70,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    marginBottom: spacing.lg,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.borderSoft,
+    borderRadius: radius.lg,
+    backgroundColor: colors.surface,
+  },
+  dailyReportIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.primaryLight,
+  },
+  dailyReportCopy: { flex: 1, minWidth: 0 },
+  dailyReportTitle: { color: colors.textPrimary, fontFamily: fonts.bold, fontSize: 14 },
+  dailyReportText: { marginTop: 3, color: colors.textMuted, fontFamily: fonts.regular, fontSize: 11.5 },
 
   // Profile completeness
   completenessCard: {

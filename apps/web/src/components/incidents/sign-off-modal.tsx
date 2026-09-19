@@ -29,16 +29,26 @@ export function SignOffModal({
 
   return (
     <Modal onClose={onClose} width={430}>
-      <div>
-        <h2 className="text-[19px] font-extrabold text-ink">Sign off — incident report</h2>
-        <p className="mt-0.5 text-[12.5px] leading-normal text-muted">
-          Written by {incident.educator?.full_name ?? "an educator"} ·{" "}
-          {new Date(incident.occurred_at).toLocaleTimeString("en-CA", {
-            hour: "numeric",
-            minute: "2-digit",
-          })}
-          {incident.classroom ? ` · ${incident.classroom.name} room` : ""}
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h2 className="text-[19px] font-extrabold text-ink">Sign off — incident report</h2>
+          <p className="mt-0.5 text-[12.5px] leading-normal text-muted">
+            Written by {incident.educator?.full_name ?? "an educator"} ·{" "}
+            {new Date(incident.occurred_at).toLocaleTimeString("en-CA", {
+              hour: "numeric",
+              minute: "2-digit",
+            })}
+            {incident.classroom ? ` · ${incident.classroom.name} room` : ""}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close incident review"
+          className="grid h-8 w-8 shrink-0 place-items-center rounded-full border border-line text-lg leading-none text-muted transition hover:border-primary hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+        >
+          ×
+        </button>
       </div>
 
       <div className="flex items-center gap-2.5 rounded-[13px] bg-canvas px-3.5 py-3">

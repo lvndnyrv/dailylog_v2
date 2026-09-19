@@ -54,7 +54,14 @@ export interface MedicalRegisterRow {
   medical_notes: string | null;
   emergency_contacts: unknown;
   classroom: { id: string; name: string } | null;
-  medications: { id: string; name: string; active: boolean }[];
+  medications: {
+    id: string;
+    name: string;
+    active: boolean;
+    signed_at: string | null;
+    consented_at: string | null;
+    ended_at: string | null;
+  }[];
 }
 
 export async function listMedicalRegister(client: Client): Promise<MedicalRegisterRow[]> {
@@ -63,7 +70,9 @@ export async function listMedicalRegister(client: Client): Promise<MedicalRegist
     .select(
       `id, first_name, last_name, allergies, medical_notes, emergency_contacts,
        classroom:classrooms(id, name),
-       medications:medication_authorizations(id, name, active)`,
+       medications:medication_authorizations(
+         id, name, active, signed_at, consented_at, ended_at
+       )`,
     )
     .is('archived_at', null)
     .order('first_name');
@@ -128,6 +137,17 @@ export interface PickupSecurityEvent {
   resolver: { full_name: string } | null;
 }
 
+export interface MedicationDoseRecord {
+  id: string;
+  administered_at: string;
+  dosage_given: string | null;
+  route_given: string | null;
+  notes: string | null;
+  authorization: { name: string } | null;
+  administered_by_profile: { full_name: string } | null;
+  witness_profile: { full_name: string } | null;
+}
+
 export interface PendingParentInvite {
   id: string;
   email: string | null;
@@ -179,6 +199,7 @@ export async function getChildProfile(client: Client, childId: string) {
     childRes,
     pickupsRes,
     medsRes,
+    medicationLogsRes,
     consentsRes,
     invitesRes,
     documentsRes,
@@ -206,10 +227,21 @@ export async function getChildProfile(client: Client, childId: string) {
     client
       .from('medication_authorizations')
       .select(
-        'id, parent_id, name, dosage, schedule, notes, active, parent:profiles!medication_authorizations_parent_id_fkey(full_name)',
+        'id, parent_id, name, dosage, schedule, notes, active, signed_at, consented_at, ended_at, parent:profiles!medication_authorizations_parent_id_fkey(full_name)',
       )
       .eq('child_id', childId)
       .order('active', { ascending: false }),
+    client
+      .from('medication_logs')
+      .select(
+        `id, administered_at, dosage_given, route_given, notes,
+         authorization:medication_authorizations(name),
+         administered_by_profile:profiles!medication_logs_administered_by_fkey(full_name),
+         witness_profile:profiles!medication_logs_witness_id_fkey(full_name)`,
+      )
+      .eq('child_id', childId)
+      .order('administered_at', { ascending: false })
+      .limit(10),
     client
       .from('consents')
       .select('id, kind, version, granted, granted_at')
@@ -255,6 +287,7 @@ export async function getChildProfile(client: Client, childId: string) {
   if (childRes.error) throw childRes.error;
   if (pickupsRes.error) throw pickupsRes.error;
   if (medsRes.error) throw medsRes.error;
+  if (medicationLogsRes.error) throw medicationLogsRes.error;
   if (consentsRes.error) throw consentsRes.error;
   if (invitesRes.error) throw invitesRes.error;
   if (documentsRes.error) throw documentsRes.error;
@@ -264,6 +297,7 @@ export async function getChildProfile(client: Client, childId: string) {
     child: childRes.data,
     pickups: (pickupsRes.data ?? []) as ChildPickup[],
     medications: medsRes.data ?? [],
+    medicationLogs: (medicationLogsRes.data ?? []) as unknown as MedicationDoseRecord[],
     consents: consentsRes.data ?? [],
     pendingInvites: (invitesRes.data ?? []) as PendingParentInvite[],
     documents: (documentsRes.data ?? []) as ChildDocument[],
@@ -351,7 +385,7 @@ export async function resolvePickupSecurityEvent(
   childId: string,
   resolvedBy: string,
 ): Promise<void> {
-  const { error } = await client
+  const { data, error } = await client
     .from('pickup_security_events')
     .update({
       status: 'resolved',
@@ -360,8 +394,11 @@ export async function resolvePickupSecurityEvent(
     })
     .eq('id', eventId)
     .eq('child_id', childId)
-    .eq('status', 'open');
+    .eq('status', 'open')
+    .select('id')
+    .maybeSingle();
   if (error) throw error;
+  if (!data) throw new Error('This pickup alert has already been resolved or is no longer available.');
 }
 
 export async function saveMedicationAuthorization(

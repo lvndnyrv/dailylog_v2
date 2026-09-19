@@ -10,9 +10,11 @@ export * from './ledger';
 export * from './notifications';
 export * from './children';
 export * from './compliance';
+export * from './dashboard';
 export * from './enrollment';
 export * from './families';
 export * from './roles';
+export * from './reports';
 export * from './rooms';
 export * from './scheduling';
 export * from './staff';
@@ -61,6 +63,8 @@ export async function updateMyDaycare(
     phone?: string | null;
     opens_at?: string;
     closes_at?: string;
+    licensed_capacity?: number;
+    license_number?: string | null;
   },
 ) {
   const profile = await getMyProfile(client);

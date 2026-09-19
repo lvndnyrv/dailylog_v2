@@ -8,6 +8,8 @@ export interface StaffShiftRow {
   starts_at: string;
   ends_at: string;
   unpaid_break_minutes: number;
+  planned_break_starts_at?: string | null;
+  planned_break_ends_at?: string | null;
   status: string;
   notes: string | null;
   staff: {
@@ -58,7 +60,7 @@ export interface StaffTimeOffRequestRow {
   } | null;
 }
 
-const SHIFT_SELECT = `id, starts_at, ends_at, unpaid_break_minutes, status, notes,
+const SHIFT_SELECT = `id, starts_at, ends_at, unpaid_break_minutes, planned_break_starts_at, planned_break_ends_at, status, notes,
   staff:staff_members(id, profile:profiles(id, full_name,
     classroom:classrooms!profiles_classroom_id_fkey(id, name))), classroom:classrooms(id, name)`;
 const TIME_SELECT = `id, clocked_in_at, clocked_out_at, break_minutes, source, status, notes,

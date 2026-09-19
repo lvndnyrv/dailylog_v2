@@ -85,6 +85,8 @@ import ClassroomEditScreen   from './src/screens/educator/ClassroomEditScreen';
 import MealMenuScreen        from './src/screens/educator/MealMenuScreen';
 import StaffMessagesScreen   from './src/screens/educator/StaffMessagesScreen';
 import StaffConversationScreen from './src/screens/educator/StaffConversationScreen';
+import StaffNotificationsScreen from './src/screens/educator/StaffNotificationsScreen';
+import StaffAbsenceDetailScreen from './src/screens/educator/StaffAbsenceDetailScreen';
 import ParentHomeScreen      from './src/screens/parent/ParentHomeScreen';
 import WeeklySummaryScreen   from './src/screens/parent/WeeklySummaryScreen';
 import ParentDayRecapScreen  from './src/screens/parent/ParentDayRecapScreen';
@@ -667,6 +669,8 @@ function RootNavigator() {
           <Stack.Screen name="EditProfile"     component={EditProfileScreen}     options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="StaffMessages"   component={StaffMessagesScreen}   options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="StaffConversation" component={StaffConversationScreen} options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="StaffNotifications" component={StaffNotificationsScreen} options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="StaffAbsenceDetail" component={StaffAbsenceDetailScreen} options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="Messaging"       component={MessagingScreen}       options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="Announcements"   component={AnnouncementsScreen}   options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="Medication"      component={MedicationScreen}      options={{ animation: 'slide_from_right' }} />
@@ -706,6 +710,8 @@ function RootNavigator() {
           <Stack.Screen name="EditProfile"     component={EditProfileScreen}     options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="StaffMessages"   component={StaffMessagesScreen}   options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="StaffConversation" component={StaffConversationScreen} options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="StaffNotifications" component={StaffNotificationsScreen} options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="StaffAbsenceDetail" component={StaffAbsenceDetailScreen} options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="Messaging"       component={MessagingScreen}       options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="Announcements"   component={AnnouncementsScreen}   options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="Medication"      component={MedicationScreen}      options={{ animation: 'slide_from_right' }} />

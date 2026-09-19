@@ -45,10 +45,11 @@ export default async function MessagesPage({
     redirect(conversationId ? `/messages?t=${conversationId}` : "/messages");
   }
 
-  const [threads, broadcasts, classrooms] = await Promise.all([
+  const [threads, broadcasts, classrooms, profile] = await Promise.all([
     listInboxThreads(supabase),
     listBroadcasts(supabase),
     listClassrooms(supabase),
+    getMyProfile(supabase),
   ]);
 
   const selected = threads.find((thread) => thread.conversation_id === selectedId) ?? null;
@@ -70,6 +71,7 @@ export default async function MessagesPage({
         messages={messages}
         broadcasts={broadcasts}
         classrooms={classrooms}
+        currentProfileId={profile?.id ?? null}
         openBroadcast={broadcast === "1"}
       />
     </>

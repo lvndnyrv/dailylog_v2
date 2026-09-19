@@ -1,7 +1,14 @@
 "use server";
 
-import { getMyProfile, kioskCheck, kioskLookupPin } from "@dailylog/db/queries";
+import {
+  getMyDaycare,
+  getMyProfile,
+  hasPermission,
+  kioskCheck,
+  kioskLookupPin,
+} from "@dailylog/db/queries";
 import { revalidatePath } from "next/cache";
+import { zonedLocalToIso } from "@/lib/center-date";
 import { getServerSupabase } from "@/lib/supabase/server";
 
 export interface AttendanceActionState {
@@ -21,7 +28,9 @@ export async function checkInAction(
 ): Promise<AttendanceActionState> {
   const supabase = await getServerSupabase();
   const profile = await getMyProfile(supabase);
-  if (!profile?.daycare_id) return { error: "No center on your profile." };
+  if (!profile?.daycare_id || !(await hasPermission(supabase, "attendance", "edit"))) {
+    return { error: "Attendance edit permission is required." };
+  }
 
   const childId = str(formData, "child_id");
   if (!childId) return { error: "Pick a child." };
@@ -72,25 +81,71 @@ export async function fixTimesAction(
 ): Promise<AttendanceActionState> {
   const supabase = await getServerSupabase();
 
+  const [profile, daycare] = await Promise.all([
+    getMyProfile(supabase),
+    getMyDaycare(supabase),
+  ]);
+  if (!profile?.daycare_id || !(await hasPermission(supabase, "attendance", "edit"))) {
+    return { error: "Attendance edit permission is required." };
+  }
+
   const recordId = str(formData, "record_id");
   const date = str(formData, "date");
   const inTime = str(formData, "in_time");
   const outTime = str(formData, "out_time");
+  const source = str(formData, "source");
+  const reason = str(formData, "reason");
+
+  if (!recordId || !date) return { error: "Attendance record and date are required." };
+  if (!inTime && outTime) return { error: "A check-out needs a check-in time." };
+  if (!source) return { error: "Choose how you confirmed the correction." };
+  if (reason.length < 3) return { error: "Add a short correction note." };
 
   const toIso = (time: string) =>
-    time ? new Date(`${date}T${time}`).toISOString() : null;
+    time ? zonedLocalToIso(date, time, daycare?.timezone ?? "America/Toronto") : null;
 
-  const { error } = await supabase
-    .from("attendance_records")
-    .update({
-      checked_in_at: toIso(inTime),
-      checked_out_at: toIso(outTime),
-    })
-    .eq("id", recordId);
+  const { error } = await supabase.rpc("correct_attendance_record", {
+    p_attendance_id: recordId,
+    p_checked_in_at: toIso(inTime) as unknown as string,
+    p_checked_out_at: toIso(outTime) as unknown as string,
+    p_source: source,
+    p_reason: reason,
+  });
   if (error) return { error: error.message };
 
   revalidatePath("/attendance");
   return { ok: true };
+}
+
+export interface AttendanceFollowupActionState extends AttendanceActionState {
+  queued?: number;
+}
+
+export async function sendAttendanceFollowupAction(
+  _prev: AttendanceFollowupActionState,
+  formData: FormData,
+): Promise<AttendanceFollowupActionState> {
+  const supabase = await getServerSupabase();
+  const profile = await getMyProfile(supabase);
+  if (!profile?.daycare_id || !(await hasPermission(supabase, "attendance", "edit"))) {
+    return { error: "Attendance edit permission is required." };
+  }
+
+  const childId = str(formData, "child_id");
+  const date = str(formData, "date");
+  const message = str(formData, "message");
+  if (!childId || !date) return { error: "Child and date are required." };
+  if (message.length < 3) return { error: "Write a short message to the family." };
+
+  const { data, error } = await supabase.rpc("send_attendance_followup", {
+    p_child_id: childId,
+    p_attendance_date: date,
+    p_message: message,
+  });
+  if (error) return { error: error.message };
+
+  revalidatePath("/attendance");
+  return { ok: true, queued: data?.[0]?.queued_recipients ?? 0 };
 }
 
 export async function markAbsentAction(formData: FormData): Promise<void> {

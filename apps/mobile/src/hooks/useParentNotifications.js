@@ -100,7 +100,7 @@ export function ParentNotificationsProvider({ children }) {
   const [error, setError] = useState('');
 
   const refresh = useCallback(async ({ silent = false } = {}) => {
-    if (!profile?.id || profile.role !== 'parent') {
+    if (!profile?.id) {
       setNotifications([]);
       setLoading(false);
       setRefreshing(false);
@@ -133,10 +133,10 @@ export function ParentNotificationsProvider({ children }) {
   }, [refresh]);
 
   useEffect(() => {
-    if (!profile?.id || profile.role !== 'parent') return undefined;
+    if (!profile?.id) return undefined;
     const channelInstance = `${Date.now()}:${Math.random().toString(36).slice(2)}`;
     const channel = supabase
-      .channel(`parent-notifications:${profile.id}:${channelInstance}`)
+      .channel(`profile-notifications:${profile.id}:${channelInstance}`)
       .on('postgres_changes', {
         event: '*', schema: 'public', table: 'notifications',
         filter: `profile_id=eq.${profile.id}`,

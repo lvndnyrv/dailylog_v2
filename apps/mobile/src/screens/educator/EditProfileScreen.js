@@ -6,7 +6,7 @@ import {
 } from 'react-native';
 import { useAuth } from '../../hooks/useAuth';
 import { supabase } from '../../lib/supabase';
-import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
+import { KeyboardAwareScrollView } from '../../components/KeyboardAwareScrollView';
 import { Input, Button, PasswordStrength } from '../../components/ui';
 import { showToast } from '../../components/Toast';
 import { colors, spacing, radius } from '../../theme';

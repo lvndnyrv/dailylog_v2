@@ -40,6 +40,16 @@ export function StaffProfileView({
   );
   const profile = member.profile!;
   const certs = member.certifications ?? [];
+  const backgroundClearance = certs.find((cert) =>
+    /(background|criminal record|vulnerable sector)/i.test(cert.item),
+  );
+  const backgroundClearancePending =
+    member.background_check_required &&
+    (!backgroundClearance ||
+      !backgroundClearance.document_id ||
+      !backgroundClearance.issued ||
+      (backgroundClearance.expires_on != null &&
+        backgroundClearance.expires_on < new Date().toISOString().slice(0, 10)));
   const weekdayNames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
   const scheduledMinutes = regularSchedule.reduce((total, day) => {
     const [startHour = 0, startMinute = 0] = day.starts_local.split(":").map(Number);
@@ -101,6 +111,22 @@ export function StaffProfileView({
 
       <main className="grid flex-1 grid-cols-[1.6fr_1fr] items-start gap-4 p-7">
         <div className="flex min-w-0 flex-col gap-4">
+          {backgroundClearancePending && (
+            <section className={`${card} border-warning/50 bg-warning-bg/40`}>
+              <h2 className={cardTitle}>Supervision restriction</h2>
+              <p className="mt-2 text-[12.5px] leading-relaxed text-muted">
+                This invitation requires an approved background check. Until
+                its original is verified, this educator remains visible to the
+                team but does not count toward room ratios or floater coverage.
+              </p>
+              <Link
+                href="/compliance"
+                className="mt-3 inline-block text-[12.5px] font-bold text-primary hover:text-primary-hover"
+              >
+                Review the compliance checklist →
+              </Link>
+            </section>
+          )}
           {credentialSubmissions.length > 0 && (
             <section className={card} aria-labelledby="credential-review-h">
               <div className="mb-3 flex items-center gap-2">
@@ -161,6 +187,9 @@ export function StaffProfileView({
                     <span className="text-[12.5px]">
                       {cert.missing ? (
                         <span className="font-bold text-danger">Missing · required</span>
+                      ) : cert.expires_on &&
+                        cert.expires_on < new Date().toISOString().slice(0, 10) ? (
+                        <span className="font-bold text-danger">Expired</span>
                       ) : cert.expires_on ? (
                         <span className="text-muted">
                           Valid · until{" "}

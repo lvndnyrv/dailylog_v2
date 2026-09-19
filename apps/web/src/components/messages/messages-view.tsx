@@ -19,6 +19,7 @@ export function MessagesView({
   messages,
   broadcasts,
   classrooms,
+  currentProfileId,
   openBroadcast = false,
 }: {
   threads: InboxThread[];
@@ -26,6 +27,7 @@ export function MessagesView({
   messages: ThreadMessage[];
   broadcasts: Broadcast[];
   classrooms: { id: string; name: string }[];
+  currentProfileId: string | null;
   openBroadcast?: boolean;
 }) {
   const [filter, setFilter] = useState<Filter>("all");
@@ -137,7 +139,7 @@ export function MessagesView({
                       unread ? "font-semibold text-ink" : "text-muted"
                     }`}
                   >
-                    {thread.last_message_from_staff ? "You: " : ""}
+                    {thread.last_message_from_staff ? "Center: " : ""}
                     {thread.last_message_body}
                   </span>
                 </span>
@@ -198,7 +200,11 @@ export function MessagesView({
                   }`}
                 >
                   <span className="px-1 text-[10.5px] text-faint">
-                    {fromStaff ? "You" : message.sender?.full_name ?? "Parent"} ·{" "}
+                    {fromStaff
+                      ? message.sender?.id === currentProfileId
+                        ? "You"
+                        : message.sender?.full_name ?? "Center staff"
+                      : message.sender?.full_name ?? "Parent"} ·{" "}
                     {timeAgo(message.created_at)}
                   </span>
                   <span

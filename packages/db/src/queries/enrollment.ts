@@ -7,6 +7,58 @@ type Client = SupabaseClient<Database>;
 export type Enrollment = Tables<'enrollments'>;
 export type EnrollmentSettings = Tables<'enrollment_settings'>;
 
+export interface RoomVacancyReview {
+  id: string;
+  daycare_id: string;
+  classroom_id: string;
+  room_name: string;
+  available_on: string;
+  source_transition_plan_id: string;
+  moved_child_name: string;
+  updated_at: string;
+  candidate_enrollment_id: string | null;
+  candidate_guardian_name: string | null;
+  candidate_guardian_email: string | null;
+  candidate_child_first_name: string | null;
+  candidate_child_last_name: string | null;
+  candidate_child_date_of_birth: string | null;
+  candidate_desired_start_date: string | null;
+  candidate_offer_start_on: string | null;
+  candidate_waitlist_position: number | null;
+  candidate_waitlist_priority: string | null;
+  candidate_offer_tuition_cents: number | null;
+  candidate_offer_deposit_cents: number | null;
+  candidate_age_months: number | null;
+  projected_children: number | null;
+  capacity: number | null;
+  active_waitlist_count: number;
+  blocking_reason: string | null;
+}
+
+export type EnrollmentFitStatus = 'pass' | 'warning' | 'fail' | 'unknown';
+
+export interface EnrollmentFitCheck {
+  enrollment_id: string;
+  classroom_id: string | null;
+  room_name: string | null;
+  start_on: string | null;
+  age_months: number | null;
+  min_age_months: number | null;
+  max_age_months: number | null;
+  age_status: EnrollmentFitStatus;
+  age_message: string;
+  projected_children_before: number | null;
+  projected_children_after: number | null;
+  capacity: number | null;
+  capacity_status: EnrollmentFitStatus;
+  capacity_message: string;
+  staffing_status: EnrollmentFitStatus;
+  staffing_message: string;
+  coverage_segments: number;
+  undercovered_segments: number;
+  maximum_educator_gap: number;
+}
+
 export interface EnrollmentTourSlotRow extends Tables<'enrollment_tour_slots'> {
   classroom: { id: string; name: string } | null;
   host: { id: string; full_name: string } | null;
@@ -21,6 +73,7 @@ export interface EnrollmentChildRow {
   id: string;
   first_name: string;
   last_name: string;
+  date_of_birth: string | null;
   enrolled_on: string | null;
   archived_at: string | null;
   classroom: { id: string; name: string } | null;
@@ -43,6 +96,12 @@ export async function listEnrollments(client: Client): Promise<Enrollment[]> {
   return data ?? [];
 }
 
+export async function listRoomVacancyReviews(client: Client): Promise<RoomVacancyReview[]> {
+  const { data, error } = await client.rpc('get_room_vacancy_reviews');
+  if (error) throw error;
+  return (data ?? []) as RoomVacancyReview[];
+}
+
 export async function getEnrollment(client: Client, enrollmentId: string): Promise<Enrollment | null> {
   const { data, error } = await client
     .from('enrollments')
@@ -51,6 +110,17 @@ export async function getEnrollment(client: Client, enrollmentId: string): Promi
     .maybeSingle();
   if (error) throw error;
   return data;
+}
+
+export async function getEnrollmentFitCheck(
+  client: Client,
+  enrollmentId: string,
+): Promise<EnrollmentFitCheck | null> {
+  const { data, error } = await client.rpc('get_enrollment_fit_check', {
+    p_enrollment_id: enrollmentId,
+  });
+  if (error) throw error;
+  return (data?.[0] ?? null) as EnrollmentFitCheck | null;
 }
 
 export async function createEnrollment(
@@ -106,7 +176,7 @@ export async function listEnrollmentChildren(client: Client): Promise<Enrollment
   const { data, error } = await client
     .from('children')
     .select(
-      `id, first_name, last_name, enrolled_on, archived_at, classroom:classrooms(id, name),
+      `id, first_name, last_name, date_of_birth, enrolled_on, archived_at, classroom:classrooms(id, name),
        departure:child_departures(id, last_day, reason, notes, status, offer_spot_automatically)`,
     )
     .order('first_name');

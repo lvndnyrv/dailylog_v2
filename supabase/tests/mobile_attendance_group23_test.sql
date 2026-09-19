@@ -30,14 +30,70 @@ declare
   v_awaited_child uuid := '30000000-0000-4000-a000-000000000017';
   v_late_child uuid := '30000000-0000-4000-a000-000000000014';
   v_pass uuid := '42320000-0000-4000-a000-000000000001';
+  v_today date;
+  v_other_count integer := 0;
   v_roll jsonb;
   v_complete jsonb;
   v_late record;
   v_failed boolean := false;
 begin
+  -- Rebuild the date-relative scenario inside this rollback transaction so a
+  -- long-lived linked project does not depend on when its demo seed last ran.
+  perform pg_temp.as_postgres();
+  select (now() at time zone coalesce(daycare.timezone, 'UTC'))::date
+    into v_today
+    from public.daycares daycare
+   where daycare.id = '10000000-0000-4000-a000-000000000001';
+  update public.children
+     set classroom_id = v_room,
+         archived_at = null,
+         enrolled_on = least(coalesce(enrolled_on, v_today), v_today)
+   where id in (
+     '30000000-0000-4000-a000-000000000013',
+     '30000000-0000-4000-a000-000000000014',
+     '30000000-0000-4000-a000-000000000015',
+     '30000000-0000-4000-a000-000000000016',
+     '30000000-0000-4000-a000-000000000017',
+     '30000000-0000-4000-a000-000000000018'
+   );
+  delete from public.mobile_roll_call_sessions
+   where classroom_id = v_room and attendance_date = v_today;
+  delete from public.attendance_records
+   where date = v_today
+     and child_id in (
+       select child.id from public.children child where child.classroom_id = v_room
+     );
+  insert into public.attendance_records (
+    daycare_id, child_id, date, checked_in_at, checked_in_by,
+    method, status, absence_reason, notes, dropped_off_by
+  ) values
+    ('10000000-0000-4000-a000-000000000001', '30000000-0000-4000-a000-000000000013', v_today, now() - interval '2 hours', v_maria, 'educator', 'present', null, null, 'Guardian'),
+    ('10000000-0000-4000-a000-000000000001', '30000000-0000-4000-a000-000000000014', v_today, now() - interval '90 minutes', v_maria, 'educator', 'present', null, null, 'Guardian'),
+    ('10000000-0000-4000-a000-000000000001', '30000000-0000-4000-a000-000000000015', v_today, null, null, 'parent', 'absent', 'sick', 'Resting at home', null),
+    ('10000000-0000-4000-a000-000000000001', '30000000-0000-4000-a000-000000000016', v_today, null, null, 'parent', 'late', null, 'Coming in 15 minutes', null),
+    ('10000000-0000-4000-a000-000000000001', '30000000-0000-4000-a000-000000000018', v_today, now() - interval '60 minutes', v_maria, 'educator', 'present', null, null, 'Guardian');
+  insert into public.attendance_records (
+    daycare_id, child_id, date, checked_in_at, checked_in_by,
+    method, status, notes, dropped_off_by
+  )
+  select child.daycare_id, child.id, v_today, now() - interval '45 minutes',
+         v_maria, 'educator', 'present', 'Rollback roll call fixture', 'Guardian'
+    from public.children child
+   where child.classroom_id = v_room
+     and child.archived_at is null
+     and child.id not in (
+       '30000000-0000-4000-a000-000000000013',
+       '30000000-0000-4000-a000-000000000014',
+       '30000000-0000-4000-a000-000000000015',
+       '30000000-0000-4000-a000-000000000016',
+       '30000000-0000-4000-a000-000000000017',
+       '30000000-0000-4000-a000-000000000018'
+     );
+  get diagnostics v_other_count = row_count;
+
   perform pg_temp.impersonate(v_maria);
   v_roll := public.get_mobile_roll_call(v_room);
-  if (v_roll #>> '{summary,present}')::integer <> 6
+  if (v_roll #>> '{summary,present}')::integer <> 3 + v_other_count
      or (v_roll #>> '{summary,absent}')::integer <> 1
      or (v_roll #>> '{summary,awaited}')::integer <> 2 then
     raise exception 'FAIL: seeded roll call summary is incomplete: %', v_roll -> 'summary';
@@ -61,7 +117,7 @@ begin
   perform public.mobile_roll_call_check_in(v_awaited_child);
   perform public.mobile_mark_child_absent(v_sick_child, 'appointment', 'Dentist at 9:30', true);
   v_complete := public.complete_mobile_roll_call(v_room);
-  if (v_complete ->> 'present')::integer <> 7
+  if (v_complete ->> 'present')::integer <> 4 + v_other_count
      or (v_complete ->> 'absent')::integer <> 2
      or (v_complete ->> 'awaited')::integer <> 0 then
     raise exception 'FAIL: roll-call completion totals are wrong: %', v_complete;
@@ -78,6 +134,21 @@ begin
     raise exception 'FAIL: absence office alert was not queued';
   end if;
   raise notice 'PASS: notify-office queues auditable admin delivery';
+
+  perform pg_temp.as_postgres();
+  update public.pickup_plans
+     set status = 'cancelled'
+   where child_id = v_late_child
+     and scheduled_on = v_today
+     and status = 'expected';
+  insert into public.pickup_plans (
+    daycare_id, child_id, presenter_profile_id, presenter_name,
+    relationship, scheduled_on, scheduled_for, status, created_by
+  ) values (
+    '10000000-0000-4000-a000-000000000001', v_late_child,
+    '00000000-0000-4000-a000-000000000024', 'Miguel Reyes',
+    'Father', v_today, now() - interval '22 minutes', 'expected', v_owner
+  );
 
   insert into public.pickup_passes (
     id, daycare_id, child_id, presenter_profile_id, presenter_name,

@@ -59,6 +59,7 @@ export interface StaffRow {
   job_title: string | null;
   employment_type: string | null;
   started_on: string | null;
+  background_check_required: boolean;
   certifications: Certification[];
   credentials: StaffCredentialRow[];
   status: string;
@@ -83,7 +84,7 @@ export interface StaffRegularScheduleRow {
 
 // classrooms must be pinned to the direct FK — profiles also reaches
 // classrooms through educator_classrooms, and PostgREST refuses the ambiguity.
-const STAFF_SELECT = `id, job_title, employment_type, started_on, certifications, status,
+const STAFF_SELECT = `id, job_title, employment_type, started_on, certifications, status, background_check_required,
   credentials:staff_credentials(id, name, issuer, completed_on, expires_on,
     credential_number, document_id, required, ratio_qualifying, archived_at),
   profile:profiles(id, full_name, email, phone, role,
@@ -144,7 +145,9 @@ function withNormalizedCredentials(row: StaffRow): StaffRow {
       document_id: credential.document_id,
       required: credential.required,
       ratio_qualifying: credential.ratio_qualifying,
-      missing: credential.completed_on == null && credential.document_id == null,
+      missing:
+        credential.required &&
+        (credential.completed_on == null || credential.document_id == null),
     })),
   };
 }

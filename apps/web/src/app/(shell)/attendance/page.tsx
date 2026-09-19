@@ -1,13 +1,17 @@
 import {
+  listAttendanceCorrections,
+  listAttendanceFollowups,
   getAttendanceWeek,
   getClosureForDate,
   getMyDaycare,
+  listLatePickupEvents,
+  listMissingCheckouts,
   listAttendanceDay,
 } from "@dailylog/db/queries";
 import Link from "next/link";
 import { SectionHeader } from "@/components/shell/header";
 import { AttendanceView } from "@/components/attendance/attendance-view";
-import { dateInTimeZone, isDate } from "@/lib/center-date";
+import { addDateDays, dateInTimeZone, isDate, monthRange } from "@/lib/center-date";
 import { getServerSupabase } from "@/lib/supabase/server";
 
 // Attendance 8a — the day view: check-in log, expected-but-not-in, week rail.
@@ -23,10 +27,16 @@ export default async function AttendancePage({
   const today = dateInTimeZone(new Date(), timeZone);
   const date = isDate(params.date) ? params.date : today;
 
-  const [rows, week, closure] = await Promise.all([
-    listAttendanceDay(supabase, date),
+  const rows = await listAttendanceDay(supabase, date);
+  const attendanceIds = rows.flatMap((row) => row.attendance.map((record) => record.id));
+  const month = monthRange(date);
+  const [week, closure, corrections, followups, latePickups, missingCheckouts] = await Promise.all([
     getAttendanceWeek(supabase),
     getClosureForDate(supabase, date),
+    listAttendanceCorrections(supabase, attendanceIds),
+    listAttendanceFollowups(supabase, date),
+    listLatePickupEvents(supabase, month.from, addDateDays(month.to, 1)),
+    listMissingCheckouts(supabase, date, addDateDays(date, -14)),
   ]);
 
   const withRecord = rows.map((row) => ({ row, att: row.attendance[0] ?? null }));
@@ -77,6 +87,10 @@ export default async function AttendancePage({
         openCheckIn={params.checkin === "1"}
         timeZone={timeZone}
         closure={closure}
+        corrections={corrections}
+        followups={followups}
+        latePickups={latePickups}
+        missingCheckouts={missingCheckouts}
       />
     </>
   );

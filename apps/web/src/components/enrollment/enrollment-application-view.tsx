@@ -2,11 +2,13 @@
 
 import type {
   Enrollment,
+  EnrollmentFitCheck,
+  EnrollmentFitStatus,
   EnrollmentTourSlotRow,
   RoomLiveStatus,
 } from "@dailylog/db/queries";
 import { formatAge } from "@dailylog/shared";
-import { Check, ChevronLeft, Minus } from "lucide-react";
+import { Check, ChevronLeft, CircleAlert, HelpCircle, Minus, X } from "lucide-react";
 import Link from "next/link";
 import { useActionState, useState } from "react";
 import { Avatar } from "@/components/ui/avatar";
@@ -36,6 +38,7 @@ const DOCUMENTS = [
 
 export function EnrollmentApplicationView({
   enrollment,
+  fitCheck,
   rooms,
   tourSlots,
   educators,
@@ -43,6 +46,7 @@ export function EnrollmentApplicationView({
   timeZone,
 }: {
   enrollment: Enrollment;
+  fitCheck: EnrollmentFitCheck | null;
   rooms: RoomLiveStatus[];
   tourSlots: EnrollmentTourSlotRow[];
   educators: { id: string; fullName: string }[];
@@ -62,6 +66,14 @@ export function EnrollmentApplicationView({
   const allergy = stringValue(application.allergy ?? application.allergies);
   const host = educators.find((item) => item.id === enrollment.tour_host_id);
   const activities = activityRows(enrollment, host?.fullName);
+  const fitStatuses = fitCheck
+    ? [fitCheck.capacity_status, fitCheck.age_status, fitCheck.staffing_status]
+    : ["unknown"];
+  const fitTone = fitStatuses.includes("fail")
+    ? "fail"
+    : fitStatuses.includes("warning") || fitStatuses.includes("unknown")
+      ? "warning"
+      : "pass";
 
   return (
     <div className="flex min-h-screen flex-1 flex-col bg-canvas">
@@ -206,25 +218,25 @@ export function EnrollmentApplicationView({
         </div>
 
         <aside className="flex min-w-0 flex-col gap-[18px]">
-          <section className="rounded-2xl border-[1.5px] border-[#BFE3CF] bg-card p-4">
+          <section className={`rounded-2xl border-[1.5px] bg-card p-4 ${
+            fitTone === "fail"
+              ? "border-[#EFC9C9]"
+              : fitTone === "warning"
+                ? "border-[#EFCF94]"
+                : "border-[#BFE3CF]"
+          }`}>
             <h2 className="text-[14px] font-extrabold text-ink">Fit check</h2>
-            <CheckLine>
-              {room
-                ? `${Math.max(0, Number(room.capacity ?? 0) - Number(room.enrolled_count))} spots open in ${room.name} now`
-                : "Choose a destination room"}
+            <CheckLine status={fitCheck?.capacity_status ?? "unknown"}>
+              {fitCheck?.capacity_message ?? "Choose a room and first day to check projected capacity."}
             </CheckLine>
-            <CheckLine>
-              {enrollment.child_date_of_birth && room
-                ? `Age fits ${room.name} from ${
-                    enrollment.desired_start_date
-                      ? formatDate(enrollment.desired_start_date)
-                      : "the selected start"
-                  }`
-                : "Birthday and room are needed to confirm age fit"}
+            <CheckLine status={fitCheck?.age_status ?? "unknown"}>
+              {fitCheck?.age_message ?? "Add the child birth date and choose a room to confirm age fit."}
             </CheckLine>
-            <CheckLine>Ratios stay legal with current room staffing</CheckLine>
+            <CheckLine status={fitCheck?.staffing_status ?? "unknown"}>
+              {fitCheck?.staffing_message ?? "Choose a room and first day to check published coverage."}
+            </CheckLine>
             <p className="mt-3 text-[11px] leading-relaxed text-faint">
-              Checked live against capacity, ratio rules and booked start dates.
+              Capacity and age are enforced again when the offer is sent. Staffing uses the published first-day coverage plan and includes active offer holds.
             </p>
           </section>
 
@@ -403,10 +415,23 @@ function ApplicationField({
   );
 }
 
-function CheckLine({ children }: { children: React.ReactNode }) {
+function CheckLine({
+  status,
+  children,
+}: {
+  status: EnrollmentFitStatus;
+  children: React.ReactNode;
+}) {
+  const icon = status === "pass"
+    ? <Check size={14} strokeWidth={2.4} className="flex-none text-success" />
+    : status === "fail"
+      ? <X size={14} strokeWidth={2.4} className="flex-none text-danger" />
+      : status === "warning"
+        ? <CircleAlert size={14} strokeWidth={2.2} className="flex-none text-warning-text" />
+        : <HelpCircle size={14} strokeWidth={2.2} className="flex-none text-faint" />;
   return (
     <span className="mt-3 flex items-center gap-2.5 text-[12.5px] leading-relaxed text-ink">
-      <Check size={14} strokeWidth={2.4} className="flex-none text-success" />
+      {icon}
       {children}
     </span>
   );

@@ -53,6 +53,21 @@ export function notificationPresentation(
   };
 
   switch (notification.kind) {
+    case "parent_messages": {
+      const childId = payloadString(payload, "childId");
+      return {
+        icon: MessageCircle,
+        iconClassName: "bg-tint text-primary",
+        accentClassName: "bg-primary",
+        category: "alerts",
+        source: overrides.source ?? "Messages",
+        href: overrides.href ?? (childId
+          ? `/messages?child=${encodeURIComponent(childId)}`
+          : "/messages"),
+        actionLabel: overrides.actionLabel ?? "Open conversation",
+        urgent: false,
+      };
+    }
     case "staff_message":
       return {
         icon: MessageCircle,
@@ -112,6 +127,19 @@ export function notificationPresentation(
         actionLabel: overrides.actionLabel ?? "Review request",
         urgent: true,
       };
+    case "coverage_response":
+    case "coverage_review":
+      return {
+        icon: UsersRound,
+        iconClassName: "bg-warning-bg text-warning-text",
+        accentClassName: "bg-warning",
+        category: "alerts",
+        source: overrides.source ?? "Rooms & ratios",
+        href: overrides.href ?? "/rooms",
+        actionLabel: overrides.actionLabel ?? "Review coverage",
+        urgent: notification.kind === "coverage_review"
+          || payloadString(payload, "response") === "declined",
+      };
     case "new_device_sign_in":
       return {
         icon: Smartphone,
@@ -144,6 +172,17 @@ export function notificationPresentation(
         href: overrides.href ?? "/compliance",
         actionLabel: overrides.actionLabel ?? "Send reminder",
         urgent: false,
+      };
+    case "credential_review":
+      return {
+        icon: Award,
+        iconClassName: "bg-warning-bg text-warning-text",
+        accentClassName: "bg-warning",
+        category: "compliance",
+        source: overrides.source ?? "Compliance",
+        href: overrides.href ?? "/staff",
+        actionLabel: overrides.actionLabel ?? "Review renewal",
+        urgent: true,
       };
     case "payment_received":
       return {

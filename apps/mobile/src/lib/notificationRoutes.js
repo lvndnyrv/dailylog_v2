@@ -149,8 +149,14 @@ export function resolveNotificationRoute(payload = {}, role = 'parent') {
     return null;
   }
 
-  if (screen === 'RoomRatios' || type === 'ratio_alert') {
-    return { name: 'RoomRatios', params: { roomId: value(payload, 'roomId', 'room_id') } };
+  if (screen === 'RoomRatios' || ['ratio_alert', 'room_activity_nudge', 'coverage_review'].includes(type)) {
+    return {
+      name: 'RoomRatios',
+      params: {
+        roomId: value(payload, 'roomId', 'room_id'),
+        nudgeId: value(payload, 'nudgeId', 'nudge_id'),
+      },
+    };
   }
   if (screen === 'StaffConversation' || type === 'staff_message') {
     return {
@@ -161,10 +167,43 @@ export function resolveNotificationRoute(payload = {}, role = 'parent') {
       },
     };
   }
-  if (screen === 'Attendance' || type === 'attendance_absence') {
-    return { name: 'RollCall', params: { childId } };
+  if (
+    ['Messaging', 'Messages', 'ParentMessages'].includes(screen)
+    || ['message', 'parent_messages'].includes(type)
+  ) {
+    return childId
+      ? {
+          name: 'Messaging',
+          params: {
+            childId,
+            childName: payload.childName,
+            conversationId: value(payload, 'conversationId', 'conversation_id'),
+          },
+        }
+      : null;
   }
-  if (screen === 'Pickups' || type === 'pickup_security') {
+  if (screen === 'Attendance' || ['attendance_absence', 'attendance_absence_cancelled'].includes(type)) {
+    return {
+      name: 'StaffAbsenceDetail',
+      params: {
+        childId,
+        reportId: value(payload, 'reportId', 'report_id'),
+        startsOn: value(payload, 'startsOn', 'starts_on', 'date'),
+        endsOn: value(payload, 'endsOn', 'ends_on'),
+      },
+    };
+  }
+  if (screen === 'ChildProfile' || type === 'pickup_review') {
+    return {
+      name: 'ChildProfile',
+      params: {
+        childId,
+        pickupId: value(payload, 'pickupId', 'pickup_id'),
+        focusSection: type === 'pickup_review' ? 'pickups' : undefined,
+      },
+    };
+  }
+  if (screen === 'Pickups' || ['pickup_security', 'pickup_security_resolved'].includes(type)) {
     return { name: 'Pickups', params: { childId, eventId: value(payload, 'eventId', 'event_id') } };
   }
   if (screen === 'IncidentHub' || ['incident', 'incident_acknowledged'].includes(type)) return { name: 'IncidentHub' };
@@ -178,6 +217,9 @@ export function resolveNotificationRoute(payload = {}, role = 'parent') {
   }
   if (screen === 'MyTime' || type === 'schedule_update') {
     return { name: 'MyTime' };
+  }
+  if (screen === 'WeeklyTimesheet' || type === 'timesheet_review') {
+    return { name: 'WeeklyTimesheet', params: { entryId: value(payload, 'entryId', 'entry_id') } };
   }
   if (screen === 'CredentialRenewal' || type === 'cert_expiry') {
     return { name: 'CredentialRenewal', params: { credentialId: value(payload, 'credentialId', 'credential_id') } };

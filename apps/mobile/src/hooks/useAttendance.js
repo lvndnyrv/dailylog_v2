@@ -4,6 +4,7 @@ import { mutate } from '../lib/offlineQueue';
 import { newId } from '../lib/uuid';
 import { showToast } from '../components/Toast';
 import { format } from 'date-fns';
+import { useClassroom } from './useClassroom';
 
 /**
  * Attendance hook — check-in / check-out for a classroom on a given date.
@@ -16,13 +17,15 @@ import { format } from 'date-fns';
  */
 export function useAttendance(classroomId, date = new Date(), educatorId) {
   const [attendance, setAttendance] = useState({});
+  const { classrooms = [] } = useClassroom();
+  const roomKey = (classrooms.find(room => room.id === classroomId)?.member_room_ids || [classroomId]).join(',');
   const dateStr = format(date, 'yyyy-MM-dd');
 
   const load = useCallback(async () => {
     if (!classroomId) return;
     const { data: kids } = await supabase
       .from('children').select('id')
-      .eq('classroom_id', classroomId).is('archived_at', null);
+      .in('classroom_id', roomKey.split(',')).is('archived_at', null);
     if (!kids?.length) { setAttendance({}); return; }
 
     const { data: records } = await supabase
@@ -34,7 +37,7 @@ export function useAttendance(classroomId, date = new Date(), educatorId) {
     const map = {};
     (records || []).forEach(r => { map[r.child_id] = r; });
     setAttendance(map);
-  }, [classroomId, dateStr]);
+  }, [classroomId, dateStr, roomKey]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -50,14 +53,14 @@ export function useAttendance(classroomId, date = new Date(), educatorId) {
       }));
       const { error } = await mutate({
         type: 'update', table: 'attendance_records', id: existing.id,
-        data: { checked_in_at: existing.checked_in_at || now, checked_in_by: educatorId, checked_out_at: null, checked_out_by: null },
+        data: { checked_in_at: existing.checked_in_at || now, checked_in_by: educatorId, checked_out_at: null, checked_out_by: null, status: 'present' },
       });
-      if (error) { setAttendance(prev => ({ ...prev, [childId]: existing })); showToast('Check-in failed', 'error'); }
+      if (error) { setAttendance(prev => ({ ...prev, [childId]: existing })); showToast(error.message || 'Check-in failed', 'error'); }
       return;
     }
 
     const id = newId();
-    const row = { id, child_id: childId, date: dateStr, checked_in_at: now, checked_in_by: educatorId };
+    const row = { id, child_id: childId, date: dateStr, checked_in_at: now, checked_in_by: educatorId, status: 'present', method: 'educator' };
     setAttendance(prev => ({ ...prev, [childId]: row }));
     const { error } = await mutate({
       type: 'upsert', table: 'attendance_records', data: row,
@@ -65,7 +68,7 @@ export function useAttendance(classroomId, date = new Date(), educatorId) {
     });
     if (error) {
       setAttendance(prev => { const next = { ...prev }; delete next[childId]; return next; });
-      showToast('Check-in failed', 'error');
+      showToast(error.message || 'Check-in failed', 'error');
     }
   }
 
@@ -102,4 +105,3 @@ export function useAttendance(classroomId, date = new Date(), educatorId) {
 
   return { attendance, checkIn, checkOut, getStatus, presentCount, departedCount, refresh: load };
 }
-

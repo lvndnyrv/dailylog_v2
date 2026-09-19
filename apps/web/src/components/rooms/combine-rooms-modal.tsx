@@ -31,12 +31,12 @@ export function CombineRoomsModal({
       <div>
         <h2 className="text-[19px] font-extrabold text-ink">Combine rooms at open & close</h2>
         <p className="mt-0.5 text-[12.5px] leading-normal text-muted">
-          Group low attendance periods without changing each child&apos;s home room.
-          The stricter ratio of the two rooms still applies.
+          Plan low-attendance periods without changing each child&apos;s home room.
         </p>
       </div>
 
       <form action={action} className="flex flex-col gap-4">
+        <Notice tone="info">Saving activates enabled weekday schedules. During each window the host uses the stricter ratio and shared roster; educator access expires when the window ends. Existing plans stay inactive until saved.</Notice>
         <CombinationFields
           period="morning"
           label="Morning"
@@ -55,7 +55,7 @@ export function CombineRoomsModal({
         <div className="rounded-[13px] border border-[#D6E1F0] bg-tint px-3.5 py-3 text-[12px] leading-relaxed text-ink">
           <b className="block text-[12.5px]">The mixed-age rule</b>
           <p className="mt-1 text-muted">
-            The stricter ratio always wins. The coverage timeline marks each enabled combination.
+            The stricter configured ratio applies to the entire group, with the host room&apos;s capacity. Pause a schedule for today from Rooms or the dashboard without deleting it.
           </p>
           <div className="mt-2 flex flex-col gap-1.5">
             <RatioCalculation label="Morning" value={morningState} rooms={rooms} />

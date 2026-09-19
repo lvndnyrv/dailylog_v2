@@ -32,6 +32,7 @@ export function useStaffTime() {
   const { profile } = useAuth();
   const channelSuffix = useRef(Math.random().toString(36).slice(2)).current;
   const [staffMember, setStaffMember] = useState(null);
+  const [regularSchedule, setRegularSchedule] = useState([]);
   const [shifts, setShifts] = useState([]);
   const [entries, setEntries] = useState([]);
   const [requests, setRequests] = useState([]);
@@ -49,6 +50,7 @@ export function useStaffTime() {
   const load = useCallback(async () => {
     if (!profile?.id) {
       setStaffMember(null);
+      setRegularSchedule([]);
       setShifts([]);
       setEntries([]);
       setRequests([]);
@@ -70,6 +72,7 @@ export function useStaffTime() {
 
     if (memberResult.error || !memberResult.data) {
       setStaffMember(null);
+      setRegularSchedule([]);
       setShifts([]);
       setEntries([]);
       setRequests([]);
@@ -80,7 +83,12 @@ export function useStaffTime() {
     }
 
     const member = memberResult.data;
-    const [shiftResult, entryResult, requestResult] = await Promise.all([
+    const [scheduleResult, shiftResult, entryResult, requestResult] = await Promise.all([
+      supabase
+        .from('staff_regular_schedules')
+        .select('id, weekday, starts_local, ends_local, unpaid_break_minutes, classroom:classrooms(id, name)')
+        .eq('staff_member_id', member.id)
+        .order('weekday'),
       supabase
         .from('staff_shifts')
         .select('*, classroom:classrooms(id, name)')
@@ -99,12 +107,13 @@ export function useStaffTime() {
       supabase.rpc('get_mobile_time_off_status'),
     ]);
 
-    const firstError = shiftResult.error || entryResult.error || requestResult.error;
+    const firstError = scheduleResult.error || shiftResult.error || entryResult.error || requestResult.error;
     if (firstError) {
       setError(firstError);
     }
 
     setStaffMember(member);
+    setRegularSchedule(scheduleResult.data || []);
     setShifts(shiftResult.data || []);
     setEntries(entryResult.data || []);
     setRequests(requestResult.data?.requests || []);
@@ -130,6 +139,16 @@ export function useStaffTime() {
           event: '*',
           schema: 'public',
           table: 'staff_shifts',
+          filter: `staff_member_id=eq.${staffMember.id}`,
+        },
+        () => load(),
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'staff_regular_schedules',
           filter: `staff_member_id=eq.${staffMember.id}`,
         },
         () => load(),
@@ -208,6 +227,7 @@ export function useStaffTime() {
 
   return {
     staffMember,
+    regularSchedule,
     shifts,
     entries,
     requests,

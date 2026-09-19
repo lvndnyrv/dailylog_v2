@@ -108,6 +108,7 @@ export default async function StaffPage({
         initialTab={initialTab}
         canManageDelegations={canManageDelegations}
         currentProfileId={profile!.id}
+        defaultDelegationDays={daycare?.default_delegation_days ?? 14}
       />
     </>
   );

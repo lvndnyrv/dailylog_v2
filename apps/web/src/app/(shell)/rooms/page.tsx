@@ -5,6 +5,7 @@ import {
   listRoomCoverageAssignments,
   listRoomsLive,
   listRoomTransitionPlans,
+  listRoomTransitionWaitRequests,
   listRoomTransitions,
   listStaff,
   listStaffShifts,
@@ -37,6 +38,7 @@ export default async function RoomsPage({
     floaters,
     transitions,
     transitionPlans,
+    transitionWaits,
     combinations,
     coverageAssignments,
     shifts,
@@ -48,6 +50,7 @@ export default async function RoomsPage({
     listFloaters(supabase),
     listRoomTransitions(supabase, 3),
     listRoomTransitionPlans(supabase),
+    listRoomTransitionWaitRequests(supabase),
     listRoomCombinations(supabase),
     listRoomCoverageAssignments(supabase, rangeStart, rangeEnd),
     listStaffShifts(supabase, rangeStart, rangeEnd),
@@ -85,6 +88,7 @@ export default async function RoomsPage({
         floaters={floaters}
         transitions={transitions}
         transitionPlans={transitionPlans}
+        transitionWaits={transitionWaits}
         combinations={combinations}
         coverageAssignments={coverageAssignments}
         shifts={shifts}
@@ -101,6 +105,7 @@ export default async function RoomsPage({
           }))}
         date={today}
         timeZone={timeZone}
+        openingHours={{ start: daycare?.opens_at ?? "07:00", end: daycare?.closes_at ?? "18:00" }}
         alertSettings={{
           afterMinutes: daycare?.ratio_alert_after_minutes ?? 10,
           notifyFloaters: daycare?.ratio_notify_floaters ?? true,

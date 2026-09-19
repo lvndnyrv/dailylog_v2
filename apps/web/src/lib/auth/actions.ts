@@ -4,6 +4,7 @@ import {
   acceptStaffInvite,
   checkCenterRegistrationCode,
   completeCenterSetup,
+  getMyDaycare,
   getMyProfile,
   getStaffInvite,
 } from "@dailylog/db/queries";
@@ -20,6 +21,39 @@ export interface ActionState {
 
 function configured(): boolean {
   return Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL);
+}
+
+function safeDestination(value: FormDataEntryValue | null, fallback: string): string {
+  const destination = typeof value === "string" ? value : "";
+  return destination.startsWith("/") && !destination.startsWith("//")
+    ? destination
+    : fallback;
+}
+
+async function securedDestination(
+  supabase: Awaited<ReturnType<typeof getServerSupabase>>,
+  role: string | null | undefined,
+  destination: string,
+  encourageSetup = false,
+): Promise<string> {
+  const fallback = roleDestination(role);
+  if (fallback === "/use-the-app") return fallback;
+
+  const [assurance, factors, daycare] = await Promise.all([
+    supabase.auth.mfa.getAuthenticatorAssuranceLevel(),
+    supabase.auth.mfa.listFactors(),
+    getMyDaycare(supabase),
+  ]);
+  const verifiedFactors = factors.data?.totp ?? [];
+  const currentLevel = assurance.data?.currentLevel ?? "aal1";
+  if (verifiedFactors.length > 0 && currentLevel !== "aal2") {
+    return `/two-step?next=${encodeURIComponent(destination)}`;
+  }
+  if (verifiedFactors.length === 0 && (daycare?.require_admin_mfa || encourageSetup)) {
+    const required = daycare?.require_admin_mfa ? "&required=1" : "";
+    return `/two-step?mode=setup&next=${encodeURIComponent(destination)}${required}`;
+  }
+  return destination;
 }
 
 const NOT_CONFIGURED: ActionState = {
@@ -42,7 +76,8 @@ export async function signInAction(
   }
 
   const profile = await getMyProfile(supabase);
-  redirect(roleDestination(profile?.role));
+  const destination = safeDestination(formData.get("next"), roleDestination(profile?.role));
+  redirect(await securedDestination(supabase, profile?.role, destination));
 }
 
 // 10a's "Email me a one-time sign-in link" secondary path.
@@ -163,7 +198,8 @@ export async function acceptInviteAction(
   }
 
   const profile = await getMyProfile(supabase);
-  redirect(roleDestination(profile?.role));
+  const destination = roleDestination(profile?.role);
+  redirect(await securedDestination(supabase, profile?.role, destination, true));
 }
 
 export async function startCenterAction(
@@ -244,7 +280,7 @@ export async function startCenterAction(
     };
   }
 
-  redirect("/dashboard");
+  redirect(await securedDestination(supabase, "owner_admin", "/dashboard", true));
 }
 
 export async function signOutAction(formData?: FormData): Promise<void> {

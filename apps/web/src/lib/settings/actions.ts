@@ -29,6 +29,10 @@ export async function updateCenterAction(
   const closesAt = str(formData, "closes_at") || "18:00";
   if (!name) return { error: "The center name is required." };
   if (opensAt >= closesAt) return { error: "Opening time must be before closing time." };
+  const licensedCapacity = Number(str(formData, "licensed_capacity"));
+  if (!Number.isInteger(licensedCapacity) || licensedCapacity < 0 || licensedCapacity > 10000) {
+    return { error: "Licensed capacity must be a whole number between 0 and 10,000." };
+  }
 
   try {
     await updateMyDaycare(supabase, {
@@ -37,12 +41,85 @@ export async function updateCenterAction(
       phone: str(formData, "phone") || null,
       opens_at: opensAt,
       closes_at: closesAt,
+      licensed_capacity: licensedCapacity,
+      license_number: str(formData, "license_number") || null,
     });
   } catch (err) {
     return { error: err instanceof Error ? err.message : "Could not save." };
   }
 
   revalidatePath("/", "layout");
+  return { ok: true };
+}
+
+function toCents(value: string): number {
+  const cleaned = value.replace(/[$,\s]/g, "");
+  if (!/^\d+(\.\d{1,2})?$/.test(cleaned)) return NaN;
+  const [dollars, cents = ""] = cleaned.split(".");
+  return Number(dollars) * 100 + Number(cents.padEnd(2, "0") || 0);
+}
+
+export async function saveLatePickupPolicyAction(
+  _prev: SettingsActionState,
+  formData: FormData,
+): Promise<SettingsActionState> {
+  const feePerMinuteCents = toCents(str(formData, "fee_per_minute"));
+  const dailyCapCents = toCents(str(formData, "daily_cap"));
+  const graceMinutes = Number(str(formData, "grace_minutes"));
+  const conversationAfterCount = Number(str(formData, "conversation_after_count"));
+
+  if (!Number.isInteger(feePerMinuteCents) || feePerMinuteCents < 0 || feePerMinuteCents > 10000) {
+    return { error: "Enter a fee per minute between $0 and $100." };
+  }
+  if (!Number.isInteger(dailyCapCents) || dailyCapCents < 0 || dailyCapCents > 100000) {
+    return { error: "Enter a daily cap between $0 and $1,000." };
+  }
+  if (!Number.isInteger(graceMinutes) || graceMinutes < 0 || graceMinutes > 120) {
+    return { error: "Grace period must be between 0 and 120 minutes." };
+  }
+  if (!Number.isInteger(conversationAfterCount) || conversationAfterCount < 1 || conversationAfterCount > 20) {
+    return { error: "Conversation threshold must be between 1 and 20 pickups." };
+  }
+
+  try {
+    const supabase = await getServerSupabase();
+    const { error } = await supabase.rpc("save_late_pickup_policy", {
+      p_fee_per_minute_cents: feePerMinuteCents,
+      p_grace_minutes: graceMinutes,
+      p_daily_cap_cents: dailyCapCents,
+      p_conversation_after_count: conversationAfterCount,
+    });
+    if (error) throw error;
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : "Could not save the policy." };
+  }
+
+  revalidatePath("/settings");
+  revalidatePath("/attendance");
+  return { ok: true };
+}
+
+export async function setAdminMfaRequirementAction(
+  _prev: SettingsActionState,
+  formData: FormData,
+): Promise<SettingsActionState> {
+  const required = str(formData, "required") === "true";
+  try {
+    const supabase = await getServerSupabase();
+    const { error } = await supabase.rpc("set_admin_mfa_requirement", {
+      p_required: required,
+    });
+    if (error) throw error;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Could not change the security rule.";
+    return {
+      error: message.includes("two-step") || message.includes("AAL2")
+        ? "Verify your own account with two-step authentication before changing this rule."
+        : message,
+    };
+  }
+
+  revalidatePath("/settings");
   return { ok: true };
 }
 

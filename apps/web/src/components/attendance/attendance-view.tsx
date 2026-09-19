@@ -1,12 +1,20 @@
 "use client";
 
-import type { AttendanceDayRow, Closure } from "@dailylog/db/queries";
+import type {
+  AttendanceCorrectionRow,
+  AttendanceDayRow,
+  AttendanceFollowupRow,
+  Closure,
+  LatePickupEventRow,
+  MissingCheckoutRow,
+} from "@dailylog/db/queries";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Avatar } from "@/components/ui/avatar";
 import { ArrivalStatusModal } from "./arrival-status-modal";
+import { AttendanceFollowupModal } from "./attendance-followup-modal";
 import { CheckInModal } from "./check-in-modal";
 import { FixTimesModal } from "./fix-times-modal";
 
@@ -28,6 +36,10 @@ export function AttendanceView({
   openCheckIn = false,
   timeZone,
   closure,
+  corrections,
+  followups,
+  latePickups,
+  missingCheckouts,
 }: {
   rows: AttendanceDayRow[];
   week: WeekDay[];
@@ -36,6 +48,10 @@ export function AttendanceView({
   openCheckIn?: boolean;
   timeZone: string;
   closure: Closure | null;
+  corrections: AttendanceCorrectionRow[];
+  followups: AttendanceFollowupRow[];
+  latePickups: LatePickupEventRow[];
+  missingCheckouts: MissingCheckoutRow[];
 }) {
   const router = useRouter();
   const [modal, setModal] = useState<
@@ -43,8 +59,10 @@ export function AttendanceView({
     | "checkin"
     | { kind: "fix"; child: AttendanceDayRow }
     | { kind: "status"; child: AttendanceDayRow }
+    | { kind: "followup"; child: AttendanceDayRow }
   >(openCheckIn && isToday && !closure ? "checkin" : "none");
   const [showAllMissing, setShowAllMissing] = useState(false);
+  const [showAllLog, setShowAllLog] = useState(false);
 
   const closeModal = () => {
     setModal("none");
@@ -62,7 +80,7 @@ export function AttendanceView({
         b.attendance[0].checked_in_at ?? "",
       ),
     );
-  const visibleLog = log.slice(0, 5);
+  const visibleLog = showAllLog ? log : log.slice(0, 5);
 
   const weekdayBars = week
     .filter((item) => {
@@ -80,6 +98,52 @@ export function AttendanceView({
 
   return (
     <div className="flex flex-1 flex-col px-7 pb-7 pt-[22px]">
+      <div className="mb-[18px] flex flex-wrap items-center gap-2.5">
+        <label className="relative">
+          <span className="sr-only">Attendance date</span>
+          <input
+            type="date"
+            value={date}
+            onChange={(event) => router.push(`/attendance?date=${event.target.value}`)}
+            className="rounded-[13px] border-[1.5px] border-[#D6E1F0] bg-card px-4 py-2.5 text-[13px] font-semibold text-ink outline-none focus:border-primary"
+          />
+        </label>
+        <Link
+          href="/kiosk"
+          target="_blank"
+          className="rounded-full border-[1.5px] border-[#D6E1F0] bg-card px-4 py-2.5 text-[12px] font-bold text-primary hover:bg-white"
+        >
+          Open door kiosk ↗
+        </Link>
+        <Link
+          href={`/reports-export/attendance-month?month=${date.slice(0, 7)}`}
+          className="text-[11.5px] font-bold text-primary hover:text-primary-hover"
+        >
+          Monthly attendance CSV →
+        </Link>
+      </div>
+
+      {missingCheckouts.length > 0 && (
+        <section className="mb-[18px] flex flex-wrap items-center gap-3 rounded-2xl border-[1.5px] border-[#EED39F] bg-warning-bg px-[18px] py-3.5">
+          <span className="grid size-8 place-items-center rounded-full bg-white text-warning-text" aria-hidden>!</span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-[12.5px] font-extrabold text-ink">
+              {missingCheckouts.length} missing check-out{missingCheckouts.length === 1 ? "" : "s"} need review
+            </span>
+            <span className="block text-[11px] text-muted">
+              {missingCheckouts.slice(0, 2).map((item) => item.child?.first_name ?? "Child").join(", ")}
+              {missingCheckouts.length > 2 ? ` and ${missingCheckouts.length - 2} more` : ""} · original entries will stay traceable
+            </span>
+          </span>
+          <Link
+            href={`/attendance?date=${missingCheckouts[0].date}`}
+            className="rounded-full bg-primary px-4 py-2 text-[11.5px] font-bold text-white hover:bg-primary-hover"
+          >
+            Review oldest day
+          </Link>
+        </section>
+      )}
+
       <div className="grid grid-cols-1 items-start gap-5 xl:grid-cols-[minmax(0,1fr)_298px]">
         <div className="flex min-w-0 flex-col gap-[18px]">
           {closure ? (
@@ -157,12 +221,13 @@ export function AttendanceView({
                             >
                               Record reply
                             </button>
-                            <Link
-                              href={`/messages?child=${row.id}`}
+                            <button
+                              type="button"
+                              onClick={() => setModal({ kind: "followup", child: row })}
                               className="rounded-full bg-primary px-3.5 py-2 text-[11.5px] font-bold text-white hover:bg-primary-hover"
                             >
                               Message parent
-                            </Link>
+                            </button>
                           </span>
                         )
                       )}
@@ -261,10 +326,16 @@ export function AttendanceView({
                 </button>
               );
             })}
-            {log.length > visibleLog.length && (
-              <div className="px-[18px] py-2.5 text-[11.5px] text-faint">
-                + {log.length - visibleLog.length} more today
-              </div>
+            {log.length > 5 && (
+              <button
+                type="button"
+                onClick={() => setShowAllLog((value) => !value)}
+                className="flex w-full items-center gap-1 px-[18px] py-2.5 text-left text-[11.5px] font-bold text-primary hover:bg-[#FAFCFF]"
+                aria-expanded={showAllLog}
+              >
+                {showAllLog ? "Show fewer" : `View ${log.length - 5} more today`}
+                {showAllLog ? <ChevronUp size={13} aria-hidden /> : <ChevronDown size={13} aria-hidden />}
+              </button>
             )}
             {log.length === 0 && (
               <p className="px-[18px] py-5 text-[12.5px] text-faint">
@@ -308,15 +379,38 @@ export function AttendanceView({
 
           <section className={`${card} px-[18px] py-[17px]`}>
             <h2 className={`${cardTitle} mb-2.5`}>Late pickups — {month}</h2>
-            <p className="text-[12px] leading-relaxed text-muted">
-              No billed late pickups are available yet. Late-pickup policy fees
-              will appear here when attendance fee automation is enabled.
+            {latePickups.length > 0 ? (
+              <div className="flex flex-col gap-2.5">
+                {latePickups.slice(0, 4).map((event) => (
+                  <div key={event.id} className="flex items-start gap-2 text-[11.5px]">
+                    <span className="min-w-0 flex-1 text-muted">
+                      <span className="font-semibold text-ink">
+                        {new Date(`${event.occurred_on}T12:00:00Z`).toLocaleDateString("en-CA", { month: "short", day: "numeric", timeZone: "UTC" })}
+                        {event.child ? ` · ${event.child.last_name}` : ""}
+                      </span>
+                      <span className="block">{event.late_minutes} min · picked up by {event.collected_by}</span>
+                    </span>
+                    <span className={`shrink-0 font-bold ${event.billing_status === "billed" ? "text-success" : event.billing_status === "waived" ? "text-warning-text" : "text-primary"}`}>
+                      {event.billing_status === "billed"
+                        ? `${money(event.fee_cents)} billed`
+                        : event.billing_status === "waived"
+                          ? "conversation"
+                          : `${money(event.fee_cents)} pending`}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-[12px] leading-relaxed text-muted">No late pickups recorded this month.</p>
+            )}
+            <p className="mt-2.5 text-[10.5px] leading-relaxed text-faint">
+              Policy fees attach to the family&apos;s open or next invoice automatically. A repeat threshold starts a conversation instead.
             </p>
             <Link
-              href="/billing?new=1"
+              href="/settings?section=attendance"
               className="mt-2.5 inline-block text-[11.5px] font-bold text-primary hover:text-primary-hover"
             >
-              Add a fee to an invoice →
+              Review late-pickup policy →
             </Link>
           </section>
         </aside>
@@ -345,14 +439,35 @@ export function AttendanceView({
           childName={`${modal.child.first_name} ${modal.child.last_name}`}
           record={modal.child.attendance[0]}
           date={date}
+          timeZone={timeZone}
+          corrections={corrections.filter(
+            (correction) => correction.attendance_id === modal.child.attendance[0].id,
+          )}
           onClose={closeModal}
         />
       )}
       {typeof modal === "object" && modal.kind === "status" && (
         <ArrivalStatusModal child={modal.child} date={date} onClose={closeModal} />
       )}
+      {typeof modal === "object" && modal.kind === "followup" && (
+        <AttendanceFollowupModal
+          child={modal.child}
+          date={date}
+          followups={followups.filter((followup) => followup.child_id === modal.child.id)}
+          onClose={closeModal}
+        />
+      )}
     </div>
   );
+}
+
+function money(cents: number): string {
+  return new Intl.NumberFormat("en-CA", {
+    style: "currency",
+    currency: "CAD",
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  }).format(cents / 100);
 }
 
 function missingPriority(row: AttendanceDayRow): number {

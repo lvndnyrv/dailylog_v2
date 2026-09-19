@@ -18,12 +18,38 @@ do $$
 declare
   v_daycare constant uuid := '10000000-0000-4000-a000-000000000001';
   v_child constant uuid := '30000000-0000-4000-a000-000000000013';
-  v_authorization constant uuid := '52300000-0000-4000-a000-000000000001';
+  v_parent constant uuid := '00000000-0000-4000-a000-000000000023';
+  v_authorization constant uuid := '52390000-0000-4000-a000-000000000024';
   v_educator constant uuid := '00000000-0000-4000-a000-000000000003';
   v_witness constant uuid := '00000000-0000-4000-a000-000000000001';
   v_valid_log constant uuid := '52390000-0000-4000-a000-000000000023';
+  v_path text := v_child::text || '/' || v_parent::text || '/group23-integrity-label.jpg';
   v_failed boolean;
 begin
+  perform pg_temp.impersonate('postgres');
+  update public.children
+     set archived_at = null,
+         enrolled_on = least(coalesce(enrolled_on, public.center_today()), public.center_today())
+   where id = v_child;
+  insert into storage.objects (bucket_id, name, owner, owner_id, metadata)
+  values (
+    'medication-labels', v_path, v_parent, v_parent::text,
+    jsonb_build_object('mimetype', 'image/jpeg', 'size', 2048)
+  );
+
+  perform pg_temp.impersonate('authenticated', v_parent);
+  insert into public.medication_authorizations (
+    id, daycare_id, child_id, parent_id, name, dosage, route,
+    medication_type, schedule_type, scheduled_times, schedule,
+    start_date, end_date, label_photo_path, signed_name, signed_at,
+    consented_at, authorization_version
+  ) values (
+    v_authorization, v_daycare, v_child, v_parent,
+    'Group 23 integrity medication', '5 ml', 'Oral', 'prescription',
+    'scheduled', array[time '12:30'], 'Give with food', public.center_today(),
+    public.center_today() + 10, v_path, 'Lucia Castillo', now(), now(), '2026-08-09'
+  );
+
   perform pg_temp.impersonate('authenticated', v_educator);
 
   v_failed := false;

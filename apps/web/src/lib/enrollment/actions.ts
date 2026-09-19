@@ -7,12 +7,12 @@ import {
   setEnrollmentStage,
   submitEnrollmentInquiry,
 } from "@dailylog/db/queries";
-import type { Json } from "@dailylog/db";
 import { revalidatePath } from "next/cache";
 import { getServerSupabase } from "@/lib/supabase/server";
 
 export interface EnrollmentActionState {
   error?: string;
+  fieldErrors?: Record<string, string>;
   ok?: boolean;
   journeyCode?: string;
 }
@@ -90,20 +90,57 @@ export async function enrollAction(
   const supabase = await getServerSupabase();
 
   const classroomId = str(formData, "classroom_id");
-  if (!classroomId) return { error: "Pick a room." };
+  const lastName = str(formData, "last_name");
+  if (!lastName) {
+    return {
+      error: "Enter the child's last name.",
+      fieldErrors: { last_name: "Child's last name is required." },
+    };
+  }
+  if (!classroomId) return { error: "The accepted offer does not have a room." };
 
   try {
     await enrollFromPipeline(
       supabase,
       str(formData, "enrollment_id"),
       classroomId,
-      str(formData, "last_name") || undefined,
+      lastName,
     );
   } catch (err) {
     return { error: err instanceof Error ? err.message : "Could not enroll." };
   }
 
   revalidatePath("/enrollment");
+  revalidatePath("/children");
+  return { ok: true };
+}
+
+export async function saveEnrollmentOnboardingAction(
+  _prev: EnrollmentActionState,
+  formData: FormData,
+): Promise<EnrollmentActionState> {
+  const supabase = await getServerSupabase();
+  const enrollmentId = str(formData, "enrollment_id");
+  const primaryEducatorId = str(formData, "primary_educator_id");
+  const cubbyLabel = str(formData, "cubby_label");
+
+  const fieldErrors: Record<string, string> = {};
+  if (!primaryEducatorId) fieldErrors.primary_educator_id = "Choose a primary educator.";
+  if (!cubbyLabel) fieldErrors.cubby_label = "Enter the child's cubby label.";
+  if (Object.keys(fieldErrors).length > 0) {
+    return { error: "Complete the highlighted room setup fields.", fieldErrors };
+  }
+
+  const { error } = await supabase.rpc("save_enrollment_onboarding", {
+    p_enrollment_id: enrollmentId,
+    p_primary_educator_id: primaryEducatorId,
+    p_cubby_label: cubbyLabel,
+    p_send_welcome: formData.get("send_welcome") === "on",
+  });
+  if (error) return { error: error.message };
+
+  revalidatePath("/enrollment");
+  revalidatePath(`/enrollment/${enrollmentId}`);
   revalidatePath("/children");
   return { ok: true };
 }
@@ -154,66 +191,12 @@ export async function bookTourAction(
   const slotId = str(formData, "slot_id");
   const hostId = str(formData, "host_id") || null;
   if (!enrollmentId || !slotId) return { error: "Choose a family and an open slot." };
-
-  const { data: currentEnrollment, error: currentEnrollmentError } = await supabase
-    .from("enrollments")
-    .select("stage")
-    .eq("id", enrollmentId)
-    .single();
-  if (currentEnrollmentError) return { error: currentEnrollmentError.message };
-
-  const { data: slot, error: slotError } = await supabase
-    .from("enrollment_tour_slots")
-    .select("id, starts_at, status, classroom_id")
-    .eq("id", slotId)
-    .single();
-  if (slotError || slot.status !== "open") return { error: "That tour slot is no longer open." };
-
-  const { error: slotUpdateError } = await supabase
-    .from("enrollment_tour_slots")
-    .update({ enrollment_id: enrollmentId, host_id: hostId, status: "booked" })
-    .eq("id", slotId)
-    .eq("status", "open");
-  if (slotUpdateError) return { error: slotUpdateError.message };
-
-  // A reschedule releases the previous booking after the replacement slot is
-  // secured, so the calendar never loses both reservations on a failed write.
-  const { error: previousSlotError } = await supabase
-    .from("enrollment_tour_slots")
-    .update({ enrollment_id: null, host_id: null, status: "open" })
-    .eq("enrollment_id", enrollmentId)
-    .eq("status", "booked")
-    .neq("id", slotId);
-  if (previousSlotError) {
-    await supabase
-      .from("enrollment_tour_slots")
-      .update({ enrollment_id: null, host_id: null, status: "open" })
-      .eq("id", slotId);
-    return { error: previousSlotError.message };
-  }
-
-  const { data: enrollment, error: enrollmentError } = await supabase
-    .from("enrollments")
-    .update({
-      stage: currentEnrollment.stage === "inquiry" ? "tour" : currentEnrollment.stage,
-      stage_changed_at: new Date().toISOString(),
-      tour_at: slot.starts_at,
-      tour_host_id: hostId,
-      classroom_id: slot.classroom_id,
-    })
-    .eq("id", enrollmentId)
-    .select("guardian_email, guardian_name, child_first_name, offer_code")
-    .single();
-  if (enrollmentError) return { error: enrollmentError.message };
-  await enqueueEnrollmentEmail(
-    supabase,
-    profile.daycare_id,
-    enrollment.guardian_email,
-    "tour_confirmation",
-    "Your Sunny Grove tour is booked",
-    `${enrollment.guardian_name ?? "Hello"}, your tour for ${enrollment.child_first_name ?? "your family"} is confirmed for ${formatDateTime(slot.starts_at)}. View or reschedule it in DailyLog: dailylog://inquiry?code=${encodeURIComponent(enrollment.offer_code ?? "")}`,
-    `tour:${enrollmentId}:${slot.starts_at}`,
-  );
+  const { error } = await supabase.rpc("book_admin_enrollment_tour", {
+    p_enrollment_id: enrollmentId,
+    p_slot_id: slotId,
+    p_host_id: hostId ?? undefined,
+  });
+  if (error) return { error: error.message };
   revalidatePath("/enrollment");
   revalidatePath(`/enrollment/${enrollmentId}`);
   return { ok: true };
@@ -224,17 +207,9 @@ export async function cancelEnrollmentTourAction(formData: FormData): Promise<vo
   const enrollmentId = str(formData, "enrollment_id");
   if (!enrollmentId) throw new Error("Enrollment is required.");
 
-  const { error: slotError } = await supabase
-    .from("enrollment_tour_slots")
-    .update({ enrollment_id: null, host_id: null, status: "open" })
-    .eq("enrollment_id", enrollmentId)
-    .eq("status", "booked");
-  if (slotError) throw slotError;
-
-  const { error } = await supabase
-    .from("enrollments")
-    .update({ tour_at: null, tour_host_id: null, tour_outcome: "cancelled" })
-    .eq("id", enrollmentId);
+  const { error } = await supabase.rpc("cancel_admin_enrollment_tour", {
+    p_enrollment_id: enrollmentId,
+  });
   if (error) throw error;
 
   revalidatePath("/enrollment");
@@ -246,39 +221,18 @@ export async function logTourOutcomeAction(
   formData: FormData,
 ): Promise<EnrollmentActionState> {
   const supabase = await getServerSupabase();
-  const profile = await getMyProfile(supabase);
-  if (!profile?.daycare_id) return { error: "No center on your profile." };
   const enrollmentId = str(formData, "enrollment_id");
   const outcome = str(formData, "outcome");
   if (!enrollmentId || !["attended", "no_show", "rescheduled"].includes(outcome)) {
     return { error: "Choose a tour outcome." };
   }
-  const sendApplication = formData.get("send_application") === "on";
-  const values = {
-    tour_outcome: outcome,
-    tour_notes: str(formData, "notes") || null,
-    ...(outcome === "attended" && sendApplication
-      ? { stage: "application", stage_changed_at: new Date().toISOString(), application_progress: 20 }
-      : {}),
-  };
-  const { data: enrollment, error } = await supabase
-    .from("enrollments")
-    .update(values)
-    .eq("id", enrollmentId)
-    .select("guardian_email, guardian_name, child_first_name, offer_code")
-    .single();
+  const { error } = await supabase.rpc("record_admin_enrollment_tour_outcome", {
+    p_enrollment_id: enrollmentId,
+    p_outcome: outcome,
+    p_notes: str(formData, "notes") || undefined,
+    p_send_application: formData.get("send_application") === "on",
+  });
   if (error) return { error: error.message };
-  if (outcome === "attended" && sendApplication) {
-    await enqueueEnrollmentEmail(
-      supabase,
-      profile.daycare_id,
-      enrollment.guardian_email,
-      "enrollment_application",
-      `Application for ${enrollment.child_first_name ?? "Sunny Grove"}`,
-      `${enrollment.guardian_name ?? "Hello"}, thanks for visiting. Your enrollment application is ready to complete.`,
-      `application:${enrollmentId}`,
-    );
-  }
   revalidatePath("/enrollment");
   revalidatePath(`/enrollment/${enrollmentId}`);
   return { ok: true };
@@ -289,57 +243,17 @@ export async function requestDocumentsAction(
   formData: FormData,
 ): Promise<EnrollmentActionState> {
   const supabase = await getServerSupabase();
-  const profile = await getMyProfile(supabase);
-  if (!profile?.daycare_id) return { error: "No center on your profile." };
   const enrollmentId = str(formData, "enrollment_id");
   const requested = formData.getAll("documents").map(String);
   if (requested.length === 0) return { error: "Select at least one missing document." };
-  const { data: enrollment, error: readError } = await supabase
-    .from("enrollments")
-    .select("documents_status, guardian_email, guardian_name, child_first_name, child_id")
-    .eq("id", enrollmentId)
-    .single();
-  if (readError) return { error: readError.message };
-  const message = str(formData, "message") || `${enrollment.guardian_name ?? "Hello"}, please upload the remaining enrollment documents.`;
-
-  // Once the application has become an enrolled child, keep the request in the
-  // standing parent document vault as well as the historical application record.
-  if (enrollment.child_id) {
-    const titles: Record<string, string> = {
-      immunization: "Updated immunization record",
-      birth_certificate: "Birth certificate",
-      custody: "Custody document",
-      allergy_medical: "Allergy & medical form",
-    };
-    const dueOn = new Date();
-    dueOn.setDate(dueOn.getDate() + 14);
-    for (const document of requested) {
-      const { error: requestError } = await supabase.rpc("create_parent_document_request", {
-        p_child_id: enrollment.child_id,
-        p_kind: document,
-        p_title: titles[document] ?? document.replaceAll("_", " "),
-        p_message: message,
-        p_due_on: dueOn.toISOString().slice(0, 10),
-      });
-      if (requestError) return { error: requestError.message };
-    }
-  }
-  const statuses = jsonObject(enrollment.documents_status);
-  for (const document of requested) statuses[document] = "requested";
-  const { error } = await supabase
-    .from("enrollments")
-    .update({ documents_status: statuses })
-    .eq("id", enrollmentId);
+  const message = str(formData, "message");
+  if (!message) return { error: "Write a message for the family." };
+  const { error } = await supabase.rpc("request_enrollment_documents", {
+    p_enrollment_id: enrollmentId,
+    p_documents: requested,
+    p_message: message,
+  });
   if (error) return { error: error.message };
-  await enqueueEnrollmentEmail(
-    supabase,
-    profile.daycare_id,
-    enrollment.guardian_email,
-    "enrollment_documents",
-    `Documents needed for ${enrollment.child_first_name ?? "your application"}`,
-    message,
-    `documents:${enrollmentId}:${requested.sort().join("-")}`,
-  );
   revalidatePath("/enrollment");
   revalidatePath(`/enrollment/${enrollmentId}`);
   return { ok: true };
@@ -395,38 +309,29 @@ export async function sendOfferAction(
   const classroomId = str(formData, "classroom_id");
   const startDate = str(formData, "desired_start");
   const windowHours = Number(str(formData, "offer_window_hours") || 48);
-  if (!enrollmentId || !classroomId || !startDate || !Number.isFinite(windowHours)) {
+  const tuitionCents = Math.round(Number(str(formData, "tuition")) * 100);
+  const depositCents = Math.round(Number(str(formData, "deposit")) * 100);
+  const vacancyReviewId = str(formData, "vacancy_review_id") || null;
+  const expectedVacancyUpdatedAt = str(formData, "expected_vacancy_updated_at") || null;
+  if (
+    !enrollmentId || !classroomId || !startDate || !Number.isFinite(windowHours)
+    || !Number.isFinite(tuitionCents) || !Number.isFinite(depositCents)
+  ) {
     return { error: "Choose the room, first day and offer window." };
   }
-  const sentAt = new Date();
-  const expiresAt = new Date(sentAt.getTime() + windowHours * 3600000);
-  const { data: enrollment, error } = await supabase
-    .from("enrollments")
-    .update({
-      classroom_id: classroomId,
-      desired_start_date: startDate,
-      stage: "offer",
-      stage_changed_at: sentAt.toISOString(),
-      offer_sent_at: sentAt.toISOString(),
-      offer_expires_at: expiresAt.toISOString(),
-      offer_status: "sent",
-      offer_deposit_cents: Math.round(Number(str(formData, "deposit")) * 100),
-      offer_tuition_cents: Math.round(Number(str(formData, "tuition")) * 100),
-      waitlist_status: "offer",
-    })
-    .eq("id", enrollmentId)
-    .select("guardian_email, guardian_name, child_first_name, offer_code")
-    .single();
+  const { error } = await supabase.rpc("send_reviewed_enrollment_offer", {
+    p_enrollment_id: enrollmentId,
+    p_classroom_id: classroomId,
+    p_start_on: startDate,
+    p_window_hours: windowHours,
+    p_tuition_cents: tuitionCents,
+    p_deposit_cents: depositCents,
+    ...(vacancyReviewId ? { p_vacancy_review_id: vacancyReviewId } : {}),
+    ...(expectedVacancyUpdatedAt
+      ? { p_expected_vacancy_updated_at: expectedVacancyUpdatedAt }
+      : {}),
+  });
   if (error) return { error: error.message };
-  await enqueueEnrollmentEmail(
-    supabase,
-    profile.daycare_id,
-    enrollment.guardian_email,
-    "waitlist_offer",
-    `${enrollment.child_first_name ?? "Your family"} has a spot at Sunny Grove`,
-    `${enrollment.guardian_name ?? "Hello"}, your enrollment offer is held until ${formatDateTime(expiresAt.toISOString())}. Open it securely in DailyLog: dailylog://offer?code=${encodeURIComponent(enrollment.offer_code ?? "")}`,
-    `offer:${enrollmentId}:${sentAt.toISOString().slice(0, 13)}`,
-  );
   revalidatePath("/enrollment");
   revalidatePath(`/enrollment/${enrollmentId}`);
   return { ok: true };
@@ -478,51 +383,16 @@ export async function addToWaitlistAction(
   if (!profile?.daycare_id) return { error: "No center on your profile." };
   const enrollmentId = str(formData, "enrollment_id");
   const classroomId = str(formData, "classroom_id");
+  const desiredStart = str(formData, "desired_start");
   if (!enrollmentId || !classroomId) return { error: "Choose a family and room." };
-  const priority = formData.get("sibling_priority") === "on" ? "sibling" : "public";
-  const [{ data: waitlist, error: listError }, { data: settings }] = await Promise.all([
-    supabase
-    .from("enrollments")
-    .select("id, waitlist_priority, waitlist_status, waitlist_joined_at, created_at, guardian_email, guardian_name, child_first_name")
-    .in("waitlist_status", ["active", "offer"]),
-    supabase.from("enrollment_settings").select("siblings_first, staff_children_next").maybeSingle(),
-  ]);
-  if (listError) return { error: listError.message };
-  const joinedAt = new Date().toISOString();
-  const ranked = [
-    ...(waitlist ?? []),
-    { id: enrollmentId, waitlist_priority: priority, waitlist_status: "active", waitlist_joined_at: joinedAt, created_at: joinedAt, guardian_email: null, guardian_name: null, child_first_name: null },
-  ].sort((a, b) => waitlistSort(a, b, settings ?? undefined));
-  for (let index = 0; index < ranked.length; index++) {
-    const isNew = ranked[index].id === enrollmentId;
-    const { error } = await supabase
-      .from("enrollments")
-      .update({
-        ...(isNew ? { classroom_id: classroomId, waitlist_status: "active" } : {}),
-        waitlist_priority: ranked[index].waitlist_priority,
-        waitlist_joined_at: ranked[index].waitlist_joined_at ?? ranked[index].created_at,
-        waitlist_position: index + 1,
-      })
-      .eq("id", ranked[index].id);
-    if (error) return { error: error.message };
-  }
-  const { data: added } = await supabase
-    .from("enrollments")
-    .select("guardian_email, guardian_name, child_first_name, offer_code")
-    .eq("id", enrollmentId)
-    .single();
-  if (added) {
-    const position = ranked.findIndex((item) => item.id === enrollmentId) + 1;
-    await enqueueEnrollmentEmail(
-      supabase,
-      profile.daycare_id,
-      added.guardian_email,
-      "waitlist_confirmation",
-      `${added.child_first_name ?? "Your family"} is on the waitlist`,
-      `${added.guardian_name ?? "Hello"}, your center-wide waitlist position is #${position}. Track your place in DailyLog: dailylog://inquiry?code=${encodeURIComponent(added.offer_code ?? "")}`,
-      `waitlist-added:${enrollmentId}`,
-    );
-  }
+  if (!desiredStart) return { error: "Choose the family's desired start date." };
+  const { error } = await supabase.rpc("add_enrollment_to_waitlist", {
+    p_enrollment_id: enrollmentId,
+    p_classroom_id: classroomId,
+    p_desired_start: desiredStart,
+    p_sibling_priority: formData.get("sibling_priority") === "on",
+  });
+  if (error) return { error: error.message };
   revalidatePath("/enrollment");
   return { ok: true };
 }
@@ -532,85 +402,21 @@ export async function withdrawOfferAction(
   formData: FormData,
 ): Promise<EnrollmentActionState> {
   const supabase = await getServerSupabase();
-  const profile = await getMyProfile(supabase);
-  if (!profile?.daycare_id) return { error: "No center on your profile." };
   const enrollmentId = str(formData, "enrollment_id");
   const keep = formData.get("keep_on_waitlist") === "on";
-  const { data: current, error: readError } = await supabase
-    .from("enrollments")
-    .select("classroom_id, guardian_email, child_first_name")
-    .eq("id", enrollmentId)
-    .single();
-  if (readError) return { error: readError.message };
-  const { error } = await supabase
-    .from("enrollments")
-    .update({
-      offer_status: "withdrawn",
-      stage: keep ? "inquiry" : "withdrawn",
-      stage_changed_at: new Date().toISOString(),
-      waitlist_status: keep ? "active" : "archived",
-      waitlist_priority: keep ? "public" : undefined,
-      waitlist_joined_at: keep ? new Date().toISOString() : undefined,
-      closed_reason: str(formData, "reason") || "Offer withdrawn",
-      closed_at: keep ? null : new Date().toISOString(),
-    })
-    .eq("id", enrollmentId);
+  const reason = str(formData, "reason");
+  if (!enrollmentId) return { error: "Choose an open offer." };
+  if (!reason) return { error: "Choose a withdrawal reason." };
+
+  const { error } = await supabase.rpc("withdraw_enrollment_offer", {
+    p_enrollment_id: enrollmentId,
+    p_keep_on_waitlist: keep,
+    p_reason: reason,
+  });
   if (error) return { error: error.message };
 
-  const { data: settings } = await supabase
-    .from("enrollment_settings")
-    .select("auto_offer, offer_window_hours, siblings_first, staff_children_next")
-    .maybeSingle();
-  if (settings?.auto_offer && current.classroom_id) {
-    const { data: next } = await supabase
-      .from("enrollments")
-      .select("id, guardian_email, guardian_name, child_first_name")
-      .eq("classroom_id", current.classroom_id)
-      .eq("waitlist_status", "active")
-      .neq("id", enrollmentId)
-      .order("waitlist_position")
-      .limit(1)
-      .maybeSingle();
-    if (next) {
-      const now = new Date();
-      const expiresAt = new Date(now.getTime() + (settings.offer_window_hours ?? 48) * 3600000);
-      await supabase.from("enrollments").update({
-        stage: "offer",
-        stage_changed_at: now.toISOString(),
-        offer_status: "sent",
-        offer_sent_at: now.toISOString(),
-        offer_expires_at: expiresAt.toISOString(),
-        waitlist_status: "offer",
-      }).eq("id", next.id);
-      await enqueueEnrollmentEmail(
-        supabase,
-        profile.daycare_id,
-        next.guardian_email,
-        "waitlist_offer",
-        `${next.child_first_name ?? "Your family"} has a spot at Sunny Grove`,
-        `${next.guardian_name ?? "Hello"}, a matching room spot is held until ${formatDateTime(expiresAt.toISOString())}.`,
-        `auto-offer:${next.id}:${now.toISOString().slice(0, 13)}`,
-      );
-    }
-  }
-  const { data: remaining } = await supabase
-    .from("enrollments")
-    .select("id, waitlist_priority, waitlist_joined_at, created_at")
-    .in("waitlist_status", ["active", "offer"]);
-  (remaining ?? []).sort((a, b) => waitlistSort(a, b, settings ?? undefined));
-  for (let index = 0; index < (remaining ?? []).length; index++) {
-    await supabase.from("enrollments").update({ waitlist_position: index + 1 }).eq("id", remaining![index].id);
-  }
-  await enqueueEnrollmentEmail(
-    supabase,
-    profile.daycare_id,
-    current.guardian_email,
-    "offer_withdrawn",
-    `Update about ${current.child_first_name ?? "your"} enrollment offer`,
-    "Your Sunny Grove offer has been closed. Your family record remains safely on file.",
-    `offer-withdrawn:${enrollmentId}`,
-  );
   revalidatePath("/enrollment");
+  revalidatePath(`/enrollment/${enrollmentId}`);
   return { ok: true };
 }
 
@@ -621,43 +427,22 @@ export async function updateWaitlistRulesAction(
   const supabase = await getServerSupabase();
   const profile = await getMyProfile(supabase);
   if (!profile?.daycare_id) return { error: "No center on your profile." };
-  const { error } = await supabase.from("enrollment_settings").upsert({
-    daycare_id: profile.daycare_id,
-    siblings_first: formData.get("siblings_first") === "on",
-    staff_children_next: formData.get("staff_children_next") === "on",
-    offer_window_hours: Number(str(formData, "offer_window_hours") || 48),
-    auto_offer: formData.get("auto_offer") === "on",
-    auto_archive_checkins: Number(str(formData, "auto_archive_checkins") || 2),
+  const offerWindowHours = Number(str(formData, "offer_window_hours") || 48);
+  const autoArchiveCheckins = Number(str(formData, "auto_archive_checkins") || 2);
+  if (!Number.isInteger(offerWindowHours) || offerWindowHours < 12 || offerWindowHours > 336) {
+    return { error: "Offer window must be between 12 and 336 hours." };
+  }
+  if (!Number.isInteger(autoArchiveCheckins) || autoArchiveCheckins < 1 || autoArchiveCheckins > 10) {
+    return { error: "Stale-entry threshold must be between 1 and 10 check-ins." };
+  }
+  const { error } = await supabase.rpc("update_enrollment_waitlist_rules", {
+    p_siblings_first: formData.get("siblings_first") === "on",
+    p_staff_children_next: formData.get("staff_children_next") === "on",
+    p_offer_window_hours: offerWindowHours,
+    p_auto_offer: formData.get("auto_offer") === "on",
+    p_auto_archive_checkins: autoArchiveCheckins,
   });
   if (error) return { error: error.message };
-  const siblingsFirst = formData.get("siblings_first") === "on";
-  const staffChildrenNext = formData.get("staff_children_next") === "on";
-  const { data: active, error: activeError } = await supabase
-    .from("enrollments")
-    .select("id, waitlist_position, waitlist_priority, waitlist_joined_at, created_at, guardian_email, guardian_name, child_first_name")
-    .in("waitlist_status", ["active", "offer"]);
-  if (activeError) return { error: activeError.message };
-  const ranked = (active ?? []).sort((a, b) =>
-    waitlistSort(a, b, {
-      siblings_first: siblingsFirst,
-      staff_children_next: staffChildrenNext,
-    }),
-  );
-  for (let index = 0; index < ranked.length; index++) {
-    const nextPosition = index + 1;
-    await supabase.from("enrollments").update({ waitlist_position: nextPosition }).eq("id", ranked[index].id);
-    if (ranked[index].waitlist_position !== nextPosition) {
-      await enqueueEnrollmentEmail(
-        supabase,
-        profile.daycare_id,
-        ranked[index].guardian_email,
-        "waitlist_position_changed",
-        "Your waitlist position changed",
-        `${ranked[index].guardian_name ?? "Hello"}, ${ranked[index].child_first_name ?? "your family"} is now #${nextPosition} after the center updated its ranking rules.`,
-        `waitlist-position:${ranked[index].id}:${nextPosition}`,
-      );
-    }
-  }
   revalidatePath("/enrollment");
   return { ok: true };
 }
@@ -667,36 +452,19 @@ export async function closeInquiryAction(
   formData: FormData,
 ): Promise<EnrollmentActionState> {
   const supabase = await getServerSupabase();
-  const profile = await getMyProfile(supabase);
-  if (!profile?.daycare_id) return { error: "No center on your profile." };
   const enrollmentId = str(formData, "enrollment_id");
   const goodbye = formData.get("send_goodbye") === "on";
   const keep = formData.get("keep_on_file") === "on";
-  const { data: enrollment, error } = await supabase
-    .from("enrollments")
-    .update({
-      stage: "withdrawn",
-      stage_changed_at: new Date().toISOString(),
-      closed_reason: str(formData, "reason") || "Closed by admin",
-      closed_at: new Date().toISOString(),
-      keep_on_file: keep,
-      waitlist_status: "archived",
-    })
-    .eq("id", enrollmentId)
-    .select("guardian_email, guardian_name")
-    .single();
+  const reason = str(formData, "reason");
+  if (!enrollmentId) return { error: "Choose an inquiry to close." };
+  if (!reason) return { error: "Choose a closure reason." };
+  const { error } = await supabase.rpc("close_enrollment_inquiry", {
+    p_enrollment_id: enrollmentId,
+    p_reason: reason,
+    p_send_goodbye: goodbye,
+    p_keep_on_file: keep,
+  });
   if (error) return { error: error.message };
-  if (goodbye) {
-    await enqueueEnrollmentEmail(
-      supabase,
-      profile.daycare_id,
-      enrollment.guardian_email,
-      "inquiry_closed",
-      "Thank you for considering Sunny Grove",
-      `${enrollment.guardian_name ?? "Hello"}, thank you for getting to know us. Our door is always open if your plans change.`,
-      `inquiry-closed:${enrollmentId}`,
-    );
-  }
   revalidatePath("/enrollment");
   return { ok: true };
 }
@@ -706,32 +474,15 @@ export async function sendWaitlistCheckinAction(
   formData: FormData,
 ): Promise<EnrollmentActionState> {
   const supabase = await getServerSupabase();
-  const profile = await getMyProfile(supabase);
-  if (!profile?.daycare_id) return { error: "No center on your profile." };
   const ids = formData.getAll("enrollment_id").map(String);
   if (ids.length === 0) return { error: "Select at least one family." };
-  const { data: families, error: readError } = await supabase
-    .from("enrollments")
-    .select("id, guardian_email, guardian_name, waitlist_unanswered_checkins, offer_code")
-    .in("id", ids);
-  if (readError) return { error: readError.message };
-  for (const family of families ?? []) {
-    const unanswered = family.waitlist_unanswered_checkins + 1;
-    await supabase.from("enrollments").update({
-      waitlist_last_contact_at: new Date().toISOString(),
-      waitlist_unanswered_checkins: unanswered,
-      waitlist_response_due_at: new Date(Date.now() + 7 * 86400000).toISOString(),
-    }).eq("id", family.id);
-    await enqueueEnrollmentEmail(
-      supabase,
-      profile.daycare_id,
-      family.guardian_email,
-      "waitlist_checkin",
-      "Still interested in Sunny Grove?",
-      `${str(formData, "message") || `${family.guardian_name ?? "Hello"}, you're still on our waitlist. Please confirm that you'd like to keep your spot.`} Respond securely in DailyLog: dailylog://inquiry?code=${encodeURIComponent(family.offer_code ?? "")}`,
-      `waitlist-checkin:${family.id}:${unanswered}`,
-    );
-  }
+  const message = str(formData, "message");
+  if (!message) return { error: "Enter a check-in message." };
+  const { error } = await supabase.rpc("send_waitlist_checkins", {
+    p_enrollment_ids: ids,
+    p_message: message,
+  });
+  if (error) return { error: error.message };
   revalidatePath("/enrollment");
   return { ok: true };
 }
@@ -741,32 +492,18 @@ export async function scheduleChildWithdrawalAction(
   formData: FormData,
 ): Promise<EnrollmentActionState> {
   const supabase = await getServerSupabase();
-  const profile = await getMyProfile(supabase);
-  if (!profile?.daycare_id) return { error: "No center on your profile." };
   const childId = str(formData, "child_id");
   const lastDay = str(formData, "last_day");
   const reason = str(formData, "reason");
   if (!childId || !lastDay || !reason) return { error: "Child, last day and reason are required." };
-  const { data: existing } = await supabase
-    .from("child_departures")
-    .select("id")
-    .eq("child_id", childId)
-    .eq("status", "scheduled")
-    .maybeSingle();
-  const values = {
-    last_day: lastDay,
-    reason,
-    notes: str(formData, "notes") || null,
-    offer_spot_automatically: formData.get("auto_offer_spot") === "on",
-  };
-  const result = existing
-    ? await supabase.from("child_departures").update(values).eq("id", existing.id)
-    : await supabase.from("child_departures").insert({
-        daycare_id: profile.daycare_id,
-        child_id: childId,
-        ...values,
-      });
-  if (result.error) return { error: result.error.message };
+  const { error } = await supabase.rpc("schedule_child_departure", {
+    p_child_id: childId,
+    p_last_day: lastDay,
+    p_reason: reason,
+    p_notes: str(formData, "notes"),
+    p_prepare_spot_review: formData.get("auto_offer_spot") === "on",
+  });
+  if (error) return { error: error.message };
   revalidatePath("/enrollment");
   revalidatePath("/children");
   return { ok: true };
@@ -780,15 +517,14 @@ export async function reEnrollAlumniAction(
   const childId = str(formData, "child_id");
   const classroomId = str(formData, "classroom_id");
   if (!childId || !classroomId) return { error: "Choose the child's new room." };
-  const { error } = await supabase
-    .from("children")
-    .update({ archived_at: null, classroom_id: classroomId, enrolled_on: new Date().toISOString().slice(0, 10) })
-    .eq("id", childId);
+  const { error } = await supabase.rpc("re_enroll_alumni", {
+    p_child_id: childId,
+    p_classroom_id: classroomId,
+  });
   if (error) return { error: error.message };
-  await supabase.from("child_departures").update({ status: "cancelled" }).eq("child_id", childId).eq("status", "scheduled");
-  await supabase.from("enrollments").update({ stage: "enrolled", stage_changed_at: new Date().toISOString() }).eq("child_id", childId);
   revalidatePath("/enrollment");
   revalidatePath("/children");
+  revalidatePath("/rooms");
   return { ok: true };
 }
 
@@ -833,30 +569,6 @@ export async function publicInquiryAction(
 
 }
 
-function jsonObject(value: unknown): { [key: string]: Json | undefined } {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? { ...(value as { [key: string]: Json | undefined }) }
-    : {};
-}
-
-function waitlistSort(
-  a: { waitlist_priority: string; waitlist_joined_at: string | null; created_at: string | null },
-  b: { waitlist_priority: string; waitlist_joined_at: string | null; created_at: string | null },
-  rules: { siblings_first: boolean; staff_children_next: boolean } = {
-    siblings_first: true,
-    staff_children_next: true,
-  },
-): number {
-  const weight: Record<string, number> = {
-    sibling: rules.siblings_first ? 0 : 2,
-    staff: rules.staff_children_next ? (rules.siblings_first ? 1 : 0) : 2,
-    public: 2,
-  };
-  const tier = (weight[a.waitlist_priority] ?? 2) - (weight[b.waitlist_priority] ?? 2);
-  if (tier !== 0) return tier;
-  return new Date(a.waitlist_joined_at ?? a.created_at ?? 0).getTime() - new Date(b.waitlist_joined_at ?? b.created_at ?? 0).getTime();
-}
-
 async function enqueueEnrollmentEmail(
   supabase: Awaited<ReturnType<typeof getServerSupabase>>,
   daycareId: string,
@@ -877,15 +589,6 @@ async function enqueueEnrollmentEmail(
     p_dedupe_key: dedupeKey,
   });
   if (error) throw error;
-}
-
-function formatDateTime(value: string): string {
-  return new Intl.DateTimeFormat("en-CA", {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(new Date(value));
 }
 
 function zonedLocalToIso(date: string, time: string, timeZone: string): string {

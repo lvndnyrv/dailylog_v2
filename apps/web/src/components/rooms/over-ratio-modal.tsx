@@ -20,7 +20,7 @@ export function OverRatioModal({
 }) {
   const present = Number(room.present_count);
   const educators = room.educators.length;
-  const ratio = room.ratio_children_per_educator ?? 1;
+  const ratio = room.operating?.live_ratio ?? room.ratio_children_per_educator ?? 1;
   const required = Math.max(1, Math.ceil(present / ratio));
 
   return (

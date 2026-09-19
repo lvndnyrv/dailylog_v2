@@ -3,15 +3,14 @@ import {
   View, Text, ScrollView, TouchableOpacity,
   StyleSheet, Alert, TextInput, Modal, Linking
 } from 'react-native';
-import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
+import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../hooks/useAuth';
 import { useDailyLog, copyYesterdayLog } from '../../hooks/useDailyLog';
-import { notifyParents } from '../../hooks/usePushNotifications';
 import { supabase } from '../../lib/supabase';
 import { exportDailyLogPdf } from '../../lib/export';
-import { Section, Chip, Button, LoadingScreen, Badge } from '../../components/ui';
+import { Chip, Button, LoadingScreen } from '../../components/ui';
 import { PhotoSection } from '../../components/PhotoSection';
-import { colors, spacing, radius } from '../../theme';
+import { colors, spacing, radius, fonts } from '../../theme';
 import { format, isToday as checkIsToday } from 'date-fns';
 
 const MOODS = [
@@ -140,7 +139,7 @@ function TimeButton({ value, onChange }) {
     <>
       <TouchableOpacity onPress={() => setOpen(true)} style={styles.timeBtn} activeOpacity={0.7}>
         <Text style={styles.timeBtnText}>{display}</Text>
-        <Text style={styles.timeBtnIcon}>🕐</Text>
+        <Ionicons name="time-outline" size={16} color={colors.textMuted} />
       </TouchableOpacity>
       {open && (
         <TimePicker
@@ -171,34 +170,41 @@ function MealRow({ meal, onUpdate, onDelete }) {
           value={meal.time}
           onChange={t => onUpdate(meal.id, { time: t })}
         />
-        <TextInput
-          value={foodType}
-          onChangeText={setFoodType}
-          onBlur={handleBlur}
-          placeholder="What did they eat?"
-          placeholderTextColor={colors.textMuted}
-          style={styles.foodInput}
-          returnKeyType="done"
-          blurOnSubmit
-          autoCorrect={false}
-        />
-        <TouchableOpacity onPress={() => onDelete(meal.id)} style={styles.deleteBtn}>
-          <Text style={styles.deleteX}>✕</Text>
+        <TouchableOpacity
+          onPress={() => onDelete(meal.id)}
+          style={styles.deleteBtn}
+          accessibilityRole="button"
+          accessibilityLabel="Remove meal"
+        >
+          <Ionicons name="close" size={19} color={colors.textMuted} />
         </TouchableOpacity>
       </View>
+      <TextInput
+        value={foodType}
+        onChangeText={setFoodType}
+        onBlur={handleBlur}
+        placeholder="What did they eat?"
+        placeholderTextColor={colors.textMuted}
+        style={styles.foodInput}
+        returnKeyType="done"
+        blurOnSubmit
+        autoCorrect={false}
+      />
       <View style={styles.amountRow}>
-        <Text style={styles.amountLabel}>Amount eaten:</Text>
-        {AMOUNTS.map(a => (
-          <TouchableOpacity
-            key={a}
-            onPress={() => onUpdate(meal.id, { amount: a })}
-            style={[styles.amountBtn, meal.amount === a && { backgroundColor: AMOUNT_COLORS[a].bg, borderColor: AMOUNT_COLORS[a].text }]}
-          >
-            <Text style={[styles.amountText, meal.amount === a && { color: AMOUNT_COLORS[a].text, fontWeight: '600' }]}>
-              {a.charAt(0).toUpperCase() + a.slice(1)}
-            </Text>
-          </TouchableOpacity>
-        ))}
+        <Text style={styles.amountLabel}>Amount eaten</Text>
+        <View style={styles.amountOptions}>
+          {AMOUNTS.map(a => (
+            <TouchableOpacity
+              key={a}
+              onPress={() => onUpdate(meal.id, { amount: a })}
+              style={[styles.amountBtn, meal.amount === a && { backgroundColor: AMOUNT_COLORS[a].bg, borderColor: AMOUNT_COLORS[a].text }]}
+            >
+              <Text style={[styles.amountText, meal.amount === a && { color: AMOUNT_COLORS[a].text, fontFamily: fonts.bold }]}>
+                {a.charAt(0).toUpperCase() + a.slice(1)}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
       </View>
     </View>
   );
@@ -223,8 +229,13 @@ function DiaperRow({ d, onUpdate, onDelete }) {
             </TouchableOpacity>
           ))}
         </View>
-        <TouchableOpacity onPress={() => onDelete(d.id)} style={styles.deleteBtn}>
-          <Text style={styles.deleteX}>✕</Text>
+        <TouchableOpacity
+          onPress={() => onDelete(d.id)}
+          style={styles.deleteBtn}
+          accessibilityRole="button"
+          accessibilityLabel="Remove care entry"
+        >
+          <Ionicons name="close" size={19} color={colors.textMuted} />
         </TouchableOpacity>
       </View>
       <View style={styles.diaperFlags}>
@@ -240,7 +251,7 @@ function SleepRow({ s, onUpdate, onDelete }) {
   return (
     <View style={styles.sleepCard}>
       <View style={styles.sleepCardHeader}>
-        <Text style={styles.sleepCardTitle}>😴 Nap</Text>
+        <Text style={styles.sleepCardTitle}>Nap</Text>
         <TouchableOpacity
           onPress={() => onDelete(s.id)}
           style={styles.sleepDeleteBtn}
@@ -308,6 +319,20 @@ function CustomItemInput({ placeholder, onAdd, color }) {
   );
 }
 
+function LogSection({ icon, title, children, iconColor = colors.primary, iconBackground = colors.primarySoft }) {
+  return (
+    <View style={styles.section}>
+      <View style={styles.sectionHeader}>
+        <View style={[styles.sectionIcon, { backgroundColor: iconBackground }]}>
+          <Ionicons name={icon} size={19} color={iconColor} />
+        </View>
+        <Text style={styles.sectionTitle}>{title}</Text>
+      </View>
+      {children}
+    </View>
+  );
+}
+
 // ---- MAIN SCREEN ----
 export default function DailyLogScreen({ route, navigation }) {
   const { child, date } = route.params;
@@ -323,7 +348,11 @@ export default function DailyLogScreen({ route, navigation }) {
     addSleep, updateSleep, deleteSleep,
     toggleActivity, toggleSupply,
     sendToParents,
-  } = useDailyLog(child.id, logDate, { createIfMissing: true, educatorId: profile?.id });
+  } = useDailyLog(child.id, logDate, {
+    createIfMissing: true,
+    educatorId: profile?.id,
+    daycareId: profile?.daycare_id,
+  });
 
   const [notes, setNotes] = useState('');
   const [comments, setComments] = useState('');
@@ -434,7 +463,6 @@ export default function DailyLogScreen({ route, navigation }) {
       Alert.alert('Could not send', sendError.message);
       return;
     }
-    await notifyParents(child.id, child.first_name, format(logDate, 'yyyy-MM-dd'));
     setSending(false);
     Alert.alert('Sent! ✓', `${child.first_name}'s daily log has been sent to parents.`, [
       { text: 'OK', onPress: () => navigation.goBack() }
@@ -453,76 +481,101 @@ export default function DailyLogScreen({ route, navigation }) {
   }
 
   return (
-    <KeyboardAwareScrollView
+    <ScrollView
       style={styles.container}
       contentContainerStyle={styles.content}
       keyboardShouldPersistTaps="handled"
-      extraScrollHeight={120}
-      enableOnAndroid
-      enableResetScrollToCoords={false}
+      automaticallyAdjustKeyboardInsets
+      showsVerticalScrollIndicator={false}
     >
-
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Text style={styles.back}>← Roster</Text>
+      <View style={styles.topBar}>
+        <TouchableOpacity
+          onPress={() => navigation.goBack()}
+          style={styles.backButton}
+          accessibilityRole="button"
+          accessibilityLabel="Back to roster"
+        >
+          <Ionicons name="chevron-back" size={22} color={colors.textPrimary} />
         </TouchableOpacity>
-        <View style={[styles.childPill, !isToday && styles.childPillPast]}>
-          <Text style={styles.childName}>{child.first_name} {child.last_name}</Text>
-          <Text style={styles.headerDate}>
-            {isToday ? format(logDate, 'MMM d') : `📅 ${format(logDate, 'EEE, MMM d')}`}
-          </Text>
-        </View>
+        <Text style={styles.screenTitle}>Daily report</Text>
         <View style={styles.headerActions}>
           <TouchableOpacity onPress={handleExportPdf} style={styles.headerBtn} accessibilityLabel="Export as PDF">
-            <Text style={styles.headerBtnText}>📄</Text>
+            <Ionicons name="document-outline" size={19} color={colors.primary} />
           </TouchableOpacity>
-          <TouchableOpacity onPress={handleCallParents} style={styles.headerBtn}>
-            <Text style={styles.headerBtnText}>📞</Text>
+          <TouchableOpacity onPress={handleCallParents} style={styles.headerBtn} accessibilityLabel="Call family">
+            <Ionicons name="call-outline" size={19} color={colors.primary} />
           </TouchableOpacity>
           <TouchableOpacity
             onPress={() => navigation.navigate('Messaging', { childId: child.id, childName: child.first_name })}
             style={styles.headerBtn}
+            accessibilityLabel="Message family"
           >
-            <Text style={styles.headerBtnText}>💬</Text>
+            <Ionicons name="chatbubble-outline" size={19} color={colors.primary} />
           </TouchableOpacity>
+        </View>
+      </View>
+
+      <View style={styles.childSummary}>
+        <View style={styles.childAvatar}>
+          <Text style={styles.childAvatarText}>
+            {child.first_name?.[0]}{child.last_name?.[0]}
+          </Text>
+        </View>
+        <View style={styles.childSummaryText}>
+          <Text style={styles.childName}>{child.first_name} {child.last_name}</Text>
+          <Text style={styles.headerDate}>
+            {isToday ? `Today · ${format(logDate, 'MMMM d')}` : format(logDate, 'EEEE, MMMM d')}
+          </Text>
+        </View>
+        <View style={[styles.reportStatus, log?.sent_to_parents && styles.reportStatusSent]}>
+          <Text style={[styles.reportStatusText, log?.sent_to_parents && styles.reportStatusTextSent]}>
+            {log?.sent_to_parents ? 'Sent' : 'Draft'}
+          </Text>
         </View>
       </View>
 
       {/* Allergy warning banner */}
       {child.allergies?.length > 0 && (
         <View style={styles.allergyBanner}>
-          <Text style={styles.allergyBannerText}>
-            ⚠️ Allergies: {child.allergies.join(', ')}
-          </Text>
+          <View style={styles.allergyIcon}>
+            <Ionicons name="warning-outline" size={19} color={colors.danger} />
+          </View>
+          <View style={styles.allergyContent}>
+            <Text style={styles.allergyLabel}>ALLERGY ALERT</Text>
+            <Text style={styles.allergyBannerText}>{child.allergies.join(', ')}</Text>
+          </View>
         </View>
       )}
 
-      {/* Copy yesterday shortcut */}
-      {!log?.sent_to_parents && (
+      <View style={styles.quickActions}>
+        {!log?.sent_to_parents && (
         <TouchableOpacity
           style={styles.copyBtn}
           onPress={handleCopyYesterday}
           disabled={copying}
           activeOpacity={0.7}
         >
-          <Text style={styles.copyBtnText}>
-            {copying ? '⏳ Copying...' : '📋 Copy yesterday\'s meals & activities'}
-          </Text>
+          <View style={styles.quickActionIcon}>
+            <Ionicons name={copying ? 'hourglass-outline' : 'copy-outline'} size={19} color={colors.amber} />
+          </View>
+          <Text style={styles.copyBtnText}>{copying ? 'Copying…' : 'Copy previous day'}</Text>
         </TouchableOpacity>
-      )}
+        )}
 
-      {/* Report Incident */}
-      <TouchableOpacity
-        style={styles.incidentBtn}
-        onPress={() => navigation.navigate('IncidentReport', { child })}
-        activeOpacity={0.7}
-      >
-        <Text style={styles.incidentBtnText}>⚠️ Report incident</Text>
-      </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.incidentBtn}
+          onPress={() => navigation.navigate('IncidentReport', { child })}
+          activeOpacity={0.7}
+        >
+          <View style={[styles.quickActionIcon, styles.incidentIcon]}>
+            <Ionicons name="medkit-outline" size={19} color={colors.danger} />
+          </View>
+          <Text style={styles.incidentBtnText}>Report incident</Text>
+        </TouchableOpacity>
+      </View>
 
       {/* MOOD */}
-      <Section title="😊  Today I felt">
+      <LogSection icon="happy-outline" title="Today I felt" iconColor={colors.success} iconBackground={colors.successLight}>
         <View style={styles.chipWrap}>
           {MOODS.map(m => (
             <Chip
@@ -538,40 +591,40 @@ export default function DailyLogScreen({ route, navigation }) {
             />
           ))}
         </View>
-      </Section>
+      </LogSection>
 
       {/* MEALS */}
-      <Section title="🍽  Meals">
+      <LogSection icon="restaurant-outline" title="Meals" iconColor={colors.amber} iconBackground={colors.amberLight}>
         {meals.map(meal => (
           <MealRow key={meal.id} meal={meal} onUpdate={updateMeal} onDelete={deleteMeal} />
         ))}
         <TouchableOpacity style={styles.addBtn} onPress={() => addMeal(timeNow(), '', 'some')}>
           <Text style={styles.addBtnText}>+ Add meal</Text>
         </TouchableOpacity>
-      </Section>
+      </LogSection>
 
       {/* DIAPERS */}
-      <Section title="🩲  Diaper / toilet">
+      <LogSection icon="water-outline" title="Diaper / toilet">
         {diapers.map(d => (
           <DiaperRow key={d.id} d={d} onUpdate={updateDiaper} onDelete={deleteDiaper} />
         ))}
         <TouchableOpacity style={styles.addBtn} onPress={() => addDiaper(timeNow())}>
           <Text style={styles.addBtnText}>+ Add diaper / toilet entry</Text>
         </TouchableOpacity>
-      </Section>
+      </LogSection>
 
       {/* SLEEP */}
-      <Section title="😴  Sleep">
+      <LogSection icon="moon-outline" title="Sleep" iconColor={colors.purple} iconBackground={colors.purpleLight}>
         {sleeps.map(s => (
           <SleepRow key={s.id} s={s} onUpdate={updateSleep} onDelete={deleteSleep} />
         ))}
         <TouchableOpacity style={styles.addBtn} onPress={() => addSleep(timeNow())}>
           <Text style={styles.addBtnText}>+ Add nap</Text>
         </TouchableOpacity>
-      </Section>
+      </LogSection>
 
       {/* ACTIVITIES */}
-      <Section title="🎨  Activities">
+      <LogSection icon="color-palette-outline" title="Activities" iconColor={colors.purple} iconBackground={colors.purpleLight}>
         <View style={styles.chipWrap}>
           {ACTIVITIES.map(a => (
             <Chip key={a} label={a} selected={selectedActivities.includes(a)}
@@ -588,10 +641,10 @@ export default function DailyLogScreen({ route, navigation }) {
           onAdd={(name) => toggleActivity(name)}
           color={colors.purple}
         />
-      </Section>
+      </LogSection>
 
       {/* SUPPLIES */}
-      <Section title="📦  Please bring more">
+      <LogSection icon="cube-outline" title="Please bring more" iconColor={colors.coral} iconBackground={colors.coralLight}>
         <View style={styles.chipWrap}>
           {SUPPLIES.map(s => (
             <Chip key={s.label} label={`${s.emoji} ${s.label}`} selected={selectedSupplies.includes(s.label)}
@@ -608,10 +661,10 @@ export default function DailyLogScreen({ route, navigation }) {
           onAdd={(name) => toggleSupply(name)}
           color={colors.coral}
         />
-      </Section>
+      </LogSection>
 
       {/* NOTES */}
-      <Section title="📝  Notes & comments">
+      <LogSection icon="document-text-outline" title="Notes & comments">
         <TextInput
           value={notes}
           onChangeText={setNotes}
@@ -630,40 +683,103 @@ export default function DailyLogScreen({ route, navigation }) {
           multiline numberOfLines={3}
           style={[styles.notesInput, { marginTop: spacing.sm, marginBottom: 0 }]}
         />
-      </Section>
+      </LogSection>
 
       {log && <PhotoSection logId={log.id} childId={child.id} readOnly={false} />}
 
       <Button
-        label={log?.sent_to_parents ? '✓ Already sent to parents' : '📤  Send to parents'}
+        label={log?.sent_to_parents ? 'Already sent to parents' : 'Send daily report'}
         onPress={handleSend}
         loading={sending}
         style={styles.sendBtn}
       />
       <View style={{ height: spacing.xxxl }} />
-    </KeyboardAwareScrollView>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
-  content: { padding: spacing.lg },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.lg },
-  back: { fontSize: 15, color: colors.primary, fontWeight: '500' },
-  childPill: {
-    backgroundColor: colors.primaryLight, borderRadius: radius.full,
-    paddingHorizontal: spacing.lg, paddingVertical: spacing.sm, alignItems: 'center',
+  content: { paddingHorizontal: spacing.xl, paddingTop: spacing.sm, paddingBottom: spacing.xxxl * 2 },
+  topBar: {
+    minHeight: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: spacing.md,
   },
-  childPillPast: { backgroundColor: colors.amberLight },
-  childName: { fontSize: 15, fontWeight: '600', color: colors.primary },
-  headerDate: { fontSize: 12, color: colors.primaryDark },
-  chipWrap: { flexDirection: 'row', flexWrap: 'wrap' },
+  backButton: {
+    width: 38,
+    height: 38,
+    borderRadius: radius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  screenTitle: {
+    flex: 1,
+    marginLeft: spacing.md,
+    fontSize: 20,
+    fontFamily: fonts.black,
+    color: colors.textPrimary,
+  },
+  childSummary: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: spacing.lg,
+    marginBottom: spacing.md,
+    borderRadius: 18,
+    backgroundColor: colors.surface,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+  },
+  childAvatar: {
+    width: 46,
+    height: 46,
+    borderRadius: radius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.primaryLight,
+  },
+  childAvatarText: { fontSize: 15, fontFamily: fonts.bold, color: colors.primary },
+  childSummaryText: { flex: 1, minWidth: 0, marginLeft: spacing.md },
+  childName: { fontSize: 17, fontFamily: fonts.bold, color: colors.textPrimary },
+  headerDate: { marginTop: 2, fontSize: 13, fontFamily: fonts.regular, color: colors.textMuted },
+  reportStatus: {
+    borderRadius: radius.full,
+    backgroundColor: colors.amberLight,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 6,
+  },
+  reportStatusSent: { backgroundColor: colors.successLight },
+  reportStatusText: { fontSize: 11.5, fontFamily: fonts.bold, color: colors.amber },
+  reportStatusTextSent: { color: colors.success },
+  chipWrap: { flexDirection: 'row', flexWrap: 'wrap', marginBottom: -spacing.sm },
+  section: {
+    backgroundColor: colors.surface,
+    borderRadius: 18,
+    padding: spacing.lg,
+    marginBottom: spacing.md,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+  },
+  sectionHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: spacing.lg },
+  sectionIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: spacing.md,
+  },
+  sectionTitle: { fontSize: 17, fontFamily: fonts.bold, color: colors.textPrimary },
   customInputRow: {
     flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
     marginTop: spacing.sm,
   },
   customInput: {
-    flex: 1, fontSize: 14, color: colors.textPrimary,
+    flex: 1, fontSize: 14, fontFamily: fonts.regular, color: colors.textPrimary,
     backgroundColor: colors.bg, borderWidth: 1.5,
     borderColor: colors.border, borderRadius: radius.md,
     paddingHorizontal: spacing.md, paddingVertical: spacing.sm,
@@ -673,7 +789,7 @@ const styles = StyleSheet.create({
     width: 38, height: 38, borderRadius: radius.md,
     alignItems: 'center', justifyContent: 'center',
   },
-  customAddBtnText: { fontSize: 20, color: colors.white, fontWeight: '700', marginTop: -1 },
+  customAddBtnText: { fontSize: 20, color: colors.white, fontFamily: fonts.bold, marginTop: -1 },
 
   // Error state
   errorWrap: {
@@ -689,34 +805,34 @@ const styles = StyleSheet.create({
   // Time button
   timeBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
-    backgroundColor: colors.bg, borderWidth: 1.5, borderColor: colors.border,
-    borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm,
-    minWidth: 80,
+    backgroundColor: colors.primarySoft, borderWidth: 1, borderColor: colors.border,
+    borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm + 1,
   },
-  timeBtnText: { fontSize: 15, fontWeight: '600', color: colors.textPrimary },
-  timeBtnIcon: { fontSize: 13 },
+  timeBtnText: { fontSize: 14, fontFamily: fonts.bold, color: colors.textPrimary },
 
   // Meal card
   mealCard: {
-    backgroundColor: colors.bg, borderRadius: radius.md,
-    borderWidth: 1, borderColor: colors.border,
+    backgroundColor: colors.primarySoft, borderRadius: radius.lg,
+    borderWidth: 1, borderColor: colors.borderSoft,
     padding: spacing.md, marginBottom: spacing.sm,
   },
-  mealCardTop: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.sm },
+  mealCardTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.sm },
   foodInput: {
-    flex: 1, fontSize: 15, color: colors.textPrimary,
+    width: '100%', fontSize: 14, fontFamily: fonts.regular, color: colors.textPrimary,
     backgroundColor: colors.surface, borderWidth: 1.5,
     borderColor: colors.border, borderRadius: radius.md,
     paddingHorizontal: spacing.md, paddingVertical: spacing.sm,
-    minHeight: 42,
+    minHeight: 44,
   },
-  amountRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  amountLabel: { fontSize: 12, color: colors.textSecondary, marginRight: 4 },
+  amountRow: { marginTop: spacing.md },
+  amountLabel: { fontSize: 11.5, fontFamily: fonts.bold, color: colors.textMuted, marginBottom: spacing.sm },
+  amountOptions: { flexDirection: 'row', gap: spacing.sm },
   amountBtn: {
-    paddingHorizontal: spacing.md, paddingVertical: spacing.xs + 2,
-    borderRadius: radius.full, borderWidth: 1.5, borderColor: colors.border,
+    flex: 1, paddingHorizontal: spacing.sm, paddingVertical: spacing.sm,
+    borderRadius: radius.md, borderWidth: 1.5, borderColor: colors.border,
+    backgroundColor: colors.surface, alignItems: 'center',
   },
-  amountText: { fontSize: 13, color: colors.textSecondary },
+  amountText: { fontSize: 12.5, fontFamily: fonts.regular, color: colors.textSecondary },
 
   // Diaper card
   diaperCard: {
@@ -744,56 +860,69 @@ const styles = StyleSheet.create({
     flexDirection: 'row', justifyContent: 'space-between',
     alignItems: 'center', marginBottom: spacing.sm,
   },
-  sleepCardTitle: { fontSize: 13, fontWeight: '600', color: colors.textSecondary },
+  sleepCardTitle: { fontSize: 13, fontFamily: fonts.bold, color: colors.textSecondary },
   sleepDeleteBtn: {
     paddingHorizontal: spacing.md, paddingVertical: spacing.xs + 2,
     borderRadius: radius.full, backgroundColor: colors.dangerLight,
     borderWidth: 1, borderColor: colors.danger + '33',
   },
-  sleepDeleteText: { fontSize: 12, color: colors.danger, fontWeight: '600' },
+  sleepDeleteText: { fontSize: 12, color: colors.danger, fontFamily: fonts.bold },
   sleepRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flexWrap: 'wrap' },
-  sleepLabel: { fontSize: 13, color: colors.textSecondary, fontWeight: '500' },
-  sleepDuration: { fontSize: 12, color: colors.success, marginTop: spacing.sm, fontWeight: '500' },
+  sleepLabel: { fontSize: 13, color: colors.textSecondary, fontFamily: fonts.bold },
+  sleepDuration: { fontSize: 12, color: colors.success, marginTop: spacing.sm, fontFamily: fonts.bold },
 
-  deleteBtn: { padding: spacing.xs },
-  deleteX: { fontSize: 16, color: colors.textMuted, fontWeight: '600' },
+  deleteBtn: {
+    width: 32, height: 32, borderRadius: radius.full,
+    alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface,
+  },
   addBtn: {
     borderWidth: 1.5, borderStyle: 'dashed', borderColor: colors.border,
     borderRadius: radius.md, padding: spacing.md, alignItems: 'center', marginTop: spacing.xs,
   },
-  addBtnText: { fontSize: 14, color: colors.textSecondary, fontWeight: '500' },
+  addBtnText: { fontSize: 14, color: colors.primary, fontFamily: fonts.bold },
   notesInput: {
     borderWidth: 1, borderColor: colors.border, borderRadius: radius.md,
-    padding: spacing.md, fontSize: 14, color: colors.textPrimary,
+    padding: spacing.md, fontSize: 14, fontFamily: fonts.regular, color: colors.textPrimary,
     backgroundColor: colors.surface, minHeight: 80, textAlignVertical: 'top',
     marginBottom: spacing.sm,
   },
   sendBtn: { marginTop: spacing.sm, marginBottom: spacing.md },
+  quickActions: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.md },
   copyBtn: {
-    backgroundColor: colors.amberLight, borderRadius: radius.md,
-    padding: spacing.md, alignItems: 'center', marginBottom: spacing.md,
-    borderWidth: 1, borderColor: colors.amber + '44',
+    flex: 1, minHeight: 76, backgroundColor: colors.surface, borderRadius: radius.lg,
+    padding: spacing.md, justifyContent: 'center',
+    borderWidth: 1.5, borderColor: colors.border,
   },
-  copyBtnText: { fontSize: 14, color: colors.amber, fontWeight: '500' },
+  quickActionIcon: {
+    width: 34, height: 34, borderRadius: 10, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: colors.amberLight, marginBottom: spacing.sm,
+  },
+  copyBtnText: { fontSize: 13, color: colors.textPrimary, fontFamily: fonts.bold },
   incidentBtn: {
-    backgroundColor: colors.dangerLight, borderRadius: radius.md,
-    padding: spacing.md, alignItems: 'center', marginBottom: spacing.lg,
-    borderWidth: 1, borderColor: colors.danger + '33',
+    flex: 1, minHeight: 76, backgroundColor: colors.surface, borderRadius: radius.lg,
+    padding: spacing.md, justifyContent: 'center',
+    borderWidth: 1.5, borderColor: colors.border,
   },
-  incidentBtnText: { fontSize: 14, color: colors.danger, fontWeight: '600' },
+  incidentIcon: { backgroundColor: colors.dangerLight },
+  incidentBtnText: { fontSize: 13, color: colors.textPrimary, fontFamily: fonts.bold },
   allergyBanner: {
-    backgroundColor: colors.dangerLight, borderRadius: radius.md,
-    padding: spacing.md, marginBottom: spacing.md,
-    borderWidth: 1.5, borderColor: colors.danger,
+    flexDirection: 'row', alignItems: 'center', backgroundColor: colors.dangerLight,
+    borderRadius: radius.lg, padding: spacing.md, marginBottom: spacing.md,
+    borderWidth: 1, borderColor: colors.danger + '44',
   },
-  allergyBannerText: { fontSize: 13, color: colors.danger, fontWeight: '700', textAlign: 'center' },
+  allergyIcon: {
+    width: 36, height: 36, borderRadius: 11, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: colors.surface,
+  },
+  allergyContent: { flex: 1, marginLeft: spacing.md },
+  allergyLabel: { fontSize: 10, fontFamily: fonts.bold, letterSpacing: 1, color: colors.danger },
+  allergyBannerText: { marginTop: 2, fontSize: 14, color: colors.textPrimary, fontFamily: fonts.bold },
   headerActions: { flexDirection: 'row', gap: spacing.sm },
   headerBtn: {
-    width: 36, height: 36, borderRadius: 18,
-    backgroundColor: colors.primaryLight, alignItems: 'center', justifyContent: 'center',
-    borderWidth: 1, borderColor: colors.primary + '44',
+    width: 36, height: 36, borderRadius: radius.full,
+    backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1, borderColor: colors.border,
   },
-  headerBtnText: { fontSize: 16 },
 });
 
 // TimePicker styles

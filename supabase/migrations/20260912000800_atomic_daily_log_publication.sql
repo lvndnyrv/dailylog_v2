@@ -1,0 +1,77 @@
+-- Educator -> family daily-log handoff. Finalization and the family delivery
+-- queue are one retry-safe transaction; the client can no longer display a
+-- sent report when notification enqueueing failed.
+
+create or replace function public.publish_daily_log(p_daily_log_id uuid)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_log public.daily_logs%rowtype;
+  v_child public.children%rowtype;
+  v_sent_at timestamptz;
+  v_queued integer;
+begin
+  if auth.uid() is null or not public.is_staff() then
+    raise exception 'A signed-in staff account is required';
+  end if;
+
+  select * into v_log
+    from public.daily_logs daily_log
+   where daily_log.id = p_daily_log_id
+   for update;
+  if v_log.id is null then raise exception 'Daily log not found'; end if;
+  if not public.can_access_child_area(v_log.child_id, 'daily_logs', 'edit') then
+    raise exception 'Daily log edit permission is required';
+  end if;
+  if v_log.log_date > public.center_today() then
+    raise exception 'A future daily log cannot be sent';
+  end if;
+
+  select * into v_child from public.children child where child.id = v_log.child_id;
+  if v_child.id is null or v_child.archived_at is not null then
+    raise exception 'Child not found or unavailable';
+  end if;
+  if coalesce(v_child.enrolled_on, '-infinity'::date) > v_log.log_date then
+    raise exception 'A daily log cannot be sent before the enrollment start date';
+  end if;
+
+  v_sent_at := coalesce(v_log.sent_at, now());
+  update public.daily_logs
+     set sent_to_parents = true,
+         sent_at = v_sent_at
+   where id = v_log.id
+     and (not coalesce(sent_to_parents, false) or sent_at is null);
+
+  v_queued := public.enqueue_child_notification(
+    v_log.child_id,
+    'daily_log',
+    v_child.first_name || '''s daily log is ready 📋',
+    'Tap to see how ' || v_child.first_name || '''s day went at daycare.',
+    jsonb_build_object(
+      'dailyLogId', v_log.id,
+      'childId', v_log.child_id,
+      'logDate', v_log.log_date,
+      'type', 'daily_log',
+      'channelId', 'default'
+    ),
+    'daily-log:' || v_log.child_id || ':' || v_log.log_date,
+    array['push']::text[]
+  );
+
+  return jsonb_build_object(
+    'dailyLogId', v_log.id,
+    'childId', v_log.child_id,
+    'logDate', v_log.log_date,
+    'sentAt', v_sent_at,
+    'queuedRecipients', v_queued
+  );
+end;
+$$;
+
+revoke all on function public.publish_daily_log(uuid) from public, anon;
+grant execute on function public.publish_daily_log(uuid) to authenticated;
+
+notify pgrst, 'reload schema';

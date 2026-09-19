@@ -7,11 +7,17 @@ import {
   listRoomsLive,
   listStaff,
   listComplianceDueItems,
+  listInvoices,
+  listRecentRoomActivityNudges,
+  listRoomCombinations,
+  getMyDaycare,
 } from "@dailylog/db/queries";
 import { formatAge } from "@dailylog/shared";
 import { SectionHeader } from "@/components/shell/header";
 import { DashboardView } from "@/components/dashboard/dashboard-view";
 import { getServerSupabase } from "@/lib/supabase/server";
+import { CombinationControls, LiveRoomsRefresh } from "@/components/rooms/combination-controls";
+import { dateInTimeZone } from "@/lib/center-date";
 
 function daysUntilExpiry(date: string): number {
   return Math.round((new Date(`${date}T12:00`).getTime() - Date.now()) / 86400000);
@@ -29,16 +35,20 @@ export default async function DashboardPage({
   const supabase = await getServerSupabase();
   const today = new Date().toISOString().slice(0, 10);
 
-  const [profile, rooms, incidents, attendance, billing, enrollments, staff, complianceDue] =
+  const [profile, rooms, incidents, attendance, billing, invoices, enrollments, staff, complianceDue, roomNudges, combinations, center] =
     await Promise.all([
       getMyProfile(supabase),
       listRoomsLive(supabase),
       listIncidentsAwaitingSignoff(supabase),
       listAttendanceDay(supabase, today),
       getBillingSummary(supabase),
+      listInvoices(supabase),
       listEnrollments(supabase),
       listStaff(supabase),
       listComplianceDueItems(supabase),
+      listRecentRoomActivityNudges(supabase),
+      listRoomCombinations(supabase),
+      getMyDaycare(supabase),
     ]);
 
   const firstName = profile?.full_name.split(" ")[0] ?? "there";
@@ -60,15 +70,25 @@ export default async function DashboardPage({
 
   // Certs expiring within 30 days (or expired) → attention + staffing warnings.
   const certIssues = staff.flatMap((member) =>
-    (member.certifications ?? [])
-      .filter((c) => c.missing || (c.expires_on && daysUntilExpiry(c.expires_on) <= 30))
+    (member.credentials ?? [])
+      .filter((c) => (c.required && (!c.completed_on || !c.document_id)) || (c.expires_on && daysUntilExpiry(c.expires_on) <= 30))
       .map((c) => ({
+        credentialId: c.id,
+        staffMemberId: member.id,
         staffName: member.profile!.full_name,
-        item: c.item,
+        jobTitle: member.job_title,
+        email: member.profile!.email,
+        item: c.name,
+        issuer: c.issuer,
         expiresOn: c.expires_on ?? new Date().toISOString().slice(0, 10),
-        missing: Boolean(c.missing),
+        missing: Boolean(c.required && (!c.completed_on || !c.document_id)),
+        ratioQualifying: c.ratio_qualifying,
         room: member.profile!.classroom?.name ?? null,
       })),
+  );
+
+  const overdueInvoices = invoices.filter(
+    (invoice) => invoice.status === "open" && invoice.due_on && invoice.due_on < today,
   );
 
   // Assigned educators today (one row per educator, first room).
@@ -81,6 +101,7 @@ export default async function DashboardPage({
 
   return (
     <>
+      <LiveRoomsRefresh />
       <SectionHeader
         title={`Good morning, ${firstName}`}
         subtitle={new Date().toLocaleDateString("en-CA", {
@@ -89,17 +110,24 @@ export default async function DashboardPage({
           day: "numeric",
         })}
       />
+      {combinations.some(item => item.enabled && item.activated_at) && <section className="mx-7 mt-5 rounded-2xl border border-hairline bg-card p-4">
+        <h2 className="text-sm font-bold text-ink">Open &amp; close · shared rooms</h2>
+        <p className="text-xs text-muted">Pause just today if each room needs to operate separately. Weekday schedules resume automatically tomorrow.</p>
+        <CombinationControls combinations={combinations} date={dateInTimeZone(new Date(), center?.timezone ?? "UTC")} />
+      </section>}
       <DashboardView
         key={review === "incident" ? "incident-review" : "dashboard"}
         rooms={rooms}
         incidents={incidents}
         attendance={attendance}
         billing={billing}
+        overdueInvoices={overdueInvoices}
         enrollment={{ capacity, filled, waitlist, tours }}
         offers={offers}
         certIssues={certIssues}
         complianceDue={complianceDue}
         staffing={staffing}
+        roomNudges={roomNudges}
         openIncident={review === "incident"}
       />
     </>

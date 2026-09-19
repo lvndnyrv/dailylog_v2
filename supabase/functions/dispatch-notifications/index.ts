@@ -5,6 +5,7 @@ type OutboxRow = {
   recipient_id: string | null;
   recipient_email: string | null;
   channel: 'push' | 'email';
+  kind: string;
   title: string;
   body: string | null;
   payload: Record<string, unknown>;
@@ -18,6 +19,16 @@ class PermanentDeliveryError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'PermanentDeliveryError';
+  }
+}
+
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === 'string') return error;
+  try {
+    return JSON.stringify(error);
+  } catch {
+    return String(error);
   }
 }
 
@@ -48,7 +59,10 @@ async function deliverPush(
     sound: 'default',
     title: row.title,
     body: row.body ?? undefined,
-    data: row.payload,
+    // Always include the durable outbox kind. Older producers did not repeat
+    // it inside payload, which left notification taps with no route even
+    // though the push itself arrived successfully.
+    data: { kind: row.kind, ...row.payload },
     priority: row.payload?.priority === 'high' ? 'high' : 'default',
     channelId: typeof row.payload?.channelId === 'string' ? row.payload.channelId : 'default',
   }));
@@ -136,18 +150,9 @@ Deno.serve(async (request) => {
       requiredEnv('SUPABASE_SERVICE_ROLE_KEY'),
       { auth: { persistSession: false, autoRefreshToken: false } },
     );
-    // Every worker pass first materializes due credential reminders. The RPC
-    // is idempotent per credential, expiry date and reminder threshold.
-    const { error: reminderError } = await supabase.rpc(
-      'enqueue_staff_credential_expiry_reminders'
-    );
-    if (reminderError) throw reminderError;
-    const { error: complianceError } = await supabase.rpc('enqueue_compliance_due_reminders');
-    if (complianceError) throw complianceError;
-    const { error: waitlistError } = await supabase.rpc(
-      'process_overdue_waitlist_checkins'
-    );
-    if (waitlistError) throw waitlistError;
+    // Reminder materialization and waitlist expiry run as database-native Cron
+    // jobs. Keeping this worker focused on the durable outbox prevents a slow
+    // maintenance query from starving time-sensitive push delivery.
     const { data: rows, error } = await supabase.rpc('claim_notification_batch', { p_limit: 50 });
     if (error) throw error;
 
@@ -164,7 +169,7 @@ Deno.serve(async (request) => {
         });
         if (completeError) throw completeError;
       } catch (deliveryError) {
-        const message = deliveryError instanceof Error ? deliveryError.message : String(deliveryError);
+        const message = errorMessage(deliveryError);
         await supabase.rpc('complete_notification_delivery', {
           p_id: row.id,
           p_succeeded: false,
@@ -177,12 +182,16 @@ Deno.serve(async (request) => {
     }));
 
     const failed = results.filter((result) => result.status === 'rejected').length;
-    return new Response(JSON.stringify({ claimed: results.length, delivered: results.length - failed, failed }), {
+    return new Response(JSON.stringify({
+      claimed: results.length,
+      delivered: results.length - failed,
+      failed,
+    }), {
       status: failed ? 207 : 200,
       headers: jsonHeaders,
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = errorMessage(error);
     return new Response(JSON.stringify({ error: message }), { status: 500, headers: jsonHeaders });
   }
 });

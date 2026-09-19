@@ -59,7 +59,7 @@ export async function signOffIncident(
   incidentId: string,
   adminId: string,
 ): Promise<void> {
-  const { error } = await client
+  const { data, error } = await client
     .from('incident_reports')
     .update({
       status: 'signed_off',
@@ -68,6 +68,9 @@ export async function signOffIncident(
       parent_notified_at: new Date().toISOString(),
     })
     .eq('id', incidentId)
-    .eq('status', 'submitted');
+    .eq('status', 'submitted')
+    .select('id')
+    .maybeSingle();
   if (error) throw error;
+  if (!data) throw new Error('This incident was already reviewed or is no longer available.');
 }

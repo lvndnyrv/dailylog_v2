@@ -16,7 +16,7 @@ import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
-import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
+import { KeyboardAwareScrollView } from '../../components/KeyboardAwareScrollView';
 import {
   addDays,
   differenceInCalendarDays,
@@ -438,6 +438,8 @@ export default function MedicationScreen({ route, navigation }) {
           .select('id, full_name, role')
           .eq('daycare_id', profile.daycare_id)
           .in('role', ['owner_admin', 'admin', 'educator'])
+          .is('archived_at', null)
+          .neq('id', profile.id)
           .order('full_name')
       );
     }

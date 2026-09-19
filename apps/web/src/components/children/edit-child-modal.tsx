@@ -4,6 +4,7 @@ import type { ChildDocument, ChildPickup, PendingParentInvite, Tables } from "@d
 import { CONSENT_KINDS, type EmergencyContact } from "@dailylog/shared";
 import { useActionState, useEffect, useRef, useState } from "react";
 import { Avatar } from "@/components/ui/avatar";
+import { medicationLifecycleStatus } from "@/lib/children/medication-status";
 import {
   addPickupAction,
   archiveChildAction,
@@ -32,6 +33,9 @@ type Medication = {
   schedule: string | null;
   notes: string | null;
   active: boolean;
+  signed_at: string | null;
+  consented_at: string | null;
+  ended_at: string | null;
   parent: { full_name: string } | null;
 };
 
@@ -417,7 +421,9 @@ export function EditChildModal({
               {medications.length === 0 ? (
                 <p className="text-[12.5px] text-faint">None on file.</p>
               ) : (
-                medications.map((m) => (
+                medications.map((m) => {
+                  const lifecycle = medicationLifecycleStatus(m);
+                  return (
                   <div
                     key={m.id}
                     className="flex items-center gap-3 rounded-[14px] border-[1.5px] border-[#EDF3FB] p-3.5"
@@ -428,16 +434,20 @@ export function EditChildModal({
                       </span>
                       <span className="block text-[11.5px] text-muted">
                         {m.schedule ?? "—"}
-                        {m.active && m.parent ? ` · authorized by ${m.parent.full_name}` : ""}
-                        {!m.active ? " · awaiting parent consent" : ""}
+                        {lifecycle !== "consent_needed" && m.parent ? ` · authorized by ${m.parent.full_name}` : ""}
+                        {lifecycle === "consent_needed" ? " · awaiting parent consent" : ""}
                       </span>
                     </span>
                     <span
                       className={`rounded-full px-2.5 py-[3px] text-[11px] font-bold ${
-                        m.active ? "bg-[#E4F3EC] text-success" : "bg-warning-bg text-warning-text"
+                        lifecycle === "active"
+                          ? "bg-[#E4F3EC] text-success"
+                          : lifecycle === "ended"
+                            ? "bg-canvas text-faint"
+                            : "bg-warning-bg text-warning-text"
                       }`}
                     >
-                      {m.active ? "Active" : "Consent needed"}
+                      {lifecycle === "active" ? "Active" : lifecycle === "ended" ? "Ended" : "Consent needed"}
                     </span>
                     <button
                       type="button"
@@ -447,7 +457,8 @@ export function EditChildModal({
                       Edit
                     </button>
                   </div>
-                ))
+                  );
+                })
               )}
             </div>
           )}

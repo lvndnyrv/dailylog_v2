@@ -18,6 +18,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { useAttendance } from '../../hooks/useAttendance';
 import { useClassroom } from '../../hooks/useClassroom';
 import { useNapTimer } from '../../hooks/useNapTimer';
+import { useParentNotifications } from '../../hooks/useParentNotifications';
 import { supabase } from '../../lib/supabase';
 import { showToast } from '../../components/Toast';
 import { ChildAvatar } from '../../components/ChildAvatar';
@@ -198,8 +199,10 @@ export default function RosterScreen({ navigation }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedBuckets, setExpandedBuckets] = useState({});
   const [now, setNow] = useState(new Date());
+  const notifications = useParentNotifications();
 
   const classroomId = activeClassroom?.id || profile?.classroom_id;
+  const roomKey = (activeClassroom?.member_room_ids || [classroomId]).join(',');
   const today = format(now, 'yyyy-MM-dd');
   const phase = getKidsDayPhase(now);
 
@@ -231,7 +234,7 @@ export default function RosterScreen({ navigation }) {
     const { data: kids, error: kidsError } = await supabase
       .from('children')
       .select('*')
-      .eq('classroom_id', classroomId)
+      .in('classroom_id', roomKey.split(','))
       .is('archived_at', null)
       .order('first_name');
 
@@ -298,7 +301,7 @@ export default function RosterScreen({ navigation }) {
     await Promise.all([refreshAttendance(), refreshNaps()]);
     setLoading(false);
     setRefreshing(false);
-  }, [classroomId, refreshAttendance, refreshNaps, today]);
+  }, [classroomId, refreshAttendance, refreshNaps, today, roomKey]);
 
   useEffect(() => {
     if (isFocused) load();
@@ -376,13 +379,14 @@ export default function RosterScreen({ navigation }) {
 
     const needsNote = [];
     const ready = [];
+    const sent = [];
     const away = [];
 
     rosterItems.forEach(item => {
       if (!item.attendance?.checked_in_at && !item.log) {
         away.push({ ...item, chip: 'Not in today', tone: 'neutral' });
       } else if (item.log?.sent_to_parents) {
-        ready.push({ ...item, chip: 'Report sent', tone: 'success' });
+        sent.push({ ...item, chip: 'Report sent', tone: 'success' });
       } else if (item.log?.notes?.trim() || item.log?.comments?.trim() || totalEntries(item.log) >= 2) {
         ready.push({ ...item, chip: 'Report ready', tone: 'primary' });
       } else {
@@ -393,6 +397,7 @@ export default function RosterScreen({ navigation }) {
     return [
       { key: 'needs-note', title: 'Needs a note', tone: 'warning', items: needsNote },
       { key: 'ready', title: 'Ready to send', tone: 'primary', items: ready },
+      { key: 'sent', title: 'Sent today', tone: 'success', items: sent },
       { key: 'away', title: 'Not in today', tone: 'neutral', items: away },
     ];
   }, [phase, rosterItems]);
@@ -412,8 +417,10 @@ export default function RosterScreen({ navigation }) {
     bucket.key === 'attention' || bucket.key === 'needs-note'
   );
   const readyBucket = buckets.find(bucket => bucket.key === 'ready');
+  const sentBucket = buckets.find(bucket => bucket.key === 'sent');
   const nappingCount = rosterItems.filter(item => item.isNapping).length;
   const readyCount = readyBucket?.items.length || 0;
+  const sentCount = sentBucket?.items.length || 0;
   const needNoteCount = phase === 'afternoon' ? (attentionBucket?.items.length || 0) : 0;
 
   function openChild(child) {
@@ -432,6 +439,7 @@ export default function RosterScreen({ navigation }) {
 
     const priorityChild = attentionBucket?.items[0]?.child
       || readyBucket?.items[0]?.child
+      || sentBucket?.items[0]?.child
       || rosterItems[0]?.child;
     if (priorityChild) openDailyLog(priorityChild);
   }
@@ -470,9 +478,11 @@ export default function RosterScreen({ navigation }) {
       : {
         eyebrow: `${timeLabel} · WRAPPING UP`,
         icon: 'document-text-outline',
-        title: 'Daily reports',
-        subtitle: `${readyCount} ready · ${needNoteCount} need a note`,
-        button: 'Review & send reports',
+        title: readyCount || needNoteCount ? 'Daily reports' : 'Reports complete',
+        subtitle: readyCount || needNoteCount
+          ? `${readyCount} ready · ${needNoteCount} need a note`
+          : `${sentCount} sent today`,
+        button: readyCount || needNoteCount ? 'Review & send reports' : 'View sent reports',
       };
 
   const hasSearchResults = filteredBuckets.some(bucket => bucket.items.length);
@@ -494,12 +504,34 @@ export default function RosterScreen({ navigation }) {
             </Text>
             <ClassroomSwitcher compact childCount={children.length} />
           </View>
-          <ProfileAvatar
-            profile={profile}
-            onPress={() => navigation.navigate('ProfileTab')}
-          />
+          <View style={styles.headerActions}>
+            <TouchableOpacity
+              onPress={() => navigation.navigate('StaffNotifications')}
+              style={styles.notificationButton}
+              accessibilityRole="button"
+              accessibilityLabel={`Notifications${notifications.unreadCount ? `, ${notifications.unreadCount} unread` : ''}`}
+            >
+              <Ionicons name="notifications-outline" size={21} color={colors.textPrimary} />
+              {notifications.unreadCount ? (
+                <View style={styles.notificationBadge}>
+                  <Text style={styles.notificationBadgeText}>{notifications.unreadCount > 99 ? '99+' : notifications.unreadCount}</Text>
+                </View>
+              ) : null}
+            </TouchableOpacity>
+            <ProfileAvatar
+              profile={profile}
+              onPress={() => navigation.navigate('ProfileTab')}
+            />
+          </View>
         </View>
 
+        {(activeClassroom?.member_room_ids?.length || 0) > 1 && <View style={styles.priorityBand}>
+          <Text style={styles.priorityTitle}>Shared-room roster</Text>
+          <Text style={styles.prioritySubtitle}>Children from both rooms are shown during this combination. Their home rooms stay unchanged. Check Rooms &amp; ratios for the host and coverage.</Text>
+          <TouchableOpacity accessibilityRole="button" onPress={() => navigation.navigate('RoomRatios')}>
+            <Text style={styles.prioritySubtitle}>View live combined ratio →</Text>
+          </TouchableOpacity>
+        </View>}
         <View style={styles.priorityBand}>
           <Text style={styles.priorityEyebrow}>{phaseConfig.eyebrow}</Text>
           <View style={styles.prioritySummary}>
@@ -612,6 +644,17 @@ const styles = StyleSheet.create({
     marginBottom: spacing.lg,
   },
   headerCopy: { flex: 1, minWidth: 0 },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  notificationButton: {
+    width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1, borderColor: colors.borderSoft, backgroundColor: colors.surface,
+  },
+  notificationBadge: {
+    position: 'absolute', top: -4, right: -4, minWidth: 18, height: 18,
+    borderRadius: 9, alignItems: 'center', justifyContent: 'center',
+    paddingHorizontal: 4, borderWidth: 2, borderColor: colors.bg, backgroundColor: colors.danger,
+  },
+  notificationBadgeText: { color: colors.white, fontFamily: fonts.bold, fontSize: 9 },
   greeting: {
     color: colors.textPrimary,
     fontFamily: fonts.black,

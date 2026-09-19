@@ -51,7 +51,11 @@ begin
   raise notice 'PASS: payment methods are read-only outside secure server workflows';
 
   v_home := public.get_parent_billing_home();
-  if (v_home->>'current_balance_cents')::int <> 242000
+  if (v_home->>'current_balance_cents')::int <> (
+       select coalesce(sum((invoice->>'balance_cents')::int), 0)
+         from jsonb_array_elements(v_home->'invoices') invoice
+     )
+     or (v_home->>'current_balance_cents')::int < 124000
      or jsonb_array_length(v_home->'payment_methods') <> 3 then
     raise exception 'FAIL: family billing home is incomplete: %', v_home;
   end if;

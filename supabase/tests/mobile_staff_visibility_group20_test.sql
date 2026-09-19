@@ -35,6 +35,15 @@ declare
   v_log uuid;
   v_failed boolean := false;
 begin
+  perform pg_temp.as_postgres();
+  update public.children
+     set archived_at = null,
+         enrolled_on = least(coalesce(enrolled_on, current_date), current_date)
+   where id in (v_allowed_child, v_declined_child);
+  update public.announcements
+     set event_at = now() + interval '7 days',
+         event_ends_at = now() + interval '7 days 3 hours'
+   where id = v_event;
   perform pg_temp.impersonate(v_owner);
   v_summary := public.get_mobile_event_rsvp_summary(v_event);
   if (v_summary #>> '{counts,going}')::int <> 1

@@ -11,6 +11,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { SectionHeader } from "@/components/shell/header";
 import { Avatar } from "@/components/ui/avatar";
+import { medicationLifecycleStatus } from "@/lib/children/medication-status";
 import { CreateChildModal } from "./create-child-modal";
 import { RowMenu } from "./row-menu";
 
@@ -353,11 +354,15 @@ function MedicalRegister({ rows }: { rows: MedicalRegisterRow[] }) {
     (row) => (row.allergies?.length ?? 0) > 0 && isSevereMedicalRow(row),
   ).length;
   const pendingAuthorizations = rows.reduce(
-    (total, row) => total + row.medications.filter((medication) => !medication.active).length,
+    (total, row) => total + row.medications.filter(
+      (medication) => medicationLifecycleStatus(medication) === "consent_needed",
+    ).length,
     0,
   );
   const activeMedications = rows.reduce(
-    (total, row) => total + row.medications.filter((medication) => medication.active).length,
+    (total, row) => total + row.medications.filter(
+      (medication) => medicationLifecycleStatus(medication) === "active",
+    ).length,
     0,
   );
   const emergencyContacts = rows.reduce(
@@ -400,7 +405,12 @@ function MedicalRegister({ rows }: { rows: MedicalRegisterRow[] }) {
           <span>ACTION</span>
         </div>
         {flagged.map((row) => {
-          const consentNeeded = row.medications.some((medication) => !medication.active);
+          const consentNeeded = row.medications.some(
+            (medication) => medicationLifecycleStatus(medication) === "consent_needed",
+          );
+          const hasActiveMedication = row.medications.some(
+            (medication) => medicationLifecycleStatus(medication) === "active",
+          );
           const severe = isSevereMedicalRow(row);
           return (
           <Link
@@ -433,10 +443,12 @@ function MedicalRegister({ rows }: { rows: MedicalRegisterRow[] }) {
                 className={`whitespace-nowrap rounded-full px-2.5 py-[3px] text-[11px] font-bold ${
                   consentNeeded
                     ? "bg-warning-bg text-warning-text"
-                    : "bg-[#E4F3EC] text-success"
+                    : hasActiveMedication
+                      ? "bg-[#E4F3EC] text-success"
+                      : "bg-canvas text-faint"
                 }`}
               >
-                {consentNeeded ? "Consent needed" : "Complete"}
+                {consentNeeded ? "Consent needed" : hasActiveMedication ? "Complete" : "History only"}
               </span>
             </span>
           </Link>

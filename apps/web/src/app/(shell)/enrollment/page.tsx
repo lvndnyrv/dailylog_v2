@@ -5,12 +5,14 @@ import {
   listEnrollmentChildren,
   listEnrollments,
   listEnrollmentTourSlots,
+  listRoomVacancyReviews,
   listRoomsLive,
   listStaff,
   type EnrollmentSettings,
 } from "@dailylog/db/queries";
 import { EnrollmentBoard } from "@/components/enrollment/enrollment-board";
 import { SectionHeader } from "@/components/shell/header";
+import { dateInTimeZone } from "@/lib/center-date";
 import { getServerSupabase } from "@/lib/supabase/server";
 
 function defaultSettings(daycareId: string): EnrollmentSettings {
@@ -35,7 +37,7 @@ export default async function EnrollmentPage({
 }) {
   const params = await searchParams;
   const supabase = await getServerSupabase();
-  const [daycare, profile, enrollments, rooms, tourSlots, settings, children, staff] =
+  const [daycare, profile, enrollments, rooms, tourSlots, settings, children, staff, vacancyReviews] =
     await Promise.all([
       getMyDaycare(supabase),
       getMyProfile(supabase),
@@ -45,17 +47,21 @@ export default async function EnrollmentPage({
       getEnrollmentSettings(supabase),
       listEnrollmentChildren(supabase),
       listStaff(supabase),
+      listRoomVacancyReviews(supabase),
     ]);
 
   const daycareId = profile?.daycare_id ?? "";
+  const timeZone = daycare?.timezone ?? "America/Toronto";
+  const asOf = new Date().toISOString();
   const enrolled = rooms.reduce((sum, room) => sum + Number(room.enrolled_count), 0);
   const spots = rooms.reduce(
     (sum, room) => sum + Math.max(0, Number(room.capacity ?? 0) - Number(room.enrolled_count)),
     0,
   );
-  const waiting = enrollments.filter((item) =>
-    ["active", "offer"].includes(item.waitlist_status),
-  ).length;
+  const waiting = enrollments.filter((item) => item.waitlist_status === "active" || (
+    item.waitlist_status === "offer"
+    && (!item.offer_expires_at || item.offer_expires_at > asOf)
+  )).length;
 
   return (
     <>
@@ -67,6 +73,7 @@ export default async function EnrollmentPage({
       <EnrollmentBoard
         key={params.modal ?? "overview"}
         enrollments={enrollments}
+        asOf={asOf}
         rooms={rooms}
         tourSlots={tourSlots}
         settings={settings ?? defaultSettings(daycareId)}
@@ -76,9 +83,12 @@ export default async function EnrollmentPage({
           .map((member) => ({
             id: member.profile!.id,
             fullName: member.profile!.full_name,
+            classroomId: member.profile!.classroom?.id ?? null,
           }))}
         daycareId={daycareId}
-        timeZone={daycare?.timezone ?? "America/Toronto"}
+        timeZone={timeZone}
+        vacancyReviews={vacancyReviews}
+        centerToday={dateInTimeZone(new Date(), timeZone)}
         initialModal={params.modal}
       />
     </>

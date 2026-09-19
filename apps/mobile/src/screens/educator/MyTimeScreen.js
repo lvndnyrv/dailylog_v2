@@ -37,21 +37,33 @@ function Header({ navigation }) {
   );
 }
 
-function scheduleSummary(shifts) {
-  if (!shifts.length) return { days: 'No shifts', time: 'No published schedule' };
+const WEEKDAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
-  const weekdays = [...new Set(shifts.map(shift => format(new Date(shift.starts_at), 'EEE')))];
-  const starts = shifts.map(shift => new Date(shift.starts_at));
-  const ends = shifts.map(shift => new Date(shift.ends_at));
-  const earliest = starts.reduce((a, b) => (a < b ? a : b));
-  const latest = ends.reduce((a, b) => (a > b ? a : b));
+function localTimeLabel(value) {
+  const [hours = '0', minutes = '0'] = String(value || '').split(':');
+  const hour = Number(hours);
+  const suffix = hour >= 12 ? 'PM' : 'AM';
+  const displayHour = hour % 12 || 12;
+  return `${displayHour}:${minutes} ${suffix}`;
+}
+
+function scheduleSummary(regularSchedule) {
+  if (!regularSchedule.length) return { days: 'No shifts', time: 'No published schedule' };
+
+  const weekdays = regularSchedule.map(row => WEEKDAY_LABELS[Number(row.weekday) - 1]);
+  const uniqueTimes = [...new Set(regularSchedule.map(
+    row => `${String(row.starts_local).slice(0, 5)}-${String(row.ends_local).slice(0, 5)}`,
+  ))];
   const days = weekdays.join(', ') === 'Mon, Tue, Wed, Thu, Fri'
     ? 'Mon–Fri'
     : weekdays.join(', ');
+  const first = regularSchedule[0];
 
   return {
     days,
-    time: `${format(earliest, 'h:mm')}–${format(latest, 'h:mm')} shift`,
+    time: uniqueTimes.length === 1
+      ? `${localTimeLabel(first.starts_local)}–${localTimeLabel(first.ends_local)} shift`
+      : 'Shift times vary by day',
   };
 }
 
@@ -59,6 +71,7 @@ export default function MyTimeScreen({ navigation }) {
   const { active } = useClassroom();
   const {
     shifts,
+    regularSchedule,
     entries,
     openEntry,
     requests,
@@ -84,7 +97,7 @@ export default function MyTimeScreen({ navigation }) {
     () => entries.reduce((total, entry) => total + entryMinutes(entry, now), 0),
     [entries, now],
   );
-  const schedule = useMemo(() => scheduleSummary(shifts), [shifts]);
+  const schedule = useMemo(() => scheduleSummary(regularSchedule), [regularSchedule]);
   const pendingRequests = useMemo(
     () => requests.filter(request => request.status === 'pending').length,
     [requests],

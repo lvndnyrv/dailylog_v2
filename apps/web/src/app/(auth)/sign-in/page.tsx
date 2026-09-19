@@ -5,9 +5,10 @@ import { SignInForm } from "./sign-in-form";
 export default async function SignInPage({
   searchParams,
 }: {
-  searchParams: Promise<{ reset?: string }>;
+  searchParams: Promise<{ reset?: string; next?: string }>;
 }) {
-  const { reset } = await searchParams;
+  const { reset, next } = await searchParams;
+  const destination = next?.startsWith("/") && !next.startsWith("//") ? next : "/dashboard";
 
   return (
     <main className="flex min-h-screen bg-card">
@@ -19,7 +20,7 @@ export default async function SignInPage({
             Sign in to your center&apos;s admin console.
           </p>
         </div>
-        <SignInForm resetDone={reset === "done"} />
+        <SignInForm resetDone={reset === "done"} destination={destination} />
         <p className="text-[12.5px] leading-relaxed text-muted">
           New to DailyLog?{" "}
           <a href="/start" className="font-bold text-primary hover:text-primary-hover">

@@ -6,6 +6,7 @@ import {
   listRoomCoverageAssignments,
   listRoomsLive,
   listRoomTransitionPlans,
+  listRoomTransitionWaitRequests,
   listRoomTransitions,
   listStaff,
   listStaffShifts,
@@ -41,6 +42,7 @@ export default async function RoomDetailPage({
     assignments,
     transitions,
     transitionPlans,
+    transitionWaits,
     combinations,
     floaters,
     staff,
@@ -53,6 +55,7 @@ export default async function RoomDetailPage({
     listRoomCoverageAssignments(supabase, rangeStart, rangeEnd),
     listRoomTransitions(supabase, 3),
     listRoomTransitionPlans(supabase),
+    listRoomTransitionWaitRequests(supabase),
     listRoomCombinations(supabase),
     listFloaters(supabase),
     listStaff(supabase),
@@ -71,6 +74,7 @@ export default async function RoomDetailPage({
       assignments={assignments.filter((item) => item.classroom?.id === id)}
       transitions={transitions.filter((item) => item.room_id === id)}
       transitionPlans={transitionPlans.filter((item) => item.from_classroom_id === id)}
+      transitionWaits={transitionWaits.filter((item) => item.from_classroom_id === id)}
       combinations={combinations.filter(
         (item) => item.source_classroom_id === id || item.host_classroom_id === id,
       )}

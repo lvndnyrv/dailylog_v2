@@ -24,6 +24,13 @@ begin
       emergency_contacts = jsonb_build_array(
         jsonb_build_object('name', 'Carmen Castillo', 'relationship', 'Grandmother', 'phone', '416-555-0192')
       ),
+      setup_state = coalesce(setup_state, '{}'::jsonb) || jsonb_build_object(
+        'weekly_schedule', jsonb_build_object(
+          'mon', 'full', 'tue', 'full', 'wed', 'full',
+          'thu', 'full', 'fri', 'full'
+        )
+      ),
+      archived_at = null,
       updated_at = now() - interval '5 months'
   where id = v_child;
 

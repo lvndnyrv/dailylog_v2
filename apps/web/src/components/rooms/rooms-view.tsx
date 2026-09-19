@@ -6,6 +6,7 @@ import type {
   RoomLiveStatus,
   RoomTransition,
   RoomTransitionPlanRow,
+  RoomTransitionWaitRow,
   StaffShiftRow,
   StaffTimeEntryRow,
   StaffTimeOffRequestRow,
@@ -23,11 +24,12 @@ import { PlanTransitionModal } from "./plan-transition-modal";
 import { RatioAlertsCard } from "./ratio-alerts-card";
 import { RatioRulesModal } from "./ratio-rules-modal";
 import { RoomFormModal } from "./room-form-modal";
+import { CombinationControls, LiveRoomsRefresh } from "./combination-controls";
+import { PlannedBreaks } from "./planned-breaks";
+import { CoverageForecast } from "./coverage-forecast";
 
 const card = "rounded-2xl border-[1.5px] border-[#D6E1F0] bg-card";
 const palette = ["#77AAE3", "#83C49F", "#A78AD7", "#E5A56E", "#6BAAC2"];
-const START_MINUTES = 7 * 60;
-const END_MINUTES = 18 * 60;
 
 interface Floater {
   id: string;
@@ -57,6 +59,7 @@ export function RoomsView({
   floaters,
   transitions,
   transitionPlans,
+  transitionWaits,
   combinations,
   coverageAssignments,
   shifts,
@@ -67,11 +70,13 @@ export function RoomsView({
   timeZone,
   alertSettings,
   initialModal,
+  openingHours,
 }: {
   rooms: RoomLiveStatus[];
   floaters: Floater[];
   transitions: RoomTransition[];
   transitionPlans: RoomTransitionPlanRow[];
+  transitionWaits: RoomTransitionWaitRow[];
   combinations: Tables<"room_combinations">[];
   coverageAssignments: RoomCoverageAssignmentRow[];
   shifts: StaffShiftRow[];
@@ -82,6 +87,7 @@ export function RoomsView({
   timeZone: string;
   alertSettings: { afterMinutes: number; notifyFloaters: boolean; blockCheckins: boolean };
   initialModal?: string;
+  openingHours: { start: string; end: string };
 }) {
   const router = useRouter();
   const [modal, setModal] = useState<ModalState>(() => {
@@ -99,6 +105,7 @@ export function RoomsView({
 
   return (
     <div className="grid flex-1 items-start gap-5 p-7 pt-[22px] xl:grid-cols-[minmax(0,1fr)_298px]">
+      <LiveRoomsRefresh />
       <div className="flex min-w-0 flex-col gap-4">
         <CoverageTimeline
           rooms={rooms}
@@ -110,7 +117,11 @@ export function RoomsView({
           date={date}
           timeZone={timeZone}
           onAlert={(room) => setModal({ kind: "alert", room })}
+          openingHours={openingHours}
         />
+
+        <PlannedBreaks shifts={shifts} date={date} timeZone={timeZone} />
+        <CoverageForecast rooms={rooms} today={date} timeZone={timeZone} openingHours={openingHours} />
 
         <FloaterPool
           floaters={floaters}
@@ -125,6 +136,7 @@ export function RoomsView({
         <TransitionsPanel
           transitions={transitions}
           plans={transitionPlans}
+          waits={transitionWaits}
           rooms={rooms}
           onPlan={(transition) => setModal({ kind: "transition", transition })}
         />
@@ -140,12 +152,12 @@ export function RoomsView({
             </h2>
             {activeCombinationCount > 0 && (
               <span className="rounded-full bg-[#E4F3EC] px-2 py-0.5 text-[10.5px] font-bold text-success">
-                {activeCombinationCount} active
+                {activeCombinationCount} scheduled
               </span>
             )}
           </div>
           <p className="mt-2 text-[11.5px] leading-relaxed text-muted">
-            Combine low-attendance rooms at the edges of the day. The youngest child&apos;s stricter ratio applies.
+            During an activated weekday window, children and eligible educators are counted together in the host room under the stricter ratio. Home rooms stay unchanged.
           </p>
           <button
             type="button"
@@ -154,6 +166,7 @@ export function RoomsView({
           >
             {activeCombinationCount ? "Edit combinations" : "Set up combinations"} <ArrowRight size={13} />
           </button>
+          <CombinationControls combinations={combinations} date={date} />
         </section>
       </aside>
 
@@ -183,7 +196,9 @@ export function RoomsView({
       {typeof modal === "object" && modal.kind === "transition" && (
         <PlanTransitionModal
           transition={modal.transition}
+          today={date}
           plan={transitionPlans.find((plan) => plan.child_id === modal.transition.child_id)}
+          wait={transitionWaits.find((wait) => wait.child_id === modal.transition.child_id)}
           rooms={rooms}
           onClose={closeModal}
         />
@@ -213,6 +228,7 @@ function CoverageTimeline({
   date,
   timeZone,
   onAlert,
+  openingHours,
 }: {
   rooms: RoomLiveStatus[];
   shifts: StaffShiftRow[];
@@ -223,14 +239,17 @@ function CoverageTimeline({
   date: string;
   timeZone: string;
   onAlert: (room: RoomLiveStatus) => void;
+  openingHours: { start: string; end: string };
 }) {
-  const todayShifts = shifts.filter((shift) => dateInZone(shift.starts_at, timeZone) === date);
+  const windowStart = localTimeMinutes(openingHours.start);
+  const windowEnd = localTimeMinutes(openingHours.end);
+  const todayShifts = shifts.filter((shift) => shift.status === "published" && dateInZone(shift.starts_at, timeZone) === date);
   const todayAssignments = assignments.filter(
     (assignment) => dateInZone(assignment.starts_at, timeZone) === date,
   );
   const clockedIn = new Set(
     timeEntries
-      .filter((entry) => dateInZone(entry.clocked_in_at, timeZone) === date)
+      .filter((entry) => dateInZone(entry.clocked_in_at, timeZone) === date && !entry.clocked_out_at)
       .map((entry) => entry.staff?.id)
       .filter(Boolean),
   );
@@ -245,7 +264,7 @@ function CoverageTimeline({
     <section className={`${card} overflow-hidden`} aria-labelledby="coverage-h">
       <div className="flex flex-wrap items-center gap-2 px-[18px] pb-3 pt-4">
         <h2 id="coverage-h" className="text-[15px] font-extrabold text-ink">Today&apos;s coverage</h2>
-        <span className="text-[12px] text-faint">7:00 AM – 6:00 PM</span>
+        <span className="text-[12px] text-faint">{openingHours.start.slice(0, 5)} – {openingHours.end.slice(0, 5)} · center hours</span>
         <span className="ml-auto flex items-center gap-3 text-[10.5px] text-muted">
           <span className="flex items-center gap-1.5"><i className="size-2.5 rounded-[3px] bg-[#77AAE3]" /> shift</span>
           <span className="flex items-center gap-1.5"><i className="size-2.5 rounded-[3px] bg-[#A78AD7]" /> coverage</span>
@@ -257,9 +276,9 @@ function CoverageTimeline({
         <div className="mb-2 grid grid-cols-[112px_minmax(0,1fr)] gap-2 text-[10px] font-semibold text-faint">
           <span />
           <div className="relative h-4">
-            {[7, 9, 11, 13, 15, 17].map((hour) => (
-              <span key={hour} className="absolute -translate-x-1/2" style={{ left: `${((hour * 60 - START_MINUTES) / (END_MINUTES - START_MINUTES)) * 100}%` }}>
-                {hour > 12 ? `${hour - 12}p` : `${hour}a`}
+            {Array.from({ length: Math.ceil((windowEnd - windowStart) / 120) }, (_, index) => windowStart + index * 120).map((minute) => (
+              <span key={minute} className="absolute -translate-x-1/2" style={{ left: `${((minute - windowStart) / (windowEnd - windowStart)) * 100}%` }}>
+                {String(Math.floor(minute / 60)).padStart(2, "0")}:{String(minute % 60).padStart(2, "0")}
               </span>
             ))}
           </div>
@@ -274,17 +293,19 @@ function CoverageTimeline({
               (assignment) => assignment.classroom?.id === room.id,
             );
             const roomCombinations = combinations.filter(
-              (combination) => combination.enabled && combination.source_classroom_id === room.id,
+              (combination) => combination.enabled && combination.source_classroom_id === room.id &&
+                ![0, 6].includes(new Date(`${date}T12:00:00Z`).getUTCDay()),
             );
             const lines = roomShifts.length + roomAssignments.length + roomCombinations.length;
             const present = Number(room.present_count);
-            const over = room.ratio_children_per_educator !== null &&
-              isOverRatio(present, room.educators.length, room.ratio_children_per_educator);
+            const ratio = room.operating?.live_ratio ?? room.ratio_children_per_educator;
+            const over = ratio !== null && isOverRatio(present, room.educators.length, ratio);
 
             return (
               <div key={room.id} className="grid grid-cols-[112px_minmax(0,1fr)] gap-2">
                 <div className="self-center leading-tight">
                   <Link href={`/rooms/${room.id}`} className="block truncate text-[12px] font-extrabold text-ink hover:text-primary">{room.name}</Link>
+                  {room.operating?.combination_id && <span className="mt-1 block text-[10px] text-primary">{room.operating.host_room_id === room.id ? `Combined · 1:${ratio}` : `In ${room.operating.host_room_name}`}</span>}
                   {over && (
                     <button type="button" onClick={() => onAlert(room)} className="mt-0.5 flex items-center gap-1 text-[9.5px] font-bold text-danger hover:underline">
                       <AlertTriangle size={10} /> over ratio now
@@ -300,6 +321,7 @@ function CoverageTimeline({
                     const isAway = away.has(shift.staff?.id);
                     return (
                       <TimelineBar
+                        windowStart={windowStart} windowEnd={windowEnd}
                         key={shift.id}
                         start={minutesInZone(shift.starts_at, timeZone)}
                         end={minutesInZone(shift.ends_at, timeZone)}
@@ -309,31 +331,36 @@ function CoverageTimeline({
                         muted={isAway}
                         title={isAway ? "Approved time off" : clockedIn.has(shift.staff?.id) ? "Clocked in" : "Published shift"}
                         checked={clockedIn.has(shift.staff?.id) && !isAway}
+                        breakStart={shift.planned_break_starts_at ? minutesInZone(shift.planned_break_starts_at, timeZone) : undefined}
+                        breakEnd={shift.planned_break_ends_at ? minutesInZone(shift.planned_break_ends_at, timeZone) : undefined}
                       />
                     );
                   })}
                   {roomAssignments.map((assignment, index) => (
                     <TimelineBar
+                      windowStart={windowStart} windowEnd={windowEnd}
                       key={assignment.id}
                       start={minutesInZone(assignment.starts_at, timeZone)}
                       end={minutesInZone(assignment.ends_at, timeZone)}
                       row={roomShifts.length + index}
-                      color="#A78AD7"
-                      label={`${firstName(assignment.staff?.profile?.full_name)} · coverage`}
-                      title={assignment.notes ?? "Time-bound room coverage"}
+                      color={assignment.status === "declined" ? "#D98B8B" : "#A78AD7"}
+                      label={`${firstName(assignment.staff?.profile?.full_name)} · ${assignment.status === "assigned" ? "awaiting acceptance" : assignment.status}`}
+                      title={`${assignment.status === "assigned" ? "Invitation pending" : assignment.status === "declined" ? "Coverage declined — arrange replacement" : "Coverage accepted"} · ${assignment.notes ?? "Time-bound room coverage"}`}
+                      muted={assignment.status === "declined"}
                     />
                   ))}
                   {roomCombinations.map((combination, index) => {
                     const host = rooms.find((item) => item.id === combination.host_classroom_id)?.name ?? "host room";
                     return (
                       <TimelineBar
+                        windowStart={windowStart} windowEnd={windowEnd}
                         key={combination.id}
                         start={localTimeMinutes(combination.starts_at)}
                         end={localTimeMinutes(combination.ends_at)}
                         row={roomShifts.length + roomAssignments.length + index}
                         color="#F2D49B"
-                        label={`Combined into ${host}`}
-                        title={`${combination.period} room combination`}
+                        label={`${combination.paused_on === date ? "Paused" : combination.activated_at ? "Combined" : "Plan"} in ${host}`}
+                        title={`${combination.period} · ${combination.paused_on === date ? "paused today" : combination.activated_at ? "weekday shared-room schedule" : "save to activate this legacy plan"}`}
                       />
                     );
                   })}
@@ -345,7 +372,7 @@ function CoverageTimeline({
         </div>
 
         <p className="mt-3 text-[10.5px] leading-relaxed text-faint">
-          Coverage is calculated from published staff shifts and time-bound assignments; live ratio state comes from child check-ins and room educator assignments.
+          Published shifts and coverage invitations; striped segments are planned breaks, not actual clock-outs. Live ratio state comes from check-ins and eligible staff presence. Untimed payroll breaks are not guessed.
         </p>
       </div>
     </section>
@@ -361,6 +388,10 @@ function TimelineBar({
   title,
   muted = false,
   checked = false,
+  windowStart,
+  windowEnd,
+  breakStart,
+  breakEnd,
 }: {
   start: number;
   end: number;
@@ -370,12 +401,16 @@ function TimelineBar({
   title: string;
   muted?: boolean;
   checked?: boolean;
+  windowStart: number;
+  windowEnd: number;
+  breakStart?: number;
+  breakEnd?: number;
 }) {
-  const boundedStart = Math.max(START_MINUTES, start);
-  const boundedEnd = Math.min(END_MINUTES, end);
+  const boundedStart = Math.max(windowStart, start);
+  const boundedEnd = Math.min(windowEnd, end);
   if (boundedEnd <= boundedStart) return null;
-  const left = ((boundedStart - START_MINUTES) / (END_MINUTES - START_MINUTES)) * 100;
-  const width = ((boundedEnd - boundedStart) / (END_MINUTES - START_MINUTES)) * 100;
+  const left = ((boundedStart - windowStart) / (windowEnd - windowStart)) * 100;
+  const width = ((boundedEnd - boundedStart) / (windowEnd - windowStart)) * 100;
   return (
     <span
       className={`absolute flex h-[21px] items-center truncate rounded-[7px] px-2 text-[9.5px] font-bold text-white ${muted ? "line-through" : ""}`}
@@ -383,6 +418,7 @@ function TimelineBar({
       title={title}
     >
       {checked && <Check size={10} className="mr-1 shrink-0" />} {label}
+      {breakStart !== undefined && breakEnd !== undefined && Math.min(breakEnd, boundedEnd) > Math.max(breakStart, boundedStart) && <span aria-label="Planned break" title="Planned break" className="absolute inset-y-0 border-x border-white" style={{ left: `${Math.max(0, (breakStart - boundedStart) / (boundedEnd - boundedStart) * 100)}%`, width: `${(Math.min(breakEnd, boundedEnd) - Math.max(breakStart, boundedStart)) / (boundedEnd - boundedStart) * 100}%`, background: "repeating-linear-gradient(135deg,#FBF3E4 0px,#FBF3E4 3px,#B0782B 3px,#B0782B 5px)" }} />}
     </span>
   );
 }
@@ -438,32 +474,61 @@ function FloaterPool({
 function TransitionsPanel({
   transitions,
   plans,
+  waits,
   rooms,
   onPlan,
 }: {
   transitions: RoomTransition[];
   plans: RoomTransitionPlanRow[];
+  waits: RoomTransitionWaitRow[];
   rooms: RoomLiveStatus[];
   onPlan: (transition: RoomTransition) => void;
 }) {
+  const waitingChildren = new Set(waits.map((wait) => wait.child_id));
+  const candidates = transitions.filter((transition) => !waitingChildren.has(transition.child_id));
+  const count = waits.length + candidates.length;
   return (
     <section id="room-transitions" className={`${card} px-[18px] py-4`} aria-labelledby="transitions-h">
       <div className="flex flex-wrap items-center gap-2">
         <h2 id="transitions-h" className="text-[15px] font-extrabold text-ink">Upcoming transitions</h2>
-        {transitions.length > 0 && (
+        {count > 0 && (
           <span className="rounded-full bg-tint px-2 py-0.5 text-[10.5px] font-bold text-primary">
-            {transitions.length} in the next 90 days
+            {count} candidates, waits &amp; saved plans
           </span>
         )}
       </div>
       <p className="mb-3 mt-1 text-[11px] leading-relaxed text-faint">
-        Plan each child&apos;s next room before they cross its age threshold. Destination capacity is checked against today&apos;s enrollment.
+        Birthday candidates for the next 90 days, persistent waiting requests, and all saved plans. Waiting does not reserve a place; review the projected opening before scheduling.
       </p>
-      {transitions.length === 0 ? (
+      {count === 0 ? (
         <p className="text-[12px] text-faint">No room transitions are due in the next three months.</p>
       ) : (
         <div className="flex flex-col gap-2">
-          {transitions.map((transition) => {
+          {waits.map((wait) => {
+            const transition = waitToTransition(wait);
+            return (
+              <div key={wait.id} className="flex items-center gap-3 rounded-[12px] border border-[#E3EBF5] bg-[#FAFCFF] px-3 py-2.5">
+                <Avatar name={`${wait.first_name} ${wait.last_name}`} size={34} />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[13px] font-bold text-ink">{wait.first_name} {wait.last_name}</span>
+                  <span className="block text-[11px] text-muted">
+                    {wait.from_room_name} → {wait.to_room_name} · {wait.first_available_day
+                      ? `projected opening ${formatDate(wait.first_available_day)}`
+                      : wait.status_detail}
+                  </span>
+                </span>
+                <span className="flex flex-col items-end gap-1">
+                  <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold ${wait.needs_review ? "bg-danger-bg text-danger" : "bg-[#EDF2F9] text-muted"}`}>
+                    {wait.needs_review ? "Needs review" : "Waiting for a spot"}
+                  </span>
+                  <button type="button" onClick={() => onPlan(transition)} className="text-[11px] font-bold text-primary hover:underline">
+                    {wait.first_available_day ? "Review & plan" : "Review request"}
+                  </button>
+                </span>
+              </div>
+            );
+          })}
+          {candidates.map((transition) => {
             const plan = plans.find((item) => item.child_id === transition.child_id);
             const destination = rooms.find((room) => room.id === transition.next_room_id);
             const destinationFull = Boolean(
@@ -494,13 +559,12 @@ function TransitionsPanel({
                   <button type="button" onClick={() => onPlan(transition)} className="rounded-full bg-[#E4F3EC] px-3 py-1.5 text-[11px] font-bold text-success hover:bg-[#D7EDE3]">
                     Planned · {formatDate(plan.move_on)}
                   </button>
-                ) : transition.next_room_id && !destinationFull ? (
-                  <button type="button" onClick={() => onPlan(transition)} className="rounded-full border-[1.5px] border-[#D6E1F0] px-3 py-1.5 text-[11.5px] font-bold text-primary hover:bg-canvas">
-                    Plan a move
-                  </button>
                 ) : (
-                  <span className="rounded-full bg-[#FFF0D6] px-3 py-1.5 text-[10.5px] font-bold text-[#A86D13]">
-                    {destinationFull ? "Waiting for a spot" : "Destination needed"}
+                  <span className="flex flex-col items-end gap-1">
+                  {destinationFull && <span className="text-[10px] text-[#A86D13]">Full today · choose a later date</span>}
+                  <button type="button" onClick={() => onPlan(transition)} className="rounded-full border-[1.5px] border-[#D6E1F0] px-3 py-1.5 text-[11.5px] font-bold text-primary hover:bg-canvas">
+                    {transition.next_room_id ? "Plan a move" : "Choose destination"}
+                  </button>
                   </span>
                 )}
               </div>
@@ -508,13 +572,28 @@ function TransitionsPanel({
           })}
         </div>
       )}
-      {transitions.length > 0 && (
+      {count > 0 && (
         <p className="mt-3 border-t border-[#EDF3FB] pt-3 text-[10.5px] leading-relaxed text-faint">
-          A planned move keeps the child in their current room through move day; the child&apos;s home room changes when the plan is completed.
+          A waiting request is staff-only and does not reserve capacity or notify the family. A planned move keeps the current room through move day; the home room changes only when an admin completes it.
         </p>
       )}
     </section>
   );
+}
+
+function waitToTransition(wait: RoomTransitionWaitRow): RoomTransition {
+  return {
+    child_id: wait.child_id,
+    first_name: wait.first_name,
+    last_name: wait.last_name,
+    date_of_birth: wait.date_of_birth,
+    age_months: wait.age_months,
+    room_id: wait.from_classroom_id,
+    room_name: wait.from_room_name,
+    max_age_months: wait.source_max_age_months,
+    next_room_id: wait.to_classroom_id,
+    next_room_name: wait.to_room_name,
+  };
 }
 
 function RatioRulesCard({ rooms, onEdit }: { rooms: RoomLiveStatus[]; onEdit: () => void }) {
@@ -532,7 +611,7 @@ function RatioRulesCard({ rooms, onEdit }: { rooms: RoomLiveStatus[]; onEdit: ()
         ))}
       </div>
       <p className="mt-3 text-[10.5px] leading-relaxed text-faint">
-        Counted live from check-ins and room educator assignments. Rules follow your licensed center policy.
+        Live counts use eligible educators in their current room, including temporary cover and clock-ins when enabled.
       </p>
       <button type="button" onClick={onEdit} className="mt-3 inline-flex items-center gap-1 text-[12px] font-bold text-primary hover:underline">
         Edit the rules <ArrowRight size={13} />

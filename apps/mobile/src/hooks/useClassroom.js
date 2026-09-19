@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect } from 'react';
 import { isAdminRole } from '@dailylog/shared';
+import { AppState } from 'react-native';
 import { supabase } from '../lib/supabase';
 import { useAuth } from './useAuth';
 
@@ -17,9 +18,11 @@ export function ClassroomProvider({ children }) {
     } else if (isAdminRole(profile?.role) && profile?.daycare_id) {
       loadAllClassrooms();
     } else {
+      setClassrooms([]);
+      setActive(null);
       setLoading(false);
     }
-  }, [profile?.id]);
+  }, [profile?.id, profile?.role, profile?.daycare_id]);
 
   useEffect(() => {
     if (profile?.role !== 'educator' || !profile?.daycare_id) return undefined;
@@ -29,10 +32,17 @@ export function ClassroomProvider({ children }) {
       .on('postgres_changes', {
         event: '*', schema: 'public', table: 'room_coverage_assignments',
       }, refreshCoverage)
+      .on('postgres_changes', {
+        event: '*', schema: 'public', table: 'room_combinations',
+      }, refreshCoverage)
       .subscribe();
     const poll = setInterval(refreshCoverage, 60_000);
+    const appState = AppState.addEventListener('change', state => {
+      if (state === 'active') refreshCoverage();
+    });
     return () => {
       clearInterval(poll);
+      appState.remove();
       supabase.removeChannel(channel);
     };
   }, [profile?.id, profile?.role, profile?.daycare_id]);
@@ -40,11 +50,7 @@ export function ClassroomProvider({ children }) {
   // Admins see every classroom in the daycare (no junction membership needed)
   async function loadAllClassrooms() {
     setLoading(true);
-    const { data } = await supabase
-      .from('classrooms')
-      .select('id, name, age_group')
-      .eq('daycare_id', profile.daycare_id)
-      .order('name');
+    const { data } = await supabase.rpc('get_my_operational_classrooms');
     const rooms = data || [];
     setClassrooms(rooms);
     setActive(rooms.find(r => r.id === profile.classroom_id) || rooms[0] || null);
@@ -54,55 +60,15 @@ export function ClassroomProvider({ children }) {
   async function loadClassrooms({ quiet = false } = {}) {
     if (!quiet) setLoading(true);
 
-    // Permanent memberships and currently active admin coverage are both
-    // operational room access. The database predicate mirrors this union.
-    const [{ data: links }, { data: staff }] = await Promise.all([
-      supabase
-        .from('educator_classrooms')
-        .select('classroom:classrooms(id, name, age_group)')
-        .eq('educator_id', profile.id),
-      supabase
-        .from('staff_members')
-        .select('id')
-        .eq('profile_id', profile.id)
-        .eq('status', 'active')
-        .is('archived_at', null)
-        .maybeSingle(),
-    ]);
-
-    const now = new Date().toISOString();
-    const { data: coverage } = staff?.id
-      ? await supabase
-        .from('room_coverage_assignments')
-        .select('classroom:classrooms(id, name, age_group)')
-        .eq('staff_member_id', staff.id)
-        .in('status', ['assigned', 'accepted'])
-        .lte('starts_at', now)
-        .gt('ends_at', now)
-      : { data: [] };
-
-    const roomsById = new Map();
-    [...(links || []), ...(coverage || [])]
-      .map(link => link.classroom)
-      .filter(Boolean)
-      .forEach(room => roomsById.set(room.id, room));
-    const rooms = [...roomsById.values()];
-
-    // If no junction entries yet but profile has classroom_id, use that
-    if (!rooms.length && profile.classroom_id) {
-      const { data: fallback } = await supabase
-        .from('classrooms')
-        .select('id, name, age_group')
-        .eq('id', profile.classroom_id)
-        .single();
-      if (fallback) rooms.push(fallback);
+    const { data, error } = await supabase.rpc('get_my_operational_classrooms');
+    if (error) {
+      if (!quiet) setLoading(false);
+      return;
     }
-
+    const rooms = data || [];
     setClassrooms(rooms);
-
-    // Set active to profile's current classroom, or first available
-    const current = rooms.find(r => r.id === profile.classroom_id);
-    setActive(current || rooms[0] || null);
+    setActive(current => rooms.find(room => room.id === current?.id)
+      || rooms.find(room => room.id === profile.classroom_id) || rooms[0] || null);
     if (!quiet) setLoading(false);
   }
 
@@ -111,6 +77,9 @@ export function ClassroomProvider({ children }) {
     if (!room) return;
 
     setActive(room);
+
+    // Visiting a combined/coverage room must never make it a permanent home room.
+    if (room.temporary) return;
 
     // Update profile's active classroom
     await supabase

@@ -8,7 +8,10 @@ begin
   perform set_config('role', p_role, true);
   perform set_config(
     'request.jwt.claims',
-    json_build_object('sub', p_user_id, 'role', p_role)::text,
+    json_build_object(
+      'sub', p_user_id,
+      'role', case when p_role = 'postgres' then 'service_role' else p_role end
+    )::text,
     true
   );
 end;
@@ -25,7 +28,27 @@ declare
   v_report uuid;
   v_count integer;
   v_failed boolean;
+  v_restricted constant uuid := '00000000-0000-4000-a000-000000000008';
+  v_role uuid;
 begin
+  perform pg_temp.impersonate('postgres');
+  insert into public.center_roles (daycare_id, name, base_role, permissions)
+  values (
+    v_daycare,
+    'Rollback-only no attendance visibility',
+    'admin',
+    '{"attendance":{"view":false,"edit":false,"approve":false}}'
+  ) returning id into v_role;
+  update public.profiles
+     set role = 'admin', center_role_id = v_role, archived_at = null
+   where id = v_restricted;
+  update public.staff_delegations
+     set revoked_at = now()
+   where delegate_profile_id = v_restricted and revoked_at is null;
+  update public.children
+     set archived_at = null,
+         enrolled_on = least(coalesce(enrolled_on, current_date), current_date)
+   where id = v_child;
   perform pg_temp.impersonate('authenticated', v_parent);
   v_today := public.center_today();
 
@@ -55,6 +78,12 @@ begin
        and notification.payload->>'reportId' = v_report::text
        and notification.payload->>'type' = 'attendance_absence'
   ) then raise exception 'FAIL: office and classroom were not notified'; end if;
+  if exists (
+    select 1 from public.notifications notification
+     where notification.profile_id = v_restricted
+       and notification.kind = 'attendance'
+       and notification.payload ->> 'reportId' = v_report::text
+  ) then raise exception 'FAIL: restricted admin received private attendance details'; end if;
   raise notice 'PASS: parent range creates operational attendance, audit, and staff notifications';
 
   perform pg_temp.impersonate('authenticated', v_parent);

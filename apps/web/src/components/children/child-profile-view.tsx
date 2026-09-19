@@ -3,6 +3,7 @@
 import type {
   ChildDocument,
   ChildPickup,
+  MedicationDoseRecord,
   ParentDocumentRequestReviewRow,
   PendingParentInvite,
   PickupSecurityEvent,
@@ -12,6 +13,7 @@ import { childSetupChecklist, CONSENT_KINDS, formatAge } from "@dailylog/shared"
 import Link from "next/link";
 import { useState } from "react";
 import { Avatar } from "@/components/ui/avatar";
+import { medicationLifecycleStatus } from "@/lib/children/medication-status";
 import { EditChildModal } from "./edit-child-modal";
 import { PickupModal } from "./pickup-modal";
 import { InviteParentModal } from "./invite-parent-modal";
@@ -85,6 +87,9 @@ type Medication = {
   schedule: string | null;
   notes: string | null;
   active: boolean;
+  signed_at: string | null;
+  consented_at: string | null;
+  ended_at: string | null;
   parent: { full_name: string } | null;
 };
 
@@ -106,6 +111,7 @@ export function ChildProfileView({
   child,
   pickups,
   medications,
+  medicationLogs,
   consents,
   documents,
   documentRequests,
@@ -118,6 +124,7 @@ export function ChildProfileView({
   child: Child;
   pickups: ChildPickup[];
   medications: Medication[];
+  medicationLogs: MedicationDoseRecord[];
   consents: Consent[];
   documents: ChildDocument[];
   documentRequests: ParentDocumentRequestReviewRow[];
@@ -172,6 +179,12 @@ export function ChildProfileView({
           <span className="block text-[12.5px] text-muted">{meta}</span>
         </span>
         <span className="flex-1" />
+        <a
+          href={`/reports-export/attendance-month?month=${new Date().toISOString().slice(0, 7)}&child=${child.id}`}
+          className="rounded-btn border-[1.5px] border-[#D6E1F0] bg-card px-4 py-2.5 text-[13px] font-bold text-ink hover:bg-canvas"
+        >
+          Attendance record
+        </a>
         <Link
           href={`/messages?child=${child.id}`}
           className="rounded-btn border-[1.5px] border-[#D6E1F0] bg-card px-4 py-2.5 text-[13px] font-bold text-ink hover:bg-canvas"
@@ -318,7 +331,9 @@ export function ChildProfileView({
                   <span>AUTHORIZED BY</span>
                   <span>STATUS</span>
                 </div>
-                {medications.map((m) => (
+                {medications.map((m) => {
+                  const lifecycle = medicationLifecycleStatus(m);
+                  return (
                   <div key={m.id} className="grid grid-cols-[1.4fr_1.2fr_1fr_.8fr] items-center gap-2 border-b border-[#EDF3FB] py-2.5 last:border-b-0">
                     <span className="text-[12.5px] font-bold text-ink">
                       {m.name} {m.dosage}
@@ -326,20 +341,67 @@ export function ChildProfileView({
                     <span className="text-[12.5px] text-muted">{m.schedule ?? "—"}</span>
                     <span className="text-[12.5px] text-muted">{m.parent?.full_name ?? "—"}</span>
                     <span>
-                      {m.active ? (
+                      {lifecycle === "active" ? (
                         <span className="rounded-full bg-[#E4F3EC] px-2.5 py-[3px] text-[11px] font-bold text-success">
                           Active
                         </span>
-                      ) : (
+                      ) : lifecycle === "ended" ? (
                         <span className="rounded-full bg-canvas px-2.5 py-[3px] text-[11px] font-bold text-faint">
+                          Ended
+                        </span>
+                      ) : (
+                        <span className="rounded-full bg-warning-bg px-2.5 py-[3px] text-[11px] font-bold text-warning-text">
                           Consent needed
                         </span>
                       )}
                     </span>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             )}
+
+            <div className="mt-5 border-t border-[#EDF3FB] pt-4">
+              <div className="mb-2 flex items-center gap-2">
+                <h3 className="text-[12.5px] font-extrabold text-ink">Recent doses</h3>
+                <span className="text-[11px] text-faint">Educator administration record</span>
+              </div>
+              {medicationLogs.length === 0 ? (
+                <p className="text-[12px] text-faint">No doses have been logged.</p>
+              ) : (
+                <div className="overflow-hidden rounded-[13px] border border-[#EDF3FB]">
+                  {medicationLogs.map((dose) => (
+                    <div
+                      key={dose.id}
+                      className="grid grid-cols-[1.2fr_1fr_1.2fr] gap-3 border-b border-[#EDF3FB] px-3.5 py-2.5 text-[11.5px] last:border-b-0"
+                    >
+                      <span>
+                        <b className="block text-ink">{dose.authorization?.name ?? "Medication"}</b>
+                        <span className="text-muted">
+                          {[dose.dosage_given, dose.route_given].filter(Boolean).join(" · ") || "Dose recorded"}
+                        </span>
+                      </span>
+                      <span className="text-muted">
+                        <b className="block text-ink">
+                          {new Date(dose.administered_at).toLocaleDateString("en-CA", {
+                            month: "short",
+                            day: "numeric",
+                          })}
+                        </b>
+                        {new Date(dose.administered_at).toLocaleTimeString("en-CA", {
+                          hour: "numeric",
+                          minute: "2-digit",
+                        })}
+                      </span>
+                      <span className="text-muted">
+                        Given by <b className="text-ink">{dose.administered_by_profile?.full_name ?? "staff"}</b>
+                        <span className="block">Witness: {dose.witness_profile?.full_name ?? "—"}</span>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </section>
 
           {pickupSecurityEvents.length > 0 && (

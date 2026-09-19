@@ -320,6 +320,41 @@ function TourBooked({ journey, busy, onCalendar, onDirections, onReschedule, onC
   );
 }
 
+function ApplicationReady({ journey, onApplication, onContact }) {
+  const submitted = Boolean(journey.application?.submitted_at);
+  const statuses = journey.application?.documents_status || {};
+  const statusOf = (key) => {
+    const raw = statuses[key];
+    return raw && typeof raw === 'object' ? raw.status : raw;
+  };
+  const requested = ['immunization', 'emergency_contacts', 'medical', 'handbook']
+    .filter((key) => statusOf(key) === 'requested').length;
+  return (
+    <View style={styles.centered}>
+      <View style={submitted ? styles.successIcon : styles.warmIcon}>
+        <Ionicons name={submitted ? 'checkmark' : 'document-text-outline'} size={34} color={submitted ? colors.success : colors.amber} />
+      </View>
+      <Text style={styles.titleCentered}>{submitted ? 'Application received' : 'Your application is ready'}</Text>
+      <Text style={styles.subtitleCentered}>
+        {submitted
+          ? `${journey.daycare?.name || 'The center'} has your family details${requested ? ` and is waiting for ${requested} requested ${requested === 1 ? 'item' : 'items'}` : ''}. You can reopen the application any time to update or add documents.`
+          : `Thanks for visiting ${journey.daycare?.name || 'the center'}. Complete the secure family application so the enrollment team can review the next step.`}
+      </Text>
+      <Progress active="Waitlist" />
+      <View style={[styles.card, styles.fullWidth]}>
+        <InfoRow label="Child" value={[journey.child?.first_name, journey.child?.last_name].filter(Boolean).join(' ') || 'Family application'} />
+        <InfoRow label="Program" value={journey.program?.name || 'To be confirmed'} />
+        <InfoRow label="Status" value={submitted ? 'Submitted for review' : 'Ready to complete'} last />
+      </View>
+      <PageAction label={submitted ? 'Review application & documents' : 'Start application'} onPress={onApplication} icon="document-text-outline" style={styles.fullWidth} />
+      <PageAction label="Message the center" onPress={onContact} secondary icon="chatbubble-outline" style={styles.fullWidth} />
+      <View style={[styles.infoCard, styles.fullWidth]}>
+        <Text style={styles.infoText}>Completing this application does not accept an offer or charge you. Agreement and payment appear only after the center offers a place.</Text>
+      </View>
+    </View>
+  );
+}
+
 function WaitlistPlace({ journey, onChangePlans, onOffer }) {
   const waitlist = journey.waitlist || {};
   const joined = waitlist.joined_at;
@@ -458,6 +493,7 @@ export default function ParentInquiryJourneyScreen() {
       && inquiry.journey.waitlist?.status === 'archived'
       && !inquiry.journey.waitlist?.joined_at
     ) return 'closed';
+    if (inquiry.journey.stage === 'application') return 'application';
     if (inquiry.journey.waitlist?.status === 'archived') return 'archived';
     if (inquiry.journey.waitlist?.checkin_due) return 'checkin';
     if (inquiry.journey.offer?.available || ['active', 'offer'].includes(inquiry.journey.waitlist?.status)) return 'waitlist';
@@ -581,6 +617,13 @@ export default function ParentInquiryJourneyScreen() {
     await inquiry.finishJourney();
   }
 
+  async function openApplication() {
+    // Keep the journey code while the application overlay is active. Closing
+    // the application returns the family to the tracker instead of losing the
+    // secure path they arrived on.
+    await offer.beginOffer(inquiry.code);
+  }
+
   if (inquiry.loading && !inquiry.center && !inquiry.journey) {
     return <SafeAreaView style={styles.safe}><View style={styles.loading}><ActivityIndicator size="large" color={colors.primary} /><Text style={styles.loadingText}>Loading enrollment journey…</Text></View></SafeAreaView>;
   }
@@ -611,6 +654,7 @@ export default function ParentInquiryJourneyScreen() {
           {visibleMode === 'received' ? <InquiryReceived journey={inquiry.journey} onBook={() => setMode('booking')} onContact={contact} /> : null}
           {visibleMode === 'booking' ? <TourBooking journey={inquiry.journey} selected={selectedSlot} setSelected={setSelectedSlot} busy={inquiry.busy} onConfirm={book} onBack={() => setMode(null)} onContact={contact} /> : null}
           {visibleMode === 'booked' ? <TourBooked journey={inquiry.journey} busy={inquiry.busy} onCalendar={calendar} onDirections={directions} onReschedule={() => setMode('booking')} onCancel={cancelTour} onContact={contact} /> : null}
+          {visibleMode === 'application' ? <ApplicationReady journey={inquiry.journey} onApplication={openApplication} onContact={contact} /> : null}
           {visibleMode === 'waitlist' ? <WaitlistPlace journey={inquiry.journey} onChangePlans={() => setMode('checkin-proactive')} onOffer={openOffer} /> : null}
           {visibleMode === 'checkin' || visibleMode === 'checkin-proactive' ? <WaitlistCheckin journey={inquiry.journey} busy={inquiry.busy} proactive={visibleMode === 'checkin-proactive'} onKeep={keepSpot} onRemove={removeSpot} onBack={() => setMode(null)} /> : null}
           {visibleMode === 'archived' ? <Archived journey={inquiry.journey} onContact={contact} onFinish={inquiry.finishJourney} /> : null}

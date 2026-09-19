@@ -6,7 +6,13 @@ import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
 
-export function SignInForm({ resetDone }: { resetDone: boolean }) {
+export function SignInForm({
+  resetDone,
+  destination,
+}: {
+  resetDone: boolean;
+  destination: string;
+}) {
   const [state, action, pending] = useActionState<ActionState, FormData>(
     signInAction,
     {},
@@ -18,6 +24,7 @@ export function SignInForm({ resetDone }: { resetDone: boolean }) {
 
   return (
     <form action={action} className="flex flex-col gap-[22px]">
+      <input type="hidden" name="next" value={destination} />
       {resetDone && (
         <Notice tone="success">
           <b>Password updated.</b> Sign in with your new password.

@@ -25,6 +25,11 @@ declare
   v_count integer;
   v_failed boolean;
 begin
+  perform pg_temp.impersonate('postgres');
+  update public.children
+     set archived_at = null,
+         enrolled_on = least(coalesce(enrolled_on, current_date), current_date)
+   where id = v_child;
   if (
     select count(*)
       from pg_publication_tables publication_table

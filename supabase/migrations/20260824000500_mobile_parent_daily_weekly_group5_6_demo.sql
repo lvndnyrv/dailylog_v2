@@ -28,6 +28,18 @@ begin
   for v_index in 0..4 loop
     v_day := v_previous_week + v_index;
 
+    -- Demo refreshes may land on a week containing a real center closure.
+    -- Keep the fixture aligned with the operational check-in guard and leave
+    -- that day empty in the family recap instead of manufacturing attendance.
+    if exists (
+      select 1
+      from public.center_closures closure
+      where closure.daycare_id = v_daycare
+        and v_day between closure.starts_on and closure.ends_on
+    ) then
+      continue;
+    end if;
+
     insert into public.attendance_records (
       daycare_id, child_id, date, checked_in_at, checked_in_by,
       checked_out_at, checked_out_by, method, status, notes

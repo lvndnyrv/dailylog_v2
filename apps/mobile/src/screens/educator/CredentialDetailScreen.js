@@ -54,7 +54,7 @@ function StatusBadge({ credential }) {
   );
 }
 
-function Timeline({ submission, credential, reviewerName }) {
+function Timeline({ submission, reviewerName }) {
   const isPending = submission?.status === 'pending';
   const isRejected = submission?.status === 'rejected';
   return (
@@ -112,8 +112,14 @@ function Timeline({ submission, credential, reviewerName }) {
           </View>
         </View>
         <View style={styles.timelineCopy}>
-          <Text style={styles.timelineTitle}>Reminder cleared</Text>
-          <Text style={styles.timelineMeta}>Credential marked valid to {formatDate(submission.expiresOn)}</Text>
+          <Text style={styles.timelineTitle}>
+            {isRejected ? 'Correction required' : 'Waiting to clear reminder'}
+          </Text>
+          <Text style={styles.timelineMeta}>
+            {isRejected
+              ? 'The reminder stays active until a corrected renewal is approved.'
+              : `Approval will clear the reminder and mark this credential valid to ${formatDate(submission.expiresOn)}.`}
+          </Text>
         </View>
       </View>
     </View>
@@ -204,9 +210,10 @@ export default function CredentialDetailScreen({ navigation, route }) {
         )}
 
         {submission && (pending || rejected) && (
-          <Timeline submission={submission} credential={credential} reviewerName={data?.reviewerName || 'your director'} />
+          <Timeline submission={submission} reviewerName={data?.reviewerName || 'your director'} />
         )}
 
+        <Text style={styles.sectionLabel}>CURRENT APPROVED CREDENTIAL</Text>
         <View style={styles.detailCard}>
           <View style={styles.detailRow}>
             <Text style={styles.detailLabel}>Issued by</Text>

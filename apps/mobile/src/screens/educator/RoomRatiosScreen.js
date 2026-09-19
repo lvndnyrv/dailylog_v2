@@ -15,6 +15,7 @@ import { useIsFocused } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useRoomRatios } from '../../hooks/useRoomRatios';
+import CoverageInvitations from '../../components/CoverageInvitations';
 import { colors, fonts, radius, spacing } from '../../theme';
 
 function initials(name) {
@@ -28,6 +29,8 @@ function initials(name) {
 }
 
 function RatioCard({ room, onAssign }) {
+  const combined = room.operating?.combination_id;
+  const hostedElsewhere = combined && room.operating.host_room_id !== room.id;
   const over = room.is_over_ratio;
   const occupancy = room.required_staff
     ? Math.min(room.staff_count / room.required_staff, 1)
@@ -39,11 +42,15 @@ function RatioCard({ room, onAssign }) {
         <Text style={styles.roomName}>{room.name}</Text>
         <View style={[styles.statusBadge, over ? styles.overBadge : styles.okBadge]}>
           <Text style={[styles.statusText, over ? styles.overText : styles.okText]}>
-            {over ? `Over by ${room.over_by}` : `OK · ${room.actual_children_per_staff}:1`}
+            {hostedElsewhere ? 'Combined' : over ? `Over by ${room.over_by}` : `OK · ${room.actual_children_per_staff}:1`}
           </Text>
         </View>
       </View>
-      <View style={styles.ratioRow}>
+      {combined && <Text style={styles.floaterNote}>
+        {hostedElsewhere ? `Children and staff are counted in ${room.operating.host_room_name}.` : `Combined group · stricter ratio 1:${room.max_children_per_staff}.`}
+        {' '}Until {room.operating.ends_at?.slice(0, 5)} (center time). Home rooms stay unchanged.
+      </Text>}
+      {!hostedElsewhere && <View style={styles.ratioRow}>
         <Text style={[styles.presentText, over && styles.presentTextOver]}>
           {room.present_count} {room.present_count === 1 ? 'child' : 'children'}
         </Text>
@@ -59,7 +66,7 @@ function RatioCard({ room, onAssign }) {
         <Text style={styles.staffText}>
           {room.staff_count} {room.staff_count === 1 ? 'staff' : 'staff'}
         </Text>
-      </View>
+      </View>}
       {over && (
         <TouchableOpacity
           style={styles.assignButton}
@@ -192,14 +199,47 @@ function FloaterSheet({ room, visible, onClose, loadFloaters, assignFloater }) {
 }
 
 export default function RoomRatiosScreen({ navigation, route }) {
-  const { rooms, loading, error, load, loadFloaters, assignFloater } = useRoomRatios();
+  const {
+    rooms,
+    loading,
+    error,
+    load,
+    loadFloaters,
+    assignFloater,
+    pendingNudge,
+    loadPendingNudge,
+    respondToNudge,
+    coverage,
+    coverageError,
+    respondToCoverage,
+  } = useRoomRatios();
   const [selectedRoom, setSelectedRoom] = useState(null);
+  const [replying, setReplying] = useState(null);
   const handledRoute = useRef(null);
   const isFocused = useIsFocused();
 
   useEffect(() => {
     if (isFocused) load({ quiet: rooms.length > 0 });
   }, [isFocused, load]);
+
+  useEffect(() => {
+    if (isFocused || route.params?.nudgeId) loadPendingNudge().catch(() => {});
+  }, [isFocused, loadPendingNudge, route.params?.nudgeId]);
+
+  async function replyToNudge(response) {
+    if (!pendingNudge || replying) return;
+    setReplying(response);
+    try {
+      await respondToNudge(pendingNudge.id, response);
+      if (response === 'send_help') {
+        Alert.alert('Front office notified', 'Your help request is now visible to the administrators.');
+      }
+    } catch (replyError) {
+      Alert.alert('Could not send reply', replyError.message);
+    } finally {
+      setReplying(null);
+    }
+  }
 
   useEffect(() => {
     if (!route.params?.openAssigner || !rooms.length) return;
@@ -236,6 +276,43 @@ export default function RoomRatiosScreen({ navigation, route }) {
           />
         )}
       >
+        <CoverageInvitations rows={coverage} error={coverageError} onRespond={respondToCoverage} onRetry={() => load()} />
+        {pendingNudge && (
+          <View style={styles.nudgeCard}>
+            <View style={styles.nudgeHeader}>
+              <View style={styles.nudgeAvatar}>
+                <Text style={styles.nudgeAvatarText}>{initials(pendingNudge.sender?.full_name || 'Front office')}</Text>
+              </View>
+              <View style={styles.nudgeHeadingCopy}>
+                <Text style={styles.nudgeEyebrow}>FRONT OFFICE · JUST NOW</Text>
+                <Text style={styles.nudgeSender}>{pendingNudge.sender?.full_name || 'Front office'}</Text>
+              </View>
+            </View>
+            <Text style={styles.nudgeMessage}>{pendingNudge.message}</Text>
+            <View style={styles.nudgeActions}>
+              {[
+                ['all_good', 'All good — at the park'],
+                ['will_log', 'Will log now'],
+                ['send_help', 'Send help'],
+              ].map(([value, label]) => (
+                <TouchableOpacity
+                  key={value}
+                  style={[styles.nudgeReply, value === 'send_help' && styles.nudgeReplyUrgent]}
+                  onPress={() => replyToNudge(value)}
+                  disabled={Boolean(replying)}
+                  accessibilityRole="button"
+                >
+                  {replying === value ? (
+                    <ActivityIndicator size="small" color={value === 'send_help' ? colors.coral : colors.primary} />
+                  ) : (
+                    <Text style={[styles.nudgeReplyText, value === 'send_help' && styles.nudgeReplyUrgentText]}>{label}</Text>
+                  )}
+                </TouchableOpacity>
+              ))}
+            </View>
+            <Text style={styles.nudgePrivacy}>Private check-in · families do not see this</Text>
+          </View>
+        )}
         {loading && !rooms.length ? (
           <ActivityIndicator style={styles.loader} size="large" color={colors.primary} />
         ) : error ? (
@@ -289,6 +366,42 @@ const styles = StyleSheet.create({
   },
   pageTitle: { fontSize: 21, fontFamily: fonts.black, color: colors.textPrimary },
   content: { paddingHorizontal: spacing.xxl, paddingBottom: spacing.xxxl, gap: spacing.md },
+  nudgeCard: {
+    gap: spacing.md,
+    padding: spacing.lg,
+    borderWidth: 1.5,
+    borderColor: colors.primary,
+    borderRadius: radius.xl,
+    backgroundColor: colors.primarySoft,
+  },
+  nudgeHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  nudgeAvatar: {
+    width: 36,
+    height: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 18,
+    backgroundColor: colors.primary,
+  },
+  nudgeAvatarText: { fontSize: 11, fontFamily: fonts.bold, color: colors.white },
+  nudgeHeadingCopy: { flex: 1 },
+  nudgeEyebrow: { fontSize: 9.5, fontFamily: fonts.bold, color: colors.textFaint, letterSpacing: 1 },
+  nudgeSender: { marginTop: 2, fontSize: 14, fontFamily: fonts.black, color: colors.textPrimary },
+  nudgeMessage: { fontSize: 14, lineHeight: 21, fontFamily: fonts.regular, color: colors.textPrimary },
+  nudgeActions: { gap: spacing.sm },
+  nudgeReply: {
+    minHeight: 42,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: colors.primary,
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
+  },
+  nudgeReplyText: { fontSize: 13, fontFamily: fonts.bold, color: colors.primary },
+  nudgeReplyUrgent: { borderColor: colors.coral, backgroundColor: '#FFF5F2' },
+  nudgeReplyUrgentText: { color: colors.coral },
+  nudgePrivacy: { fontSize: 10.5, fontFamily: fonts.regular, color: colors.textFaint, textAlign: 'center' },
   loader: { marginTop: 80 },
   roomCard: {
     gap: spacing.md,

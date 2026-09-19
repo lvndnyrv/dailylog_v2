@@ -34,6 +34,12 @@ begin
   raise notice 'PASS: parent family changes are published to Realtime';
 
   perform pg_temp.impersonate('postgres');
+  -- Keep the fixture independent from prior manual/E2E alumni actions against
+  -- the shared seed child. The transaction rollback restores the live row.
+  update public.children
+     set archived_at = null
+   where id = v_child;
+
   update public.enrollments
      set guardian_email = v_email,
          offer_code = v_code,

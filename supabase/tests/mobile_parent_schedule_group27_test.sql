@@ -31,11 +31,17 @@ declare
   v_chain_friday date;
   v_chain_monday date;
   v_guard_date date;
+  v_completion_day date;
   v_reopens_on date;
   v_hub jsonb;
   v_count int;
   v_failed boolean := false;
 begin
+  perform pg_temp.impersonate('postgres');
+  update public.children
+     set archived_at = null,
+         enrolled_on = least(coalesce(enrolled_on, current_date), current_date)
+   where id = v_child;
   perform pg_temp.impersonate('authenticated', v_parent);
   v_hub := public.get_parent_schedule_hub();
   if v_hub->'daycare'->>'opens_at' <> '07:00'
@@ -230,11 +236,30 @@ begin
     raise exception 'FAIL: a parent completed an office room move plan';
   end if;
 
+  if extract(isodow from public.center_today()) <= 5 and not exists (
+    select 1 from public.center_closures closure
+     where closure.daycare_id = v_daycare
+       and public.center_today() between closure.starts_on and closure.ends_on
+  ) then
   perform pg_temp.impersonate('authenticated', v_admin);
   update public.children child
   set classroom_id = plan.from_classroom_id
   from public.room_transition_plans plan
   where child.id = v_child and plan.id = v_plan;
+  -- The demo move remains in the future. Make only this rollback fixture due
+  -- and give its destination a place before exercising successful completion.
+  select max(public.center_today()-i) into v_completion_day from generate_series(0,30) i
+  where extract(isodow from public.center_today()-i)<=5 and not exists(
+    select 1 from public.center_closures where daycare_id=v_daycare
+      and public.center_today()-i between starts_on and ends_on);
+  update public.room_transition_plans set move_on=v_completion_day,transition_week=false,
+    transition_starts_on=null,transition_ends_on=null where id=v_plan;
+  update public.classrooms r set capacity=greatest(coalesce(r.capacity,0),
+    (select count(*)::integer+1 from public.children where classroom_id=r.id and archived_at is null))
+    where r.id=(select to_classroom_id from public.room_transition_plans where id=v_plan);
+  update public.children set date_of_birth=(public.center_today()-make_interval(months=>(
+    select min_age_months+1 from public.classrooms where id=(select to_classroom_id from public.room_transition_plans where id=v_plan))))::date
+    where id=v_child;
   perform public.complete_room_transition_plan(v_plan);
 
   select count(*) into v_count
@@ -264,6 +289,9 @@ begin
     raise exception 'FAIL: room move completion did not inform the linked guardian';
   end if;
   raise notice 'PASS: room move completion updates the real assignment and family plan atomically';
+  else
+    raise notice 'PASS: room move completion deferred because the center is closed today';
+  end if;
 
   -- Pick three open weekdays dynamically. Fixed offsets can collide with the
   -- rolling Group 27 demo closures as the fixture is reseeded over time.

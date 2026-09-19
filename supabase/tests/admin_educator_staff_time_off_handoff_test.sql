@@ -10,7 +10,10 @@ begin
   perform set_config('role', p_role, true);
   perform set_config(
     'request.jwt.claims',
-    json_build_object('sub', p_user_id, 'role', p_role)::text,
+    json_build_object(
+      'sub', p_user_id,
+      'role', case when p_role = 'postgres' then 'service_role' else p_role end
+    )::text,
     true
   );
 end;
@@ -20,11 +23,27 @@ do $$
 declare
   v_owner uuid := '00000000-0000-4000-a000-000000000001';
   v_educator uuid := '00000000-0000-4000-a000-000000000003';
+  v_restricted uuid := '00000000-0000-4000-a000-000000000008';
   v_request uuid;
+  v_daycare uuid;
+  v_role uuid;
   v_starts_on date := public.center_today() + 45;
   v_ends_on date := public.center_today() + 46;
   v_count integer;
 begin
+  perform pg_temp.impersonate('postgres');
+  select daycare_id into v_daycare from public.profiles where id = v_owner;
+  insert into public.center_roles (daycare_id, name, base_role, permissions)
+  values (
+    v_daycare,
+    'Rollback-only no time-off approval',
+    'admin',
+    '{"staff":{"view":true,"edit":false,"approve":false}}'
+  ) returning id into v_role;
+  update public.profiles
+     set role = 'admin', center_role_id = v_role, archived_at = null
+   where id = v_restricted;
+
   perform pg_temp.impersonate('authenticated', v_educator);
   v_request := public.request_time_off(
     v_starts_on,
@@ -53,6 +72,15 @@ begin
        and notification.payload ->> 'href' = '/staff?tab=time-off'
   ) then
     raise exception 'FAIL: owner did not receive a routable time-off alert';
+  end if;
+  if exists (
+    select 1
+      from public.notifications notification
+     where notification.profile_id = v_restricted
+       and notification.kind = 'time_off_request'
+       and notification.payload ->> 'requestId' = v_request::text
+  ) then
+    raise exception 'FAIL: restricted admin received an unusable time-off review alert';
   end if;
 
   perform pg_temp.impersonate('authenticated', v_educator);

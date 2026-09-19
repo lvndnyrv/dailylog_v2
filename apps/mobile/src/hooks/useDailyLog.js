@@ -11,8 +11,13 @@ import { format, subDays } from 'date-fns';
  * @param {boolean} options.createIfMissing  Create the log row when absent
  *                                           (educators only — parents must pass false).
  * @param {string}  options.educatorId       Attributed author for created logs.
+ * @param {string}  options.daycareId        Tenant recorded on created logs.
  */
-export function useDailyLog(childId, date = new Date(), { createIfMissing = false, educatorId = null } = {}) {
+export function useDailyLog(childId, date = new Date(), {
+  createIfMissing = false,
+  educatorId = null,
+  daycareId = null,
+} = {}) {
   const dateStr = format(date, 'yyyy-MM-dd');
   const [log, setLog] = useState(null);
   const [meals, setMeals] = useState([]);
@@ -73,8 +78,15 @@ export function useDailyLog(childId, date = new Date(), { createIfMissing = fals
       if (selectError) throw selectError;
 
       if (!data && createIfMissing) {
-        const insert = { child_id: childId, log_date: dateStr };
-        if (educatorId) insert.educator_id = educatorId;
+        if (!educatorId || !daycareId) {
+          throw new Error('Your educator account is still loading. Please try again.');
+        }
+        const insert = {
+          child_id: childId,
+          daycare_id: daycareId,
+          educator_id: educatorId,
+          log_date: dateStr,
+        };
 
         const { error: insertError } = await supabase
           .from('daily_logs')
@@ -99,7 +111,7 @@ export function useDailyLog(childId, date = new Date(), { createIfMissing = fals
     } finally {
       setLoading(false);
     }
-  }, [childId, clearEntries, createIfMissing, dateStr, educatorId, fetchAllEntries]);
+  }, [childId, clearEntries, createIfMissing, dateStr, daycareId, educatorId, fetchAllEntries]);
 
   useEffect(() => { getOrCreateLog(); }, [getOrCreateLog]);
 
@@ -246,10 +258,9 @@ export function useDailyLog(childId, date = new Date(), { createIfMissing = fals
   async function sendToParents() {
     if (!log) return { error: { message: 'No log to send' } };
 
-    // Check network connectivity
-    const { error } = await supabase.from('daily_logs')
-      .update({ sent_to_parents: true, sent_at: new Date().toISOString() })
-      .eq('id', log.id);
+    const { data, error } = await supabase.rpc('publish_daily_log', {
+      p_daily_log_id: log.id,
+    });
 
     if (error) {
       // If it's a network/fetch error, treat as offline
@@ -259,7 +270,11 @@ export function useDailyLog(childId, date = new Date(), { createIfMissing = fals
       return { error };
     }
 
-    setLog(prev => ({ ...prev, sent_to_parents: true }));
+    setLog(prev => ({
+      ...prev,
+      sent_to_parents: true,
+      sent_at: data?.sentAt || prev.sent_at,
+    }));
     return { error: null, offline: false };
   }
 

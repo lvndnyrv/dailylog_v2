@@ -362,23 +362,35 @@ const DOCUMENT_TYPES = [
   { kind: 'custody', title: 'Custody document', required: false, icon: 'people-outline' },
 ];
 
-function DocumentsStep({ offer, busy, uploadBusy, onUpload, onContinue }) {
+function requirementFor(offer, kind) {
+  const raw = offer.documents_status?.[kind];
+  if (raw && typeof raw === 'object') return raw;
+  return { status: typeof raw === 'string' ? raw : 'missing' };
+}
+
+function DocumentsStep({ offer, busy, uploadBusy, onUpload, onContinue, preOffer = false }) {
   const documents = new Map((offer.documents || []).map((item) => [item.kind, item]));
   return (
     <View>
       <Text style={styles.eyebrow}>DOCUMENTS · STEP 2 OF 3</Text>
       <Text style={styles.title}>Add enrollment documents</Text>
-      <Text style={styles.subtitle}>PDF, JPG or PNG · up to 10 MB each. You can finish missing documents later.</Text>
+      <Text style={styles.subtitle}>PDF, JPG or PNG · up to 10 MB each. Requested records are highlighted and you can finish other missing documents later.</Text>
       <EnrollmentProgress step={2} label="Required documents" />
       {DOCUMENT_TYPES.map((item) => {
         const document = documents.get(item.kind);
+        const requirement = requirementFor(offer, item.kind);
+        const requested = requirement.status === 'requested';
         const isUploading = uploadBusy === item.kind;
         return (
-          <Card key={item.kind} style={styles.documentCard}>
+          <Card key={item.kind} style={[styles.documentCard, requested && styles.documentCardRequested]}>
             <View style={styles.documentIcon}><Ionicons name={item.icon} size={23} color={colors.primary} /></View>
             <View style={styles.flexOne}>
               <Text style={styles.cardTitle}>{item.title}</Text>
-              <Text style={styles.cardSub}>{item.required ? 'Required before the first day' : 'Optional · only if applicable'}</Text>
+              <Text style={[styles.cardSub, requested && styles.requestedDocumentText]}>
+                {requested
+                  ? `Requested by the office${requirement.due_on ? ` · due ${prettyDate(requirement.due_on)}` : ''}`
+                  : item.required ? 'Required before the first day' : 'Optional · only if applicable'}
+              </Text>
               {document ? (
                 <Text
                   style={[
@@ -407,7 +419,8 @@ function DocumentsStep({ offer, busy, uploadBusy, onUpload, onContinue }) {
           <Text style={styles.noticeText}>Files are private and visible only to authorized center administrators.</Text>
         </View>
       </Card>
-      <Button label="Continue to agreement" onPress={onContinue} loading={busy} disabled={Boolean(uploadBusy)} style={styles.fullButton} />
+      <Button label={preOffer ? 'Finish application' : 'Continue to agreement'} onPress={onContinue} loading={busy} disabled={Boolean(uploadBusy)} style={styles.fullButton} />
+      {preOffer ? <Text style={styles.documentFinishHint}>The center reviews this first. Agreement and payment come later only if a place is offered.</Text> : null}
     </View>
   );
 }
@@ -738,6 +751,7 @@ export default function EnrollmentOfferScreen() {
   const scrollRef = useRef(null);
 
   const expired = offer?.offer_status === 'expired' || offer?.offer_status === 'withdrawn';
+  const preOfferApplication = Boolean(offer?.pre_offer_application);
   const currentStep = offer?.offer_status === 'declined' ? 'declined' : step;
 
   useEffect(() => {
@@ -802,6 +816,10 @@ export default function EnrollmentOfferScreen() {
       setHistory((items) => items.slice(0, -1));
       return;
     }
+    if (preOfferApplication && step === 'application') {
+      finishOffer();
+      return;
+    }
     const previous = {
       details: 'offer',
       application: 'details',
@@ -857,14 +875,17 @@ export default function EnrollmentOfferScreen() {
         upsert: false,
       });
       if (uploadError) throw uploadError;
-      const { data, error: saveError } = await supabase.rpc('save_parent_enrollment_document', {
+      const { data, error: saveError } = await supabase.rpc(
+        preOfferApplication ? 'save_parent_inquiry_document' : 'save_parent_enrollment_document',
+        {
         p_code: code,
         p_kind: kind,
         p_file_name: asset.name,
         p_mime_type: mimeType,
         p_file_size: asset.size || bytes.byteLength,
         p_storage_path: path,
-      });
+        },
+      );
       if (saveError) throw saveError;
       if (data?.replaced_storage_path) {
         const { error: cleanupError } = await supabase.functions.invoke(
@@ -901,6 +922,11 @@ export default function EnrollmentOfferScreen() {
   async function refreshOffer() {
     const data = await runRpc('get_parent_enrollment_offer', { p_code: code });
     if (data?.workflow_step) setStep(data.workflow_step);
+  }
+
+  async function finishPreOfferApplication() {
+    const data = await runRpc('complete_parent_inquiry_application', { p_code: code });
+    if (data) await finishOffer();
   }
 
   async function linkAccount() {
@@ -956,12 +982,12 @@ export default function EnrollmentOfferScreen() {
     if (currentStep === 'declined') return <DeclinedStep offer={offer} busy={busy} onReopen={() => runRpc('reopen_parent_enrollment_offer', { p_code: code })} onMessage={messageCenter} />;
     if (currentStep === 'offer') return <OfferLanding offer={offer} busy={busy} onReview={() => runRpc('review_parent_enrollment_offer', { p_code: code }, 'details')} onDecline={() => setShowDecline(true)} onMessage={messageCenter} />;
     if (currentStep === 'details') return <OfferDetails offer={offer} busy={busy} onAccept={() => runRpc('accept_parent_enrollment_offer', { p_code: code }, 'application')} onPolicies={() => setShowPolicies(true)} />;
-    if (currentStep === 'application') return <ApplicationStep offer={offer} busy={busy} onSubmit={(application) => runRpc('save_parent_enrollment_application', { p_code: code, p_application: application }, 'documents')} />;
-    if (currentStep === 'documents') return <DocumentsStep offer={offer} busy={busy} uploadBusy={uploadBusy} onUpload={uploadDocument} onContinue={() => runRpc('continue_parent_enrollment_documents', { p_code: code }, 'agreement')} />;
+    if (currentStep === 'application') return <ApplicationStep offer={offer} busy={busy} onSubmit={(application) => runRpc(preOfferApplication ? 'save_parent_inquiry_application' : 'save_parent_enrollment_application', { p_code: code, p_application: application }, 'documents')} />;
+    if (currentStep === 'documents') return <DocumentsStep offer={offer} busy={busy} uploadBusy={uploadBusy} onUpload={uploadDocument} preOffer={preOfferApplication} onContinue={preOfferApplication ? finishPreOfferApplication : () => runRpc('continue_parent_enrollment_documents', { p_code: code }, 'agreement')} />;
     if (currentStep === 'agreement') return <AgreementStep offer={offer} busy={busy} onAgreementDocument={openAgreementDocument} onSign={(values) => runRpc('sign_parent_enrollment_agreement', { p_code: code, p_signature_name: values.signature, p_acknowledge_tuition: values.tuition, p_acknowledge_policies: values.policies, p_photo_consent: values.photo }, 'deposit')} />;
     if (currentStep === 'deposit') return <DepositStep offer={offer} busy={busy} includeFirstMonth={includeFirstMonth} setIncludeFirstMonth={setIncludeFirstMonth} onPay={() => runRpc('complete_demo_parent_enrollment_deposit', { p_code: code, p_include_first_month: includeFirstMonth })} onMessage={messageCenter} onRefresh={refreshOffer} />;
     return <SuccessStep offer={offer} busy={busy} user={user} onLink={linkAccount} onCreate={createAccount} onSignIn={signInAccount} onFinish={finishOffer} onUseAnotherAccount={signOut} />;
-  }, [busy, code, currentStep, includeFirstMonth, offer, uploadBusy, user]);
+  }, [busy, code, currentStep, includeFirstMonth, offer, preOfferApplication, uploadBusy, user]);
 
   if (loading) return <View style={styles.loading}><ActivityIndicator size="large" color={colors.primary} /><Text style={styles.loadingText}>Opening your secure offer…</Text></View>;
   if (verifyEmail) return (
@@ -1081,6 +1107,9 @@ const styles = StyleSheet.create({
   addRowText: { color: colors.primary, fontFamily: fonts.bold, fontSize: 14 },
   errorText: { color: colors.danger, fontFamily: fonts.bold, fontSize: 13, lineHeight: 19, marginVertical: spacing.sm },
   documentCard: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  documentCardRequested: { backgroundColor: colors.amberLight, borderColor: '#EFD9B5' },
+  requestedDocumentText: { color: colors.amber },
+  documentFinishHint: { color: colors.textFaint, fontFamily: fonts.regular, fontSize: 12, lineHeight: 18, textAlign: 'center', marginTop: spacing.sm },
   documentIcon: { width: 43, height: 43, borderRadius: 22, backgroundColor: colors.primaryLight, alignItems: 'center', justifyContent: 'center' },
   fileName: { color: colors.success, fontFamily: fonts.bold, fontSize: 12, marginTop: spacing.xs },
   fileVerified: { color: colors.success },

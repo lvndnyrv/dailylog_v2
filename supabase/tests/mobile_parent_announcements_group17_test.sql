@@ -31,6 +31,15 @@ declare
   v_result jsonb;
   v_failed boolean := false;
 begin
+  perform pg_temp.as_postgres();
+  update public.children
+     set archived_at = null,
+         enrolled_on = least(coalesce(enrolled_on, current_date), current_date)
+   where id = v_child;
+  update public.announcements
+     set event_at = now() + interval '7 days',
+         event_ends_at = now() + interval '7 days 3 hours'
+   where id = v_event;
   if (
     select count(*)
       from pg_publication_tables publication_table

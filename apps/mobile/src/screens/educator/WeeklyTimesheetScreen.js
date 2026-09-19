@@ -55,10 +55,21 @@ function rowSummary(row, now) {
       (total, entry) => total + entryMinutes(entry, now),
       0,
     );
+    const rejected = row.dayEntries.find(entry => entry.status === 'rejected');
+    const reviewLabel = rejected
+      ? 'Needs correction'
+      : row.dayEntries.every(entry => entry.status === 'approved')
+        ? 'Approved'
+        : row.dayEntries.some(entry => entry.status === 'submitted')
+          ? 'Awaiting approval'
+          : null;
     return {
       middle: `${format(new Date(first.clocked_in_at), 'h:mm')} – ${end}`,
       value: formatMinutes(minutes),
       active: row.dayEntries.some(entry => !entry.clocked_out_at),
+      reviewLabel,
+      reviewNote: rejected?.notes || null,
+      reviewTone: rejected ? 'danger' : reviewLabel === 'Approved' ? 'success' : 'amber',
     };
   }
 
@@ -111,12 +122,29 @@ export default function WeeklyTimesheetScreen({ navigation }) {
                   style={[styles.dayRow, index < rows.length - 1 && styles.dayBorder]}
                 >
                   <Text style={styles.dayName}>{format(row.date, 'EEE MMM d')}</Text>
-                  <Text style={[
-                    styles.dayTime,
-                    (summary.scheduled || summary.muted) && styles.mutedText,
-                  ]}>
-                    {summary.middle}
-                  </Text>
+                  <View style={styles.dayTimeBlock}>
+                    <Text style={[
+                      styles.dayTime,
+                      (summary.scheduled || summary.muted) && styles.mutedText,
+                    ]}>
+                      {summary.middle}
+                    </Text>
+                    {summary.reviewLabel ? (
+                      <Text
+                        numberOfLines={2}
+                        style={[
+                          styles.reviewStatus,
+                          summary.reviewTone === 'danger'
+                            ? styles.reviewDanger
+                            : summary.reviewTone === 'success'
+                              ? styles.reviewSuccess
+                              : styles.reviewAmber,
+                        ]}
+                      >
+                        {summary.reviewLabel}{summary.reviewNote ? ` · ${summary.reviewNote}` : ''}
+                      </Text>
+                    ) : null}
+                  </View>
                   <Text style={[
                     styles.dayTotal,
                     summary.active && styles.activeText,
@@ -204,11 +232,15 @@ const styles = StyleSheet.create({
     fontSize: 13.5,
   },
   dayTime: {
-    flex: 1,
     color: colors.textSecondary,
     fontFamily: fonts.regular,
     fontSize: 13,
   },
+  dayTimeBlock: { flex: 1, gap: 3 },
+  reviewStatus: { fontFamily: fonts.bold, fontSize: 11.5, lineHeight: 15 },
+  reviewDanger: { color: colors.danger },
+  reviewSuccess: { color: colors.success },
+  reviewAmber: { color: colors.amber },
   dayTotal: {
     width: 58,
     textAlign: 'right',

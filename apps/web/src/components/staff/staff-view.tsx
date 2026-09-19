@@ -83,6 +83,7 @@ export function StaffView({
   initialTab,
   canManageDelegations,
   currentProfileId,
+  defaultDelegationDays,
 }: {
   staff: StaffRow[];
   invites: PendingStaffInvite[];
@@ -100,6 +101,7 @@ export function StaffView({
   initialTab: Tab;
   canManageDelegations: boolean;
   currentProfileId: string;
+  defaultDelegationDays: number;
 }) {
   const [tab, setTab] = useState<Tab>(initialTab);
   const [roomFilter, setRoomFilter] = useState<string | null>(null);
@@ -375,7 +377,12 @@ export function StaffView({
 
         {tab === "roles" && <RolesLibrary roles={roles} />}
         {tab === "delegations" && (
-          <StaffDelegations delegations={delegations} staff={staff} timeZone={timeZone} />
+          <StaffDelegations
+            delegations={delegations}
+            staff={staff}
+            timeZone={timeZone}
+            defaultDelegationDays={defaultDelegationDays}
+          />
         )}
         {(tab === "timesheets" || tab === "time-off") && (
           <StaffTimekeeping

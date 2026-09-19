@@ -13,8 +13,31 @@ declare
   v_hub jsonb;
   v_failed boolean := false;
   v_updated integer;
+  v_today date;
 begin
   begin
+  -- Keep the expiring credential assertion independent of when the long-lived
+  -- demo project was last seeded. The enclosing subtransaction rolls this back.
+  perform set_config('role', 'postgres', true);
+  select (now() at time zone coalesce(daycare.timezone, 'UTC'))::date
+    into v_today
+    from public.profiles profile
+    join public.daycares daycare on daycare.id = profile.daycare_id
+   where profile.id = v_maria;
+  update public.staff_credentials
+     set expires_on = v_today + 12
+   where id = '62400000-0000-4000-a000-000000000001';
+  update public.documents
+     set expires_on = v_today + 1095
+   where id = '62410000-0000-4000-a000-000000000002';
+  update public.staff_credential_submissions
+     set completed_on = v_today - 1,
+         expires_on = v_today + 1095,
+         status = 'pending',
+         review_notes = null,
+         reviewed_by = null,
+         reviewed_at = null
+   where id = v_pending;
   perform set_config('role', 'authenticated', true);
   perform set_config(
     'request.jwt.claims',
@@ -98,7 +121,7 @@ begin
   if not exists (
     select 1 from public.staff_credentials credential
      where credential.id = v_food
-       and credential.expires_on = public.center_today() + 1095
+       and credential.expires_on = v_today + 1095
        and credential.document_id = '62410000-0000-4000-a000-000000000002'
   ) then
     raise exception 'FAIL: approval did not promote renewal details to the credential';
@@ -132,7 +155,7 @@ begin
   raise notice 'PASS: director approval promotes the renewal, syncs admin data and notifies the educator';
 
   update public.staff_credentials
-     set expires_on = public.center_today() + 14
+     set expires_on = v_today + 14
    where id = '62400000-0000-4000-a000-000000000001';
   perform set_config('role', 'service_role', true);
   perform set_config(

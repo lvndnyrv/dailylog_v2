@@ -294,11 +294,10 @@ export default function ParentHomeScreen({ navigation, route }) {
     if (requestedChildId && children.some((child) => child.id === requestedChildId)) {
       family.selectChild(requestedChildId);
     }
+  }, [children, family.selectChild, route.params?.childId]);
+
+  useEffect(() => {
     const requestedDate = route.params?.logDate;
-    if (!requestedDate) {
-      setSelectedDate((currentDate) => (isToday(currentDate) ? currentDate : new Date()));
-      return;
-    }
     if (requestedDate && /^\d{4}-\d{2}-\d{2}$/.test(requestedDate)) {
       const parsed = new Date(`${requestedDate}T12:00:00`);
       if (!Number.isNaN(parsed.getTime()) && parsed <= new Date()) {
@@ -307,7 +306,7 @@ export default function ParentHomeScreen({ navigation, route }) {
         ));
       }
     }
-  }, [children, family.selectChild, route.params?.childId, route.params?.logDate]);
+  }, [route.params?.logDate]);
 
   const fetchIncidents = useCallback(async () => {
     if (!selectedChild?.id) { setPendingIncidents([]); return; }
@@ -502,7 +501,7 @@ export default function ParentHomeScreen({ navigation, route }) {
       <View style={styles.pageHeader}>
         <View>
           <Text style={styles.pageEyebrow}>FAMILY DAILY LOG</Text>
-          <Text style={styles.pageTitle}>Today</Text>
+          <Text style={styles.pageTitle}>{today ? 'Today' : format(selectedDate, 'EEEE')}</Text>
         </View>
         <TouchableOpacity
           style={styles.notificationButton}

@@ -21,21 +21,28 @@ declare
   v_educator constant uuid := '00000000-0000-4000-a000-000000000003';
   v_witness constant uuid := '00000000-0000-4000-a000-000000000001';
   v_child constant uuid := '30000000-0000-4000-a000-000000000013';
-  v_seed_auth constant uuid := '52300000-0000-4000-a000-000000000001';
+  v_active constant uuid := '52390000-0000-4000-a000-000000000014';
   v_log constant uuid := '52390000-0000-4000-a000-000000000013';
   v_prior constant uuid := '52390000-0000-4000-a000-000000000011';
   v_renewal constant uuid := '52390000-0000-4000-a000-000000000012';
   v_prior_path text := v_child::text || '/' || v_parent::text || '/group23-prior-label.jpg';
   v_renewal_path text := v_child::text || '/' || v_parent::text || '/group23-renewal-label.jpg';
+  v_active_path text := v_child::text || '/' || v_parent::text || '/group23-active-label.jpg';
   v_failed boolean := false;
   v_rows int;
 begin
   perform pg_temp.impersonate('postgres');
+  update public.children
+     set archived_at = null,
+         enrolled_on = least(coalesce(enrolled_on, public.center_today()), public.center_today())
+   where id = v_child;
   insert into storage.objects (bucket_id, name, owner, owner_id, metadata)
   values
     ('medication-labels', v_prior_path, v_parent, v_parent::text,
       jsonb_build_object('mimetype', 'image/jpeg', 'size', 2048, 'test', 'original')),
     ('medication-labels', v_renewal_path, v_parent, v_parent::text,
+      jsonb_build_object('mimetype', 'image/jpeg', 'size', 2048)),
+    ('medication-labels', v_active_path, v_parent, v_parent::text,
       jsonb_build_object('mimetype', 'image/jpeg', 'size', 2048));
 
   perform pg_temp.impersonate('authenticated', v_parent);
@@ -47,7 +54,19 @@ begin
   ) values (
     v_prior, v_daycare, v_child, v_parent, 'Group 23 renewal source',
     '5 ml', 'Oral', 'prescription', 'scheduled', array[time '12:30'],
-    'Give with food', current_date, current_date + 2, v_prior_path,
+    'Give with food', public.center_today(), public.center_today() + 2, v_prior_path,
+    'Lucia Castillo', now(), now(), '2026-08-09'
+  );
+
+  insert into public.medication_authorizations (
+    id, daycare_id, child_id, parent_id, name, dosage, route,
+    medication_type, schedule_type, scheduled_times, schedule,
+    start_date, end_date, label_photo_path, signed_name, signed_at,
+    consented_at, authorization_version
+  ) values (
+    v_active, v_daycare, v_child, v_parent, 'Group 23 operational dose',
+    '5 ml', 'Oral', 'prescription', 'scheduled', array[time '12:30'],
+    'Give with food', public.center_today(), public.center_today() + 10, v_active_path,
     'Lucia Castillo', now(), now(), '2026-08-09'
   );
 
@@ -61,7 +80,7 @@ begin
     ) values (
       v_daycare, v_child, v_parent, 'Overlapping renewal', '5 ml', 'Oral',
       'prescription', 'scheduled', array[time '12:30'], 'Give with food',
-      current_date + 2, current_date + 8, v_renewal_path,
+      public.center_today() + 2, public.center_today() + 8, v_renewal_path,
       'Lucia Castillo', now(), now(), '2026-08-09', v_prior
     );
   exception when others then
@@ -79,13 +98,13 @@ begin
   ) values (
     v_renewal, v_daycare, v_child, v_parent, 'Group 23 valid renewal',
     '5 ml', 'Oral', 'prescription', 'scheduled', array[time '12:30'],
-    'Give with food', current_date + 3, current_date + 10, v_renewal_path,
+    'Give with food', public.center_today() + 3, public.center_today() + 10, v_renewal_path,
     'Lucia Castillo', now(), now(), '2026-08-09', v_prior
   );
   raise notice 'PASS: renewal chain is explicit and active periods cannot overlap';
 
   update public.medication_authorizations
-  set active = false, end_date = current_date
+  set active = false, end_date = public.center_today()
   where id = v_prior;
   if not exists (
     select 1 from public.medication_authorizations
@@ -120,12 +139,22 @@ begin
   end if;
   raise notice 'PASS: signed label photo evidence is immutable';
 
+  if not exists (
+    select 1 from public.medication_authorizations
+     where id = v_active and active
+       and start_date <= public.center_today()
+       and end_date >= public.center_today()
+  ) then
+    raise exception 'FAIL: rollback-only operational authorization became inactive: %',
+      (select to_jsonb(auth_row) from public.medication_authorizations auth_row where id = v_active);
+  end if;
+
   perform pg_temp.impersonate('authenticated', v_educator);
   insert into public.medication_logs (
     id, daycare_id, authorization_id, child_id, administered_by,
     witness_id, dosage_given, route_given, safety_checks, notes
   ) values (
-    v_log, v_daycare, v_seed_auth, v_child, v_educator, v_witness,
+    v_log, v_daycare, v_active, v_child, v_educator, v_witness,
     '5 ml', 'Oral',
     '{"right_child":true,"right_medication":true,"right_dose":true,"right_route":true,"right_time":true}'::jsonb,
     'Group 23 priority test'

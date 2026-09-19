@@ -4,7 +4,7 @@ import {
   Alert, Linking, Modal, KeyboardAvoidingView, Platform
 } from 'react-native';
 import { useIsFocused } from '@react-navigation/native';
-import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
+import { KeyboardAwareScrollView } from '../../components/KeyboardAwareScrollView';
 
 import { useAuth } from '../../hooks/useAuth';
 import { useClassroom } from '../../hooks/useClassroom';

@@ -4,7 +4,6 @@ import {
   Bell,
   Megaphone,
   ReceiptText,
-  Search,
   TriangleAlert,
   UserPlus,
   UserRound,
@@ -14,6 +13,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { NotificationTray } from "@/components/notifications/notification-tray";
 import { useNotificationCenter } from "@/components/notifications/notification-center";
+import { GlobalSearch } from "@/components/shell/global-search";
 
 // Per-section header: title/subtitle, search, "+ New" create menu (18b), bell
 // (15a — empty tray stub in Phase 1). Location switcher 18d hidden (single
@@ -73,17 +73,20 @@ export function SectionHeader({
       <span className="flex-1" />
 
       {showUtilities && showSearch && (
-        <label className="flex w-[190px] items-center gap-2 rounded-full border-[1.5px] border-[#D6E1F0] bg-canvas px-3.5 py-[9px]">
-          <Search size={13} strokeWidth={1.8} className="text-faint" aria-hidden />
-          <input
-            type="search"
-            placeholder={searchPlaceholder}
-            value={searchValue}
-            onChange={onSearchChange ? (event) => onSearchChange(event.target.value) : undefined}
-            className="w-full bg-transparent text-[12.5px] text-ink outline-none placeholder:text-faint"
-            aria-label={`Search ${title.toLowerCase()}`}
-          />
-        </label>
+        onSearchChange ? (
+          <label className="flex w-[250px] items-center gap-2 rounded-full border-[1.5px] border-[#D6E1F0] bg-canvas px-3.5 py-[9px]">
+            <input
+              type="search"
+              placeholder={searchPlaceholder}
+              value={searchValue}
+              onChange={(event) => onSearchChange(event.target.value)}
+              className="w-full bg-transparent text-[12.5px] text-ink outline-none placeholder:text-faint"
+              aria-label={`Search ${title.toLowerCase()}`}
+            />
+          </label>
+        ) : (
+          <GlobalSearch placeholder={searchPlaceholder === "Search…" ? "Search children, staff, invoices…" : searchPlaceholder} />
+        )
       )}
 
       <div className="relative flex items-center gap-2" ref={ref}>

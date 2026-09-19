@@ -27,6 +27,14 @@ declare
   v_request_two jsonb;
   v_failed boolean := false;
 begin
+  perform pg_temp.impersonate('postgres');
+  update public.children
+     set archived_at = null,
+         enrolled_on = least(coalesce(enrolled_on, current_date), current_date)
+   where id = v_child;
+  update public.notification_preferences
+     set push = false
+   where profile_id = v_parent and kind = 'parent_routines';
   perform pg_temp.impersonate('authenticated', v_parent);
 
   v_hub := public.get_parent_account_hub();

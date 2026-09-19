@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, Alert, TouchableOpacity } from 'react-native';
-import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
+import { KeyboardAwareScrollView } from '../../components/KeyboardAwareScrollView';
 import { useAuth } from '../../hooks/useAuth';
 import { Input, Button, PasswordStrength } from '../../components/ui';
 import { colors, spacing, radius } from '../../theme';
@@ -121,4 +121,3 @@ const styles = StyleSheet.create({
   skip: { alignItems: 'center', marginTop: spacing.lg },
   skipText: { fontSize: 13, color: colors.textMuted },
 });
-

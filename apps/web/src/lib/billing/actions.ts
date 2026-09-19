@@ -166,7 +166,7 @@ export async function sendInvoiceRemindersAction(
     } | null;
     if (!recipient?.email) continue;
     try {
-      await enqueueEmailNotification(supabase, {
+      const outboxId = await enqueueEmailNotification(supabase, {
         daycareId: profile.daycare_id,
         recipientEmail: recipient.email,
         kind: "invoice_reminder",
@@ -177,6 +177,19 @@ export async function sendInvoiceRemindersAction(
         payload: { type: "invoice_reminder", invoiceId: invoice.id },
         dedupeKey: `invoice-reminder:${invoice.id}:${today}`,
       });
+      if (!outboxId) continue;
+      const overdueDays = invoice.due_on
+        ? Math.max(0, Math.floor((Date.parse(`${today}T12:00`) - Date.parse(`${invoice.due_on}T12:00`)) / 86400000))
+        : 0;
+      const { error: historyError } = await supabase.from("invoice_reminder_events").insert({
+        daycare_id: profile.daycare_id,
+        invoice_id: invoice.id,
+        sent_by: profile.id,
+        outbox_id: outboxId,
+        recipient_email: recipient.email,
+        tone: overdueDays >= 14 ? "firm" : "friendly",
+      });
+      if (historyError) throw historyError;
       queued += 1;
     } catch {
       // Continue the batch so one invalid recipient does not block the rest.

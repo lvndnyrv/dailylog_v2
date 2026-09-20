@@ -48,6 +48,67 @@ function totalEntries(status) {
     + (status?.activityCount || 0);
 }
 
+function timeMinutes(value) {
+  const [hours, minutes] = String(value || '').split(':').map(Number);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
+  return (hours * 60) + minutes;
+}
+
+function displayMedicationTime(value) {
+  const minutes = timeMinutes(value);
+  if (minutes === null) return '';
+  const hours = Math.floor(minutes / 60);
+  const minute = minutes % 60;
+  const suffix = hours >= 12 ? 'PM' : 'AM';
+  const displayHour = hours % 12 || 12;
+  return `${displayHour}:${String(minute).padStart(2, '0')} ${suffix}`;
+}
+
+export function getDueMedicationTasks({
+  authorizations = [],
+  logs = [],
+  children = [],
+  presentChildIds = new Set(),
+  now = new Date(),
+}) {
+  const today = format(now, 'yyyy-MM-dd');
+  const currentMinutes = (now.getHours() * 60) + now.getMinutes();
+  const childrenById = new Map(children.map(child => [child.id, child]));
+  const logCounts = logs.reduce((counts, log) => {
+    counts.set(log.authorization_id, (counts.get(log.authorization_id) || 0) + 1);
+    return counts;
+  }, new Map());
+
+  return authorizations.flatMap(authorization => {
+    if (
+      !authorization.active
+      || authorization.schedule_type !== 'scheduled'
+      || authorization.start_date > today
+      || (authorization.end_date && authorization.end_date < today)
+      || !presentChildIds.has(authorization.child_id)
+    ) return [];
+
+    const times = (authorization.scheduled_times || [])
+      .map(value => ({ value, minutes: timeMinutes(value) }))
+      .filter(item => item.minutes !== null)
+      .sort((left, right) => left.minutes - right.minutes);
+    const givenCount = logCounts.get(authorization.id) || 0;
+    const nextDose = times[givenCount];
+    if (!nextDose || nextDose.minutes > currentMinutes + 30) return [];
+
+    const child = childrenById.get(authorization.child_id);
+    if (!child) return [];
+    const delta = nextDose.minutes - currentMinutes;
+    return [{
+      authorization,
+      child,
+      scheduledTime: nextDose.value,
+      timeLabel: displayMedicationTime(nextDose.value),
+      status: delta < -15 ? 'overdue' : delta <= 0 ? 'due' : 'upcoming',
+    }];
+  }).sort((left, right) => timeMinutes(left.scheduledTime) - timeMinutes(right.scheduledTime));
+}
+
 function ProfileAvatar({ profile, onPress }) {
   const initial = profile?.display_name?.[0]
     || profile?.full_name?.[0]
@@ -194,6 +255,8 @@ export default function RosterScreen({ navigation }) {
   const isFocused = useIsFocused();
   const [children, setChildren] = useState([]);
   const [logStatus, setLogStatus] = useState({});
+  const [medicationAuthorizations, setMedicationAuthorizations] = useState([]);
+  const [medicationLogsToday, setMedicationLogsToday] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -226,6 +289,8 @@ export default function RosterScreen({ navigation }) {
     if (!classroomId) {
       setChildren([]);
       setLogStatus({});
+      setMedicationAuthorizations([]);
+      setMedicationLogsToday([]);
       setLoading(false);
       setRefreshing(false);
       return;
@@ -251,17 +316,53 @@ export default function RosterScreen({ navigation }) {
 
     if (!nextChildren.length) {
       setLogStatus({});
+      setMedicationAuthorizations([]);
+      setMedicationLogsToday([]);
       setLoading(false);
       setRefreshing(false);
       return;
     }
 
     const childIds = nextChildren.map(child => child.id);
-    const { data: logs } = await supabase
-      .from('daily_logs')
-      .select('id, child_id, notes, comments, sent_to_parents, sent_at')
-      .in('child_id', childIds)
-      .eq('log_date', today);
+    const [{ data: logs }, { data: authorizations, error: medicationError }] = await Promise.all([
+      supabase
+        .from('daily_logs')
+        .select('id, child_id, notes, comments, sent_to_parents, sent_at')
+        .in('child_id', childIds)
+        .eq('log_date', today),
+      supabase
+        .from('medication_authorizations')
+        .select('id, child_id, name, dosage, route, active, schedule_type, scheduled_times, start_date, end_date')
+        .in('child_id', childIds)
+        .eq('active', true),
+    ]);
+
+    if (medicationError) {
+      showToast("We couldn't load today's medication schedule.", 'error');
+      setMedicationAuthorizations([]);
+      setMedicationLogsToday([]);
+    } else {
+      const activeAuthorizations = authorizations || [];
+      setMedicationAuthorizations(activeAuthorizations);
+      if (activeAuthorizations.length) {
+        const dayStart = new Date(`${today}T00:00:00`);
+        const dayEnd = new Date(`${today}T23:59:59.999`);
+        const { data: doseLogs, error: doseError } = await supabase
+          .from('medication_logs')
+          .select('id, authorization_id, administered_at')
+          .in('authorization_id', activeAuthorizations.map(item => item.id))
+          .gte('administered_at', dayStart.toISOString())
+          .lte('administered_at', dayEnd.toISOString());
+        if (doseError) {
+          showToast("We couldn't confirm today's medication doses.", 'error');
+          setMedicationLogsToday([]);
+        } else {
+          setMedicationLogsToday(doseLogs || []);
+        }
+      } else {
+        setMedicationLogsToday([]);
+      }
+    }
 
     const logIds = (logs || []).map(log => log.id);
     const [meals, sleeps, diapers, activities] = logIds.length
@@ -318,6 +419,16 @@ export default function RosterScreen({ navigation }) {
       isNapping: Boolean(activeNaps[child.id]),
     };
   }), [activeNaps, attendance, children, getAttendanceStatus, logStatus]);
+
+  const dueMedicationTasks = useMemo(() => getDueMedicationTasks({
+    authorizations: medicationAuthorizations,
+    logs: medicationLogsToday,
+    children,
+    presentChildIds: new Set(
+      rosterItems.filter(item => item.isPresent).map(item => item.child.id),
+    ),
+    now,
+  }), [children, medicationAuthorizations, medicationLogsToday, now, rosterItems]);
 
   const buckets = useMemo(() => {
     if (phase === 'morning') {
@@ -563,6 +674,61 @@ export default function RosterScreen({ navigation }) {
           ) : null}
         </View>
 
+        {dueMedicationTasks.length > 0 ? (
+          <View style={styles.medicationBand} accessibilityRole="summary">
+            <View style={styles.medicationBandHeader}>
+              <View style={styles.medicationBandIcon}>
+                <Ionicons name="medical-outline" size={21} color={colors.danger} />
+              </View>
+              <View style={styles.medicationBandCopy}>
+                <Text style={styles.medicationBandTitle}>
+                  {dueMedicationTasks.length === 1 ? 'Medication check' : `${dueMedicationTasks.length} medication checks`}
+                </Text>
+                <Text style={styles.medicationBandSubtitle}>Review the signed label and complete all five safety rights.</Text>
+              </View>
+            </View>
+            {dueMedicationTasks.slice(0, 2).map(task => (
+              <TouchableOpacity
+                key={task.authorization.id}
+                style={styles.medicationTask}
+                onPress={() => navigation.navigate('Medication', {
+                  child: task.child,
+                  authorizationId: task.authorization.id,
+                  openDose: true,
+                  linkedAt: Date.now(),
+                })}
+                activeOpacity={0.74}
+                accessibilityRole="button"
+                accessibilityLabel={`Review ${task.authorization.name} for ${task.child.first_name}`}
+              >
+                <View style={styles.medicationTaskCopy}>
+                  <Text style={styles.medicationTaskTitle} numberOfLines={1}>
+                    {task.child.first_name} · {task.authorization.name}
+                  </Text>
+                  <Text style={styles.medicationTaskMeta}>
+                    {task.authorization.dosage} · {task.authorization.route || 'Route on label'} · {task.timeLabel}
+                  </Text>
+                </View>
+                <View style={[
+                  styles.medicationTimingBadge,
+                  task.status === 'overdue' && styles.medicationTimingBadgeOverdue,
+                ]}>
+                  <Text style={[
+                    styles.medicationTimingText,
+                    task.status === 'overdue' && styles.medicationTimingTextOverdue,
+                  ]}>
+                    {task.status === 'overdue' ? 'Overdue' : task.status === 'due' ? 'Due now' : 'Coming up'}
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={17} color={colors.textFaint} />
+              </TouchableOpacity>
+            ))}
+            {dueMedicationTasks.length > 2 ? (
+              <Text style={styles.medicationMore}>+ {dueMedicationTasks.length - 2} more due medication checks</Text>
+            ) : null}
+          </View>
+        ) : null}
+
         <TouchableOpacity
           style={styles.pickupShortcut}
           onPress={() => navigation.navigate('Pickups')}
@@ -736,6 +902,51 @@ const styles = StyleSheet.create({
     fontFamily: fonts.bold,
     fontSize: 13,
   },
+  medicationBand: {
+    marginBottom: spacing.lg,
+    overflow: 'hidden',
+    borderWidth: 1.5,
+    borderColor: '#E8BEBE',
+    borderRadius: radius.xl,
+    backgroundColor: colors.surface,
+  },
+  medicationBandHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md,
+    backgroundColor: colors.dangerLight,
+  },
+  medicationBandIcon: {
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
+  },
+  medicationBandCopy: { flex: 1, minWidth: 0 },
+  medicationBandTitle: { color: colors.textPrimary, fontFamily: fonts.black, fontSize: 14.5 },
+  medicationBandSubtitle: { marginTop: 2, color: colors.textMuted, fontFamily: fonts.regular, fontSize: 11.5, lineHeight: 16 },
+  medicationTask: {
+    minHeight: 62,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: colors.primarySoft,
+  },
+  medicationTaskCopy: { flex: 1, minWidth: 0 },
+  medicationTaskTitle: { color: colors.textPrimary, fontFamily: fonts.bold, fontSize: 13.5 },
+  medicationTaskMeta: { marginTop: 2, color: colors.textMuted, fontFamily: fonts.regular, fontSize: 11.5 },
+  medicationTimingBadge: { borderRadius: radius.full, paddingHorizontal: 9, paddingVertical: 5, backgroundColor: colors.amberLight },
+  medicationTimingBadgeOverdue: { backgroundColor: colors.dangerLight },
+  medicationTimingText: { color: colors.amber, fontFamily: fonts.bold, fontSize: 10.5 },
+  medicationTimingTextOverdue: { color: colors.danger },
+  medicationMore: { paddingHorizontal: spacing.md, paddingBottom: spacing.md, color: colors.primary, fontFamily: fonts.bold, fontSize: 11.5 },
   pickupShortcut: {
     minHeight: 66,
     flexDirection: 'row',

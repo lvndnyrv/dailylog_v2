@@ -399,9 +399,13 @@ export default function MedicationScreen({ route, navigation }) {
     const authorization = auths.find((item) => item.id === authorizationId);
     if (authorization) {
       handledTargetRef.current = target;
-      openAuthorizationDetail(authorization);
+      if (route.params?.openDose && isStaff && authorizationState(authorization) === 'active') {
+        openDoseSheet(authorization);
+      } else {
+        openAuthorizationDetail(authorization);
+      }
     }
-  }, [auths, logs, route.params?.authorizationId, route.params?.medicationLogId]);
+  }, [auths, isStaff, logs, route.params?.authorizationId, route.params?.medicationLogId, route.params?.openDose]);
 
   async function load() {
     setLoading(true);

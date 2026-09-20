@@ -206,7 +206,11 @@ export function resolveNotificationRoute(payload = {}, role = 'parent') {
   if (screen === 'Pickups' || ['pickup_security', 'pickup_security_resolved'].includes(type)) {
     return { name: 'Pickups', params: { childId, eventId: value(payload, 'eventId', 'event_id') } };
   }
-  if (screen === 'IncidentHub' || ['incident', 'incident_acknowledged'].includes(type)) return { name: 'IncidentHub' };
+  if (screen === 'IncidentHub' || ['incident', 'incident_acknowledged'].includes(type)) {
+    return incidentId
+      ? { name: 'IncidentRecord', params: { incidentId, childId } }
+      : { name: 'IncidentHub' };
+  }
   if (screen === 'EventDetail' && announcementId) {
     return isStaffRole(role)
       ? { name: 'EventRsvps', params: { announcementId } }

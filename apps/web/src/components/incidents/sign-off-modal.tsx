@@ -11,6 +11,12 @@ import { Notice } from "@/components/ui/notice";
 
 const label = "font-mono text-[10.5px] font-bold tracking-[.08em] text-faint";
 
+function severityTone(severity: string) {
+  if (severity === "serious") return "border-[#E8B9B9] bg-[#FFF0F0] text-danger";
+  if (severity === "moderate") return "border-[#EED39F] bg-warning-bg text-warning-text";
+  return "border-[#B9DDC8] bg-success-bg text-success";
+}
+
 // Incident sign-off 9b — your signature locks the report; it lands in the
 // incident log and the family's file.
 export function SignOffModal({
@@ -62,6 +68,40 @@ export function SignOffModal({
         </span>
       </div>
 
+      <div className="grid grid-cols-2 gap-2.5">
+        <div className={`rounded-[12px] border px-3 py-2.5 ${severityTone(incident.severity)}`}>
+          <span className="block text-[10px] font-bold uppercase tracking-[.08em] opacity-70">Severity</span>
+          <span className="mt-0.5 block text-[12.5px] font-extrabold capitalize">{incident.severity}</span>
+        </div>
+        <div className="rounded-[12px] border border-line bg-card px-3 py-2.5">
+          <span className="block text-[10px] font-bold uppercase tracking-[.08em] text-faint">Where</span>
+          <span className="mt-0.5 block truncate text-[12.5px] font-extrabold text-ink">{incident.location}</span>
+        </div>
+      </div>
+
+      <div className="rounded-[13px] border border-line px-3.5 py-3 text-[12px] text-body">
+        <div className="flex justify-between gap-3">
+          <span className="text-muted">Type</span>
+          <b className="text-right text-ink">{incident.injury_type}</b>
+        </div>
+        <div className="mt-2 flex justify-between gap-3">
+          <span className="text-muted">Area</span>
+          <b className="text-right text-ink">{incident.body_parts?.join(", ") || "—"}</b>
+        </div>
+        <div className="mt-2 flex justify-between gap-3">
+          <span className="text-muted">Witness</span>
+          <b className="text-right text-ink">
+            {incident.witness?.full_name ?? incident.witnesses?.[0] ?? "—"}
+          </b>
+        </div>
+        <div className="mt-2 flex justify-between gap-3">
+          <span className="text-muted">Care provided by</span>
+          <b className="text-right text-ink">
+            {incident.first_aid_provider?.full_name ?? incident.educator?.full_name ?? "—"}
+          </b>
+        </div>
+      </div>
+
       <div>
         <span className={label}>WHAT HAPPENED</span>
         <p className="mt-1 text-[12.5px] leading-relaxed text-body">{incident.description}</p>
@@ -70,6 +110,21 @@ export function SignOffModal({
         <span className={label}>CARE GIVEN</span>
         <p className="mt-1 text-[12.5px] leading-relaxed text-body">{incident.first_aid_given}</p>
       </div>
+
+      {incident.parent_acknowledged_at ? (
+        <Notice tone="success">
+          <b>Family already acknowledged.</b>{" "}
+          {incident.parent_acknowledge_name ?? "A parent"} signed at{" "}
+          {new Date(incident.parent_acknowledged_at).toLocaleTimeString("en-CA", {
+            hour: "numeric",
+            minute: "2-digit",
+          })}. Director sign-off is still required to close the report.
+        </Notice>
+      ) : incident.severity === "serious" && incident.parent_notified_at ? (
+        <Notice tone="info">
+          <b>Family notified immediately.</b> Their acknowledgment may arrive before your sign-off.
+        </Notice>
+      ) : null}
 
       {state.ok ? (
         <>

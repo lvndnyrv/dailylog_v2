@@ -15,20 +15,27 @@ export interface IncidentRow {
   first_aid_given: string;
   first_aid_by: string | null;
   witness_id: string | null;
+  witnesses: string[] | null;
   submitted_at: string | null;
   status: string;
   signed_off_at: string | null;
+  parent_notified_at: string | null;
   parent_acknowledged_at: string | null;
+  parent_acknowledge_name: string | null;
   child: { id: string; first_name: string; last_name: string; date_of_birth: string | null } | null;
   educator: { id: string; full_name: string } | null;
+  first_aid_provider: { id: string; full_name: string } | null;
+  witness: { id: string; full_name: string } | null;
   classroom: { id: string; name: string } | null;
 }
 
 const INCIDENT_SELECT = `id, occurred_at, location, severity, injury_type, injury_side, body_parts,
-  description, first_aid_given, first_aid_by, witness_id, submitted_at,
-  status, signed_off_at, parent_acknowledged_at,
+  description, first_aid_given, first_aid_by, witness_id, witnesses, submitted_at,
+  status, signed_off_at, parent_notified_at, parent_acknowledged_at, parent_acknowledge_name,
   child:children(id, first_name, last_name, date_of_birth),
   educator:profiles!incident_reports_educator_id_fkey(id, full_name),
+  first_aid_provider:profiles!incident_reports_first_aid_by_fkey(id, full_name),
+  witness:profiles!incident_reports_witness_id_fkey(id, full_name),
   classroom:classrooms(id, name)`;
 
 // Reports waiting for an admin signature (9b's queue on the dashboard).

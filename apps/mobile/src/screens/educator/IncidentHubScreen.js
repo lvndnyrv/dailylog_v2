@@ -82,7 +82,12 @@ export default function IncidentHubScreen({ navigation }) {
         .order('first_name'),
       supabase
         .from('incident_reports')
-        .select('*, child:children(id, first_name, last_name, classroom_id, photo_url)')
+        .select(`*,
+          child:children(id, first_name, last_name, classroom_id, photo_url),
+          educator:profiles!incident_reports_educator_id_fkey(id, full_name),
+          director:profiles!incident_reports_signed_off_by_fkey(id, full_name),
+          first_aid_provider:profiles!incident_reports_first_aid_by_fkey(id, full_name),
+          witness:profiles!incident_reports_witness_id_fkey(id, full_name)`)
         .eq('classroom_id', active.id)
         .order('updated_at', { ascending: false })
         .limit(30),
@@ -116,6 +121,10 @@ export default function IncidentHubScreen({ navigation }) {
       child: report.child,
       reportId: report.id,
     });
+  }
+
+  function openRecord(report) {
+    navigation.navigate('IncidentRecord', { incident: report, incidentId: report.id });
   }
 
   return (
@@ -194,7 +203,13 @@ export default function IncidentHubScreen({ navigation }) {
                   return (
                     <View key={report.id}>
                       {index > 0 && <View style={styles.divider} />}
-                      <View style={styles.reportRow}>
+                      <TouchableOpacity
+                        style={styles.reportRow}
+                        onPress={() => openRecord(report)}
+                        activeOpacity={0.72}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Open ${childName(report.child)} incident record`}
+                      >
                         <ChildAvatar child={report.child} size={42} />
                         <View style={styles.reportCopy}>
                           <View style={styles.reportNameRow}>
@@ -224,7 +239,8 @@ export default function IncidentHubScreen({ navigation }) {
                             </Text>
                           </View>
                         </View>
-                      </View>
+                        <Ionicons name="chevron-forward" size={18} color={colors.textFaint} />
+                      </TouchableOpacity>
                     </View>
                   );
                 })

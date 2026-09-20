@@ -59,6 +59,7 @@ import BulkLogScreen         from './src/screens/educator/BulkLogScreen';
 import ChildProfileScreen    from './src/screens/educator/ChildProfileScreen';
 import IncidentReportScreen  from './src/screens/educator/IncidentReportScreen';
 import IncidentHubScreen     from './src/screens/educator/IncidentHubScreen';
+import IncidentRecordScreen  from './src/screens/educator/IncidentRecordScreen';
 import MyTimeScreen          from './src/screens/educator/MyTimeScreen';
 import WeeklyTimesheetScreen from './src/screens/educator/WeeklyTimesheetScreen';
 import TimeOffRequestScreen  from './src/screens/educator/TimeOffRequestScreen';
@@ -645,6 +646,7 @@ function RootNavigator() {
           <Stack.Screen name="MealMenu"        component={MealMenuScreen}        options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="IncidentHub"     component={IncidentHubScreen}     options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="IncidentReport"  component={IncidentReportScreen}  options={{ animation: 'slide_from_bottom' }} />
+          <Stack.Screen name="IncidentRecord"  component={IncidentRecordScreen}  options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="MyTime"          component={MyTimeScreen}          options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="WeeklyTimesheet" component={WeeklyTimesheetScreen} options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="TimeOffRequest"  component={TimeOffRequestScreen}  options={{ animation: 'slide_from_right' }} />
@@ -686,6 +688,7 @@ function RootNavigator() {
           <Stack.Screen name="MealMenu"        component={MealMenuScreen}        options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="IncidentHub"     component={IncidentHubScreen}     options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="IncidentReport"  component={IncidentReportScreen}  options={{ animation: 'slide_from_bottom' }} />
+          <Stack.Screen name="IncidentRecord"  component={IncidentRecordScreen}  options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="MyTime"          component={MyTimeScreen}          options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="WeeklyTimesheet" component={WeeklyTimesheetScreen} options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="TimeOffRequest"  component={TimeOffRequestScreen}  options={{ animation: 'slide_from_right' }} />

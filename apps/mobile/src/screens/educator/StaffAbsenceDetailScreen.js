@@ -9,7 +9,7 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { format, isWithinInterval, parseISO } from 'date-fns';
+import { format, parseISO } from 'date-fns';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { supabase } from '../../lib/supabase';
@@ -66,12 +66,8 @@ export default function StaffAbsenceDetailScreen({ navigation, route }) {
   const effectiveEnd = report?.ends_on || endsOn || effectiveStart;
   const includesToday = useMemo(() => {
     if (!effectiveStart || !effectiveEnd) return false;
-    const today = new Date();
-    today.setHours(12, 0, 0, 0);
-    return isWithinInterval(today, {
-      start: parseISO(effectiveStart),
-      end: parseISO(effectiveEnd),
-    });
+    const today = format(new Date(), 'yyyy-MM-dd');
+    return today >= effectiveStart && today <= effectiveEnd;
   }, [effectiveEnd, effectiveStart]);
   const child = report?.child;
   const childName = child ? `${child.first_name} ${child.last_name}` : 'Child absence';

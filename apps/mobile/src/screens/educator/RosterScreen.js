@@ -48,6 +48,18 @@ function totalEntries(status) {
     + (status?.activityCount || 0);
 }
 
+export function attendanceChip(record, fallback = 'Not in yet') {
+  if (record?.status === 'late') return { label: 'Coming', tone: 'primary' };
+  if (record?.status === 'absent') {
+    const reason = String(record.absence_reason || '').toLowerCase();
+    if (reason === 'sick') return { label: 'Sick', tone: 'warning' };
+    if (reason === 'appointment') return { label: 'Appointment', tone: 'warning' };
+    if (reason === 'vacation') return { label: 'Vacation', tone: 'warning' };
+    return { label: 'Absent', tone: 'warning' };
+  }
+  return { label: fallback, tone: 'neutral' };
+}
+
 function timeMinutes(value) {
   const [hours, minutes] = String(value || '').split(':').map(Number);
   if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
@@ -158,13 +170,16 @@ function StatusChip({ label, tone = 'neutral', onPress }) {
 }
 
 function ChildRow({ item, onOpen, onStatusPress }) {
+  const opensAttendanceUpdate = Boolean(item.statusAction && onStatusPress);
   return (
     <TouchableOpacity
-      onPress={() => onOpen(item.child)}
+      onPress={() => opensAttendanceUpdate ? onStatusPress(item) : onOpen(item.child)}
       style={styles.childRow}
       activeOpacity={0.72}
       accessibilityRole="button"
-      accessibilityLabel={`Open ${item.child.first_name} ${item.child.last_name}`}
+      accessibilityLabel={opensAttendanceUpdate
+        ? `Review ${item.chip} update for ${item.child.first_name} ${item.child.last_name}`
+        : `Open ${item.child.first_name} ${item.child.last_name}`}
     >
       <View style={styles.childAvatarWrap}>
         <ChildAvatar child={item.child} size={38} fontSize={13} />
@@ -176,7 +191,6 @@ function ChildRow({ item, onOpen, onStatusPress }) {
       <StatusChip
         label={item.chip}
         tone={item.tone}
-        onPress={item.statusAction ? () => onStatusPress(item) : null}
       />
       <Ionicons name="chevron-forward" size={16} color={colors.textFaint} />
     </TouchableOpacity>
@@ -446,10 +460,12 @@ export default function RosterScreen({ navigation }) {
         } else if (item.attendanceStatus === 'departed') {
           notIn.push({ ...item, chip: 'Picked up', tone: 'neutral' });
         } else {
+          const chip = attendanceChip(item.attendance);
           notIn.push({
             ...item,
-            chip: item.attendance?.status === 'absent' ? 'Absent' : 'Not in yet',
-            tone: item.attendance?.status === 'absent' ? 'warning' : 'neutral',
+            chip: chip.label,
+            tone: chip.tone,
+            statusAction: Boolean(item.attendance?.absence_report_id),
           });
         }
       });
@@ -466,10 +482,14 @@ export default function RosterScreen({ navigation }) {
 
       rosterItems.forEach(item => {
         if (!item.isPresent) {
+          const chip = item.attendanceStatus === 'departed'
+            ? { label: 'Picked up', tone: 'neutral' }
+            : attendanceChip(item.attendance, 'Not in today');
           allGood.push({
             ...item,
-            chip: item.attendanceStatus === 'departed' ? 'Picked up' : 'Not in today',
-            tone: 'neutral',
+            chip: chip.label,
+            tone: chip.tone,
+            statusAction: Boolean(item.attendance?.absence_report_id),
           });
         } else if (item.isNapping) {
           allGood.push({ ...item, chip: 'Napping', tone: 'success' });
@@ -495,7 +515,13 @@ export default function RosterScreen({ navigation }) {
 
     rosterItems.forEach(item => {
       if (!item.attendance?.checked_in_at && !item.log) {
-        away.push({ ...item, chip: 'Not in today', tone: 'neutral' });
+        const chip = attendanceChip(item.attendance, 'Not in today');
+        away.push({
+          ...item,
+          chip: chip.label,
+          tone: chip.tone,
+          statusAction: Boolean(item.attendance?.absence_report_id),
+        });
       } else if (item.log?.sent_to_parents) {
         sent.push({ ...item, chip: 'Report sent', tone: 'success' });
       } else if (item.log?.notes?.trim() || item.log?.comments?.trim() || totalEntries(item.log) >= 2) {
@@ -540,6 +566,16 @@ export default function RosterScreen({ navigation }) {
 
   function openDailyLog(child) {
     navigation.navigate('DailyLog', { child, date: today });
+  }
+
+  function openAttendanceUpdate(item) {
+    if (!item.attendance?.absence_report_id) return;
+    navigation.navigate('StaffAbsenceDetail', {
+      childId: item.child.id,
+      reportId: item.attendance.absence_report_id,
+      startsOn: today,
+      endsOn: today,
+    });
   }
 
   function handlePriorityAction() {
@@ -786,7 +822,7 @@ export default function RosterScreen({ navigation }) {
               searchActive={Boolean(searchQuery.trim())}
               onToggle={() => toggleBucket(bucket.key)}
               onOpen={openChild}
-              onStatusPress={undefined}
+              onStatusPress={openAttendanceUpdate}
             />
           ))
         )}

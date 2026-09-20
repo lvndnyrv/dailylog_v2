@@ -30,7 +30,7 @@ export function useAttendance(classroomId, date = new Date(), educatorId) {
 
     const { data: records } = await supabase
       .from('attendance_records')
-      .select('id, child_id, checked_in_at, checked_out_at')
+      .select('id, child_id, checked_in_at, checked_out_at, status, method, absence_reason, notes, absence_report_id, absence_reported_at')
       .in('child_id', kids.map(k => k.id))
       .eq('date', dateStr);
 
@@ -93,7 +93,12 @@ export function useAttendance(classroomId, date = new Date(), educatorId) {
 
   function getStatus(childId) {
     const rec = attendance[childId];
-    if (!rec?.checked_in_at) return 'absent';
+    if (!rec) return 'awaited';
+    if (!rec.checked_in_at) {
+      if (rec.status === 'late') return 'coming';
+      if (rec.status === 'absent') return 'absent';
+      return 'awaited';
+    }
     if (rec.checked_out_at) return 'departed';
     return 'present';
   }

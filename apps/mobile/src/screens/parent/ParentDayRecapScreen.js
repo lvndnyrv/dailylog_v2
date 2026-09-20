@@ -117,8 +117,8 @@ export default function ParentDayRecapScreen({ navigation, route }) {
           <Text style={styles.eyebrow}>DAILY RECAP</Text>
           <Text style={styles.title}>{format(day, 'EEEE, MMMM d')}</Text>
         </View>
-        <TouchableOpacity accessibilityLabel="Share daily recap" disabled={!log || absent} onPress={shareRecap} style={styles.iconButton}>
-          <Ionicons name="share-outline" size={20} color={log && !absent ? colors.primary : colors.textFaint} />
+        <TouchableOpacity accessibilityLabel="Share daily recap" disabled={!log?.sent_to_parents || absent} onPress={shareRecap} style={styles.iconButton}>
+          <Ionicons name="share-outline" size={20} color={log?.sent_to_parents && !absent ? colors.primary : colors.textFaint} />
         </TouchableOpacity>
       </View>
 
@@ -136,6 +136,12 @@ export default function ParentDayRecapScreen({ navigation, route }) {
               : 'The center recorded an absence for this day.'}
           </Text>
           {attendance?.notes ? <Text style={styles.note}>{attendance.notes}</Text> : null}
+        </View>
+      ) : log && !log.sent_to_parents ? (
+        <View style={styles.hero}>
+          <View style={styles.heroIcon}><Ionicons name="time-outline" size={28} color={colors.primary} /></View>
+          <Text style={styles.heroTitle}>The final recap is being prepared</Text>
+          <Text style={styles.heroBody}>Live updates remain available on Today. The educator will review and send the completed report soon.</Text>
         </View>
       ) : !log && !attendance ? (
         <View style={styles.hero}>

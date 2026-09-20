@@ -480,7 +480,8 @@ export default function ParentHomeScreen({ navigation, route }) {
   const hasMoods = log?.moods?.length > 0;
   const hasContent = Boolean(meals.length || diapers.length || sleeps.length || activities.length);
   const absent = ['absent', 'excused'].includes(attendanceRec?.status);
-  const complete = Boolean(log?.sent_to_parents || attendanceRec?.checked_out_at);
+  const complete = Boolean(log?.sent_to_parents);
+  const awaitingRecap = Boolean(attendanceRec?.checked_out_at && !complete && !absent);
   const upcomingClosure = (familySchedule.hub?.closures || [])
     .find((closure) => closure.ends_on >= familySchedule.hub?.today);
   const roomMove = (familySchedule.hub?.room_moves || [])
@@ -687,6 +688,8 @@ export default function ParentHomeScreen({ navigation, route }) {
             ? <Badge label="Away today" color={colors.amber} bg={colors.amberLight} />
             : complete
               ? <Badge label="Day complete ✓" color={colors.success} bg={colors.successLight} />
+              : awaitingRecap
+                ? <Badge label="Recap being prepared" color={colors.amber} bg={colors.amberLight} />
               : attendanceRec?.checked_in_at
                 ? <Badge label="In preschool" color={colors.success} bg={colors.successLight} />
                 : log
@@ -762,6 +765,8 @@ export default function ParentHomeScreen({ navigation, route }) {
           <Text style={styles.dayStateTitle}>
             {absent
               ? `${selectedChild?.first_name} is away today`
+              : awaitingRecap
+                ? 'The daily recap is being prepared'
               : attendanceRec?.checked_in_at
                 ? 'The day is just getting started'
                 : today
@@ -771,6 +776,8 @@ export default function ParentHomeScreen({ navigation, route }) {
           <Text style={styles.dayStateBody}>
             {absent
               ? 'The absence is recorded. No classroom updates are expected.'
+              : awaitingRecap
+                ? 'Pickup is complete. The educator is reviewing the final report and will send it shortly.'
               : attendanceRec?.checked_in_at
                 ? 'The educator will add meals, naps, care and activities as they happen.'
                 : today

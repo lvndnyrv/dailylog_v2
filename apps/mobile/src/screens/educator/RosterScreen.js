@@ -20,6 +20,7 @@ import { useClassroom } from '../../hooks/useClassroom';
 import { useNapTimer } from '../../hooks/useNapTimer';
 import { useParentNotifications } from '../../hooks/useParentNotifications';
 import { supabase } from '../../lib/supabase';
+import { isDailyLogReady } from '../../lib/dailyLogs';
 import { showToast } from '../../components/Toast';
 import { ChildAvatar } from '../../components/ChildAvatar';
 import { ClassroomSwitcher } from '../../components/ClassroomSwitcher';
@@ -39,13 +40,6 @@ function formatAttendanceTime(value) {
   if (!value) return null;
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? null : format(parsed, 'h:mm');
-}
-
-function totalEntries(status) {
-  return (status?.mealCount || 0)
-    + (status?.sleepCount || 0)
-    + (status?.diaperCount || 0)
-    + (status?.activityCount || 0);
 }
 
 export function attendanceChip(record, fallback = 'Not in yet') {
@@ -524,7 +518,7 @@ export default function RosterScreen({ navigation }) {
         });
       } else if (item.log?.sent_to_parents) {
         sent.push({ ...item, chip: 'Report sent', tone: 'success' });
-      } else if (item.log?.notes?.trim() || item.log?.comments?.trim() || totalEntries(item.log) >= 2) {
+      } else if (isDailyLogReady(item.log)) {
         ready.push({ ...item, chip: 'Report ready', tone: 'primary' });
       } else {
         needsNote.push({ ...item, chip: 'Add note', tone: 'warning' });
@@ -584,11 +578,7 @@ export default function RosterScreen({ navigation }) {
       return;
     }
 
-    const priorityChild = attentionBucket?.items[0]?.child
-      || readyBucket?.items[0]?.child
-      || sentBucket?.items[0]?.child
-      || rosterItems[0]?.child;
-    if (priorityChild) openDailyLog(priorityChild);
+    navigation.navigate('DailyReportReview', { date: today });
   }
 
   function toggleBucket(key) {

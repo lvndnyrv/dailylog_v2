@@ -383,6 +383,12 @@ export default function DailyLogScreen({ route, navigation }) {
   const selectedMoods = log?.moods || [];
   const selectedActivities = activities.map(a => a.activity_name);
   const selectedSupplies = supplies.map(s => s.item_name);
+  const readOnly = Boolean(log?.sent_to_parents);
+  const reportReady = Boolean(
+    notes.trim()
+    || comments.trim()
+    || (meals.length + diapers.length + sleeps.length + activities.length) >= 2
+  );
 
   async function handleCallParents() {
     // Fetch all parents linked to this child with phone numbers
@@ -447,6 +453,11 @@ export default function DailyLogScreen({ route, navigation }) {
   }
 
   async function handleSend() {
+    if (readOnly) return;
+    if (!reportReady) {
+      Alert.alert('Add a little more first', 'Add a note or at least two daily updates before sending the final report.');
+      return;
+    }
     setSending(true);
     await updateNotes(notes, comments);
     const { error: sendError, offline } = await sendToParents();
@@ -515,6 +526,20 @@ export default function DailyLogScreen({ route, navigation }) {
         </View>
       </View>
 
+      {readOnly ? (
+        <View style={styles.finalBanner}>
+          <View style={styles.finalBannerIcon}>
+            <Ionicons name="checkmark" size={18} color={colors.success} />
+          </View>
+          <View style={styles.finalBannerCopy}>
+            <Text style={styles.finalBannerTitle}>Final report sent to family</Text>
+            <Text style={styles.finalBannerBody}>
+              Sent {log.sent_at ? format(new Date(log.sent_at), 'MMM d · h:mm a') : 'today'}. This report is now read-only.
+            </Text>
+          </View>
+        </View>
+      ) : null}
+
       <View style={styles.childSummary}>
         <View style={styles.childAvatar}>
           <Text style={styles.childAvatarText}>
@@ -574,6 +599,7 @@ export default function DailyLogScreen({ route, navigation }) {
         </TouchableOpacity>
       </View>
 
+      <View pointerEvents={readOnly ? 'none' : 'auto'} style={readOnly ? styles.readOnlyBody : null}>
       {/* MOOD */}
       <LogSection icon="happy-outline" title="Today I felt" iconColor={colors.success} iconBackground={colors.successLight}>
         <View style={styles.chipWrap}>
@@ -685,12 +711,21 @@ export default function DailyLogScreen({ route, navigation }) {
         />
       </LogSection>
 
-      {log && <PhotoSection logId={log.id} childId={child.id} readOnly={false} />}
+      {log && <PhotoSection logId={log.id} childId={child.id} readOnly={readOnly} />}
+      </View>
+
+      {!readOnly && !reportReady ? (
+        <View style={styles.readyHint}>
+          <Ionicons name="information-circle-outline" size={18} color={colors.amber} />
+          <Text style={styles.readyHintText}>Add a note or at least two daily updates before sending.</Text>
+        </View>
+      ) : null}
 
       <Button
-        label={log?.sent_to_parents ? 'Already sent to parents' : 'Send daily report'}
+        label={readOnly ? 'Sent to family · Final' : 'Send daily report'}
         onPress={handleSend}
         loading={sending}
+        disabled={readOnly || !reportReady}
         style={styles.sendBtn}
       />
       <View style={{ height: spacing.xxxl }} />
@@ -755,6 +790,40 @@ const styles = StyleSheet.create({
   reportStatusSent: { backgroundColor: colors.successLight },
   reportStatusText: { fontSize: 11.5, fontFamily: fonts.bold, color: colors.amber },
   reportStatusTextSent: { color: colors.success },
+  finalBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: `${colors.success}55`,
+    backgroundColor: colors.successLight,
+  },
+  finalBannerIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: radius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.surface,
+  },
+  finalBannerCopy: { flex: 1, minWidth: 0 },
+  finalBannerTitle: { color: colors.textPrimary, fontFamily: fonts.bold, fontSize: 13.5 },
+  finalBannerBody: { color: colors.textMuted, fontFamily: fonts.regular, fontSize: 11.5, lineHeight: 16, marginTop: 2 },
+  readOnlyBody: { opacity: 0.82 },
+  readyHint: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    marginBottom: spacing.sm,
+    borderRadius: radius.md,
+    backgroundColor: colors.amberLight,
+  },
+  readyHintText: { flex: 1, color: colors.amber, fontFamily: fonts.bold, fontSize: 11.5, lineHeight: 16 },
   chipWrap: { flexDirection: 'row', flexWrap: 'wrap', marginBottom: -spacing.sm },
   section: {
     backgroundColor: colors.surface,

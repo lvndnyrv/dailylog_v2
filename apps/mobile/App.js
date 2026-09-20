@@ -53,6 +53,7 @@ import MessagingScreen      from './src/screens/shared/MessagingScreen';
 import OnboardingScreen      from './src/screens/educator/OnboardingScreen';
 import RosterScreen          from './src/screens/educator/RosterScreen';
 import DailyLogScreen        from './src/screens/educator/DailyLogScreen';
+import DailyReportReviewScreen from './src/screens/educator/DailyReportReviewScreen';
 import ManageScreen          from './src/screens/educator/ManageScreen';
 import EditProfileScreen     from './src/screens/educator/EditProfileScreen';
 import BulkLogScreen         from './src/screens/educator/BulkLogScreen';
@@ -641,6 +642,7 @@ function RootNavigator() {
         <>
           <Stack.Screen name="AdminTabs"       component={AdminTabs} />
           <Stack.Screen name="DailyLog"        component={DailyLogScreen}        options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="DailyReportReview" component={DailyReportReviewScreen} options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="ChildProfile"    component={ChildProfileScreen}    options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="ClassroomEdit"   component={ClassroomEditScreen}   options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="MealMenu"        component={MealMenuScreen}        options={{ animation: 'slide_from_right' }} />
@@ -683,6 +685,7 @@ function RootNavigator() {
           <Stack.Screen name="EducatorTabs"    component={EducatorTabs} />
           <Stack.Screen name="QuickLog"         component={BulkLogScreen}        options={{ animation: 'slide_from_bottom', presentation: 'modal' }} />
           <Stack.Screen name="DailyLog"        component={DailyLogScreen}        options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="DailyReportReview" component={DailyReportReviewScreen} options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="ChildProfile"    component={ChildProfileScreen}    options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="ClassroomEdit"   component={ClassroomEditScreen}   options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="MealMenu"        component={MealMenuScreen}        options={{ animation: 'slide_from_right' }} />

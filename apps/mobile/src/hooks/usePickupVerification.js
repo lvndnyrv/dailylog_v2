@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { format } from 'date-fns';
 import { supabase } from '../lib/supabase';
 
 function firstRow(data) {
@@ -104,6 +105,17 @@ export async function createMobilePickupPass(childId, presenter) {
   const row = firstRow(data);
   if (!row) throw new Error('The pickup pass could not be created.');
   return row;
+}
+
+export async function getParentPickupAttendance(childId, date = new Date()) {
+  const { data, error } = await supabase
+    .from('attendance_records')
+    .select('id, child_id, date, status, checked_in_at, checked_out_at, picked_up_by')
+    .eq('child_id', childId)
+    .eq('date', format(date, 'yyyy-MM-dd'))
+    .maybeSingle();
+  throwIfError(error);
+  return data || null;
 }
 
 export async function addAuthorizedPickup(childId, values) {

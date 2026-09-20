@@ -20,7 +20,8 @@ import { FixTimesModal } from "./fix-times-modal";
 
 const card = "rounded-2xl border-[1.5px] border-[#D6E1F0] bg-card";
 const cardTitle = "text-[14px] font-extrabold text-ink";
-const logColumns = "grid-cols-[1.45fr_.85fr_.55fr_1.15fr_1.25fr]";
+const logColumns =
+  "grid-cols-[1.35fr_.8fr_.5fr_.5fr_1.05fr_1.15fr_1fr] min-w-[920px]";
 
 interface WeekDay {
   day: string;
@@ -277,55 +278,72 @@ export function AttendanceView({
                 every entry is time-stamped and signed
               </span>
             </div>
-            <div
-              className={`grid ${logColumns} gap-3 border-y border-[#E3EBF6] bg-[#F8FAFD] px-[18px] py-2.5 font-mono text-[10.5px] font-bold tracking-[.07em] text-faint`}
-            >
-              <span>CHILD</span>
-              <span>ROOM</span>
-              <span>IN</span>
-              <span>DROPPED OFF BY</span>
-              <span>NOTES</span>
+            <div className="overflow-x-auto">
+              <div
+                className={`grid ${logColumns} gap-3 border-y border-[#E3EBF6] bg-[#F8FAFD] px-[18px] py-2.5 font-mono text-[10.5px] font-bold tracking-[.07em] text-faint`}
+              >
+                <span>CHILD</span>
+                <span>ROOM</span>
+                <span>IN</span>
+                <span>OUT</span>
+                <span>DROPPED OFF BY</span>
+                <span>PICKED UP BY</span>
+                <span>NOTES</span>
+              </div>
+              {visibleLog.map((row) => {
+                const attendance = row.attendance[0];
+                return (
+                  <button
+                    key={row.id}
+                    type="button"
+                    onClick={() => setModal({ kind: "fix", child: row })}
+                    className={`grid w-full ${logColumns} items-center gap-3 border-b border-[#E3EBF6] px-[18px] py-3 text-left last:border-b-0 hover:bg-[#FAFCFF]`}
+                    title={`Correct ${row.first_name}'s attendance times`}
+                  >
+                    <span className="truncate text-[12.5px] font-bold text-ink">
+                      {row.first_name} {row.last_name}
+                    </span>
+                    <span className="truncate text-[12px] text-muted">
+                      {row.classroom?.name ?? "—"}
+                    </span>
+                    <span className="text-[12.5px] font-bold text-ink">
+                      {timeOf(attendance.checked_in_at, timeZone)}
+                    </span>
+                    <span className="text-[12.5px] font-bold text-ink">
+                      {timeOf(attendance.checked_out_at, timeZone)}
+                    </span>
+                    <span className="truncate text-[12px] text-muted">
+                      {attendance.dropped_off_by ??
+                        attendance.checked_in_by_profile?.full_name ??
+                        "—"}
+                      {attendance.method === "kiosk" && (
+                        <span className="ml-1 text-[10.5px] font-bold text-primary">
+                          · verified PIN
+                        </span>
+                      )}
+                      {attendance.method === "educator" && attendance.checked_in_by_profile && (
+                        <span className="ml-1 text-[10.5px] font-bold text-primary">
+                          · educator check-in
+                        </span>
+                      )}
+                    </span>
+                    <span className="min-w-0 text-[12px] text-muted">
+                      <span className="block truncate">
+                        {attendance.picked_up_by ?? "—"}
+                      </span>
+                      {attendance.checked_out_at && attendance.checked_out_by_profile && (
+                        <span className="block truncate text-[10.5px] font-bold text-primary">
+                          signed by {attendance.checked_out_by_profile.full_name}
+                        </span>
+                      )}
+                    </span>
+                    <span className="truncate text-[11.5px] text-faint">
+                      {attendance.notes ?? "—"}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
-            {visibleLog.map((row) => {
-              const attendance = row.attendance[0];
-              return (
-                <button
-                  key={row.id}
-                  type="button"
-                  onClick={() => setModal({ kind: "fix", child: row })}
-                  className={`grid w-full ${logColumns} items-center gap-3 border-b border-[#E3EBF6] px-[18px] py-3 text-left last:border-b-0 hover:bg-[#FAFCFF]`}
-                  title={`Correct ${row.first_name}'s attendance times`}
-                >
-                  <span className="truncate text-[12.5px] font-bold text-ink">
-                    {row.first_name} {row.last_name}
-                  </span>
-                  <span className="truncate text-[12px] text-muted">
-                    {row.classroom?.name ?? "—"}
-                  </span>
-                  <span className="text-[12.5px] font-bold text-ink">
-                    {timeOf(attendance.checked_in_at, timeZone)}
-                  </span>
-                  <span className="truncate text-[12px] text-muted">
-                    {attendance.dropped_off_by ??
-                      attendance.checked_in_by_profile?.full_name ??
-                      "—"}
-                    {attendance.method === "kiosk" && (
-                      <span className="ml-1 text-[10.5px] font-bold text-primary">
-                        · verified PIN
-                      </span>
-                    )}
-                    {attendance.method === "educator" && attendance.checked_in_by_profile && (
-                      <span className="ml-1 text-[10.5px] font-bold text-primary">
-                        · educator check-in
-                      </span>
-                    )}
-                  </span>
-                  <span className="truncate text-[11.5px] text-faint">
-                    {attendance.notes ?? "—"}
-                  </span>
-                </button>
-              );
-            })}
             {log.length > 5 && (
               <button
                 type="button"

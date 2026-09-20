@@ -10,14 +10,17 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { format } from 'date-fns';
 import QRCode from 'qrcode';
 
 import { useAuth } from '../../hooks/useAuth';
 import { useParentFamily } from '../../hooks/useParentFamily';
 import {
   createMobilePickupPass,
+  getParentPickupAttendance,
   getParentPickupOptions,
 } from '../../hooks/usePickupVerification';
+import { supabase } from '../../lib/supabase';
 import { colors, fonts, radius, spacing } from '../../theme';
 
 function QrMatrix({ value, size = 244 }) {
@@ -79,6 +82,7 @@ export default function PickupPassScreen({ navigation, route }) {
   const [options, setOptions] = useState([]);
   const [selected, setSelected] = useState(null);
   const [pass, setPass] = useState(null);
+  const [attendance, setAttendance] = useState(null);
   const [remaining, setRemaining] = useState(0);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -90,6 +94,17 @@ export default function PickupPassScreen({ navigation, route }) {
     if (quiet) setRefreshing(true); else setLoading(true);
     setError(null);
     try {
+      const attendanceRecord = await getParentPickupAttendance(child.id);
+      setAttendance(attendanceRecord);
+      if (!attendanceRecord?.checked_in_at) {
+        setPass(null);
+        throw new Error(`${child.first_name} is not checked in today. A pickup pass will be available after arrival.`);
+      }
+      if (attendanceRecord.checked_out_at) {
+        setPass(null);
+        setRemaining(0);
+        return;
+      }
       const nextPass = await createMobilePickupPass(child.id, presenter);
       setPass(nextPass);
       setRemaining(Math.max(0, Math.ceil((new Date(nextPass.expires_at).getTime() - Date.now()) / 1000)));
@@ -100,7 +115,7 @@ export default function PickupPassScreen({ navigation, route }) {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [child?.id]);
+  }, [child?.first_name, child?.id]);
 
   useFocusEffect(useCallback(() => {
     let current = true;
@@ -136,6 +151,32 @@ export default function PickupPassScreen({ navigation, route }) {
   }, [child?.id, generate, profile?.id]));
 
   useEffect(() => {
+    if (!child?.id) return undefined;
+    const channel = supabase
+      .channel(`parent-pickup-attendance:${child.id}`)
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'attendance_records',
+        filter: `child_id=eq.${child.id}`,
+      }, async () => {
+        try {
+          const attendanceRecord = await getParentPickupAttendance(child.id);
+          setAttendance(attendanceRecord);
+          if (attendanceRecord?.checked_out_at) {
+            setPass(null);
+            setRemaining(0);
+            setError(null);
+          }
+        } catch (_error) {
+          // The visible pass remains usable until its server-enforced expiry.
+        }
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [child?.id]);
+
+  useEffect(() => {
     if (!pass?.expires_at) return undefined;
     const timer = setInterval(() => {
       setRemaining(Math.max(0, Math.ceil((new Date(pass.expires_at).getTime() - Date.now()) / 1000)));
@@ -154,6 +195,10 @@ export default function PickupPassScreen({ navigation, route }) {
     setSelected(option);
     await generate(option);
   }
+
+  const checkoutTime = attendance?.checked_out_at
+    ? format(new Date(attendance.checked_out_at), 'h:mm a')
+    : null;
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -212,7 +257,21 @@ export default function PickupPassScreen({ navigation, route }) {
         )}
 
         <View style={styles.passCard}>
-          {loading && !pass ? (
+          {checkoutTime ? (
+            <View style={styles.pickupComplete}>
+              <View style={styles.pickupCompleteIcon}>
+                <Ionicons name="checkmark" size={38} color={colors.white} />
+              </View>
+              <Text style={styles.pickupCompleteEyebrow}>PICKUP COMPLETE</Text>
+              <Text style={styles.pickupCompleteTitle}>{child?.first_name} was checked out</Text>
+              <Text style={styles.pickupCompleteText}>
+                Released at {checkoutTime}{attendance?.picked_up_by ? ` to ${attendance.picked_up_by}` : ''}. The signed attendance record is available on Today.
+              </Text>
+              <TouchableOpacity style={styles.pickupCompleteButton} onPress={() => navigation.goBack()}>
+                <Text style={styles.pickupCompleteButtonText}>Back to today</Text>
+              </TouchableOpacity>
+            </View>
+          ) : loading && !pass ? (
             <View style={styles.loadingPass}>
               <ActivityIndicator size="large" color={colors.primary} />
               <Text style={styles.loadingText}>Creating a secure pass…</Text>
@@ -314,6 +373,29 @@ const styles = StyleSheet.create({
     alignItems: 'center', padding: spacing.lg, borderRadius: 26, backgroundColor: colors.white,
   },
   loadingPass: { minHeight: 430, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.xl },
+  pickupComplete: { minHeight: 430, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.lg },
+  pickupCompleteIcon: {
+    width: 76, height: 76, borderRadius: 38, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: colors.success,
+  },
+  pickupCompleteEyebrow: {
+    marginTop: spacing.lg, color: colors.success, fontSize: 10.5,
+    letterSpacing: 1.4, fontFamily: fonts.bold,
+  },
+  pickupCompleteTitle: {
+    marginTop: spacing.sm, color: colors.textPrimary, textAlign: 'center',
+    fontSize: 22, fontFamily: fonts.black,
+  },
+  pickupCompleteText: {
+    marginTop: spacing.sm, color: colors.textMuted, textAlign: 'center',
+    fontSize: 13, lineHeight: 19, fontFamily: fonts.regular,
+  },
+  pickupCompleteButton: {
+    minHeight: 48, marginTop: spacing.xl, alignSelf: 'stretch',
+    alignItems: 'center', justifyContent: 'center', borderRadius: radius.md,
+    backgroundColor: colors.primary,
+  },
+  pickupCompleteButtonText: { color: colors.white, fontSize: 14, fontFamily: fonts.bold },
   loadingText: { marginTop: spacing.md, color: colors.textMuted, fontSize: 13, fontFamily: fonts.regular },
   passError: {
     marginTop: spacing.md, color: colors.danger, textAlign: 'center',

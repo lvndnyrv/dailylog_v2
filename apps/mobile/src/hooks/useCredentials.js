@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import { File } from 'expo-file-system';
 
@@ -44,6 +44,7 @@ export function credentialAttention(credentials = []) {
 }
 
 export function useCredentials() {
+  const channelSuffix = useRef(Math.random().toString(36).slice(2)).current;
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -73,6 +74,35 @@ export function useCredentials() {
   useFocusEffect(useCallback(() => {
     load();
   }, [load]));
+
+  useEffect(() => {
+    if (!data?.staffMemberId) return undefined;
+    const channel = supabase
+      .channel(`mobile-credentials:${data.staffMemberId}:${channelSuffix}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'staff_credentials',
+          filter: `staff_member_id=eq.${data.staffMemberId}`,
+        },
+        () => load({ quiet: true }),
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'staff_credential_submissions',
+          filter: `staff_member_id=eq.${data.staffMemberId}`,
+        },
+        () => load({ quiet: true }),
+      )
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [channelSuffix, data?.staffMemberId, load]);
 
   return {
     data,

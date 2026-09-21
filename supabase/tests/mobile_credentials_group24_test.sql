@@ -25,7 +25,8 @@ begin
     join public.daycares daycare on daycare.id = profile.daycare_id
    where profile.id = v_maria;
   update public.staff_credentials
-     set expires_on = v_today + 12
+     set expires_on = v_today + 12,
+         document_id = '62410000-0000-4000-a000-000000000002'
    where id = '62400000-0000-4000-a000-000000000001';
   update public.documents
      set expires_on = v_today + 1095
@@ -55,6 +56,13 @@ begin
        and (row ->> 'daysUntilExpiry')::integer = 12
   ) then
     raise exception 'FAIL: expiry warning is not calculated from center time';
+  end if;
+  if not exists (
+    select 1 from jsonb_array_elements(v_hub -> 'credentials') row
+     where row ->> 'id' = '62400000-0000-4000-a000-000000000002'
+       and row ->> 'status' = 'missing'
+  ) then
+    raise exception 'FAIL: required credential without its original document was shown as complete';
   end if;
   if not exists (
     select 1 from jsonb_array_elements(v_hub -> 'credentials') row

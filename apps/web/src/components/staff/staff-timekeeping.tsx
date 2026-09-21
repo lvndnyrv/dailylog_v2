@@ -4,6 +4,7 @@ import type {
   StaffRow,
   StaffShiftRow,
   StaffTimeEntryRow,
+  StaffTimeOffCoverageImpactRow,
   StaffTimeOffRequestRow,
 } from "@dailylog/db/queries";
 import { useRouter } from "next/navigation";
@@ -87,6 +88,7 @@ export function StaffTimekeeping({
   shifts,
   entries,
   requests,
+  coverageImpacts,
   timeZone,
   weekStart,
   month,
@@ -97,6 +99,7 @@ export function StaffTimekeeping({
   shifts: StaffShiftRow[];
   entries: StaffTimeEntryRow[];
   requests: StaffTimeOffRequestRow[];
+  coverageImpacts: StaffTimeOffCoverageImpactRow[];
   timeZone: string;
   weekStart: string;
   month: string;
@@ -371,6 +374,7 @@ export function StaffTimekeeping({
         <TimeOffCalendar
           month={month}
           requests={requests}
+          coverageImpacts={coverageImpacts}
           shifts={shifts}
           timeZone={timeZone}
           onSelect={setSelectedRequest}
@@ -397,6 +401,15 @@ export function StaffTimekeeping({
       {selectedRequest && (
         <TimeOffDecisionModal
           request={selectedRequest}
+          impacts={coverageImpacts.filter((impact) => impact.request_id === selectedRequest.id)}
+          conflictingShifts={shifts.filter(
+            (shift) =>
+              shift.staff?.id === selectedRequest.staff?.id &&
+              dateInTimeZone(shift.starts_at, timeZone) >= selectedRequest.starts_on &&
+              dateInTimeZone(shift.starts_at, timeZone) <= selectedRequest.ends_on &&
+              shift.status !== "cancelled",
+          )}
+          timeZone={timeZone}
           busy={isPending}
           onClose={() => setSelectedRequest(null)}
           onDecision={(decision, notes) => {
@@ -593,12 +606,14 @@ function OpenEntryFix({ entry, onFixed }: { entry: StaffTimeEntryRow; onFixed: (
 function TimeOffCalendar({
   month,
   requests,
+  coverageImpacts,
   shifts,
   timeZone,
   onSelect,
 }: {
   month: string;
   requests: StaffTimeOffRequestRow[];
+  coverageImpacts: StaffTimeOffCoverageImpactRow[];
   shifts: StaffShiftRow[];
   timeZone: string;
   onSelect: (request: StaffTimeOffRequestRow) => void;
@@ -625,6 +640,9 @@ function TimeOffCalendar({
         shift.status !== "cancelled",
     );
 
+  const requestImpact = (request: StaffTimeOffRequestRow) =>
+    coverageImpacts.filter((impact) => impact.request_id === request.id);
+
   return (
     <div className="flex flex-col gap-[18px]">
       {pending.length > 0 && (
@@ -642,7 +660,11 @@ function TimeOffCalendar({
                 </span>
                 <span className="block text-[11.5px] text-muted">
                   {request.staff?.profile?.classroom?.name ?? "No room"} · {request.kind}
-                  {needsCoverageReview(request) ? " · coverage review needed" : " · no published shift conflict"}
+                  {requestImpact(request).length > 0
+                    ? ` · ${Math.max(...requestImpact(request).map((impact) => impact.staff_gap))} educator short in ${[...new Set(requestImpact(request).map((impact) => impact.room_name))].join(", ")}`
+                    : needsCoverageReview(request)
+                      ? " · forecast remains covered ✓"
+                      : " · no published shift conflict"}
                 </span>
               </span>
               <button type="button" onClick={() => onSelect(request)} className="rounded-btn border-[1.5px] border-[#D6E1F0] bg-card px-3.5 py-2 text-[11.5px] font-bold text-ink hover:bg-canvas">
@@ -702,12 +724,18 @@ function TimeOffCalendar({
 
 function TimeOffDecisionModal({
   request,
+  impacts,
+  conflictingShifts,
+  timeZone,
   busy,
   error,
   onClose,
   onDecision,
 }: {
   request: StaffTimeOffRequestRow;
+  impacts: StaffTimeOffCoverageImpactRow[];
+  conflictingShifts: StaffShiftRow[];
+  timeZone: string;
   busy: boolean;
   error: string | null;
   onClose: () => void;
@@ -715,6 +743,7 @@ function TimeOffDecisionModal({
 }) {
   const [notes, setNotes] = useState(request.decision_notes ?? "");
   const pending = request.status === "pending";
+  const maxGap = impacts.length ? Math.max(...impacts.map((impact) => impact.staff_gap)) : 0;
   return (
     <Modal onClose={onClose} width={450}>
       <div className="flex items-start gap-3">
@@ -726,9 +755,43 @@ function TimeOffDecisionModal({
         </span>
         <button type="button" onClick={onClose} aria-label="Close" className="grid size-8 place-items-center rounded-full bg-canvas text-muted">×</button>
       </div>
-      <div className="rounded-[14px] border border-[#EFD9B5] bg-warning-bg px-4 py-3 text-[12px] leading-relaxed text-warning-text">
-        Check the room schedule before approving. DailyLog flags published shifts, but forecast ratio coverage requires child schedule data.
-      </div>
+      {conflictingShifts.length === 0 ? (
+        <div className="rounded-[14px] border border-[#CBE5D7] bg-[#E4F3EC] px-4 py-3 text-[12px] font-semibold leading-relaxed text-success">
+          No published shift conflicts with this request.
+        </div>
+      ) : impacts.length === 0 ? (
+        <div className="rounded-[14px] border border-[#CBE5D7] bg-[#E4F3EC] px-4 py-3 text-[12px] leading-relaxed text-success">
+          <b>Coverage remains within ratio ✓</b><br />
+          The current child schedule and published staffing stay covered if this request is approved.
+        </div>
+      ) : (
+        <div className="rounded-[14px] border border-[#E9BFC0] bg-danger-bg px-4 py-3 text-[12px] leading-relaxed text-danger">
+          <b>{[...new Set(impacts.map((impact) => impact.room_name))].join(", ")} would be {maxGap} {maxGap === 1 ? "educator" : "educators"} short.</b>
+          <span className="mt-1 block text-[11.5px] font-medium">
+            Arrange coverage before approving, or decline with an alternate date.
+          </span>
+        </div>
+      )}
+      {impacts.length > 0 && (
+        <div className="overflow-hidden rounded-[14px] border border-[#D6E1F0]">
+          {impacts.slice(0, 5).map((impact) => (
+            <div key={`${impact.work_date}:${impact.room_id}:${impact.starts_at}`} className="flex items-center gap-3 border-b border-[#EDF3FB] px-3.5 py-2.5 last:border-0">
+              <span className="min-w-0 flex-1">
+                <span className="block text-[12px] font-bold text-ink">{impact.room_name} · {dateLabel(impact.work_date)}</span>
+                <span className="block text-[11px] text-muted">
+                  {timeLabel(impact.starts_at, timeZone)}–{timeLabel(impact.ends_at, timeZone)} · {impact.expected_children} children
+                </span>
+              </span>
+              <span className="rounded-full bg-danger-bg px-2.5 py-1 text-[10.5px] font-bold text-danger">
+                {impact.scheduled_staff}/{impact.required_staff} staff
+              </span>
+            </div>
+          ))}
+          {impacts.length > 5 && (
+            <p className="border-t border-[#EDF3FB] px-3.5 py-2 text-[11px] text-faint">+ {impacts.length - 5} more affected intervals</p>
+          )}
+        </div>
+      )}
       <label className="text-[12px] font-bold text-ink">
         Note to staff <span className="font-normal text-faint">(optional)</span>
         <textarea disabled={!pending} value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Add context or suggest another date…" className="mt-1.5 min-h-20 w-full resize-none rounded-xl border-[1.5px] border-[#D6E1F0] bg-[#F9FBFE] px-3.5 py-2.5 text-[13px] font-normal outline-none focus:border-primary disabled:text-muted" />

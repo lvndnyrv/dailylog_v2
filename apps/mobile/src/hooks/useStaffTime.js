@@ -40,10 +40,11 @@ export function useStaffTime() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [mutating, setMutating] = useState(false);
+  const [todayKey, setTodayKey] = useState(() => localDateKey(new Date()));
 
   const weekStart = useMemo(
     () => startOfWeek(new Date(), { weekStartsOn: 1 }),
-    [],
+    [todayKey],
   );
   const weekEnd = useMemo(() => addDays(weekStart, 7), [weekStart]);
 
@@ -130,6 +131,14 @@ export function useStaffTime() {
   }, [load]);
 
   useEffect(() => {
+    const timer = setInterval(() => {
+      const nextKey = localDateKey(new Date());
+      setTodayKey(current => current === nextKey ? current : nextKey);
+    }, 60000);
+    return () => clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
     if (!staffMember?.id) return undefined;
     const channel = supabase
       .channel(`mobile-time-off:${staffMember.id}:${channelSuffix}`)
@@ -139,6 +148,16 @@ export function useStaffTime() {
           event: '*',
           schema: 'public',
           table: 'staff_shifts',
+          filter: `staff_member_id=eq.${staffMember.id}`,
+        },
+        () => load(),
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'staff_time_entries',
           filter: `staff_member_id=eq.${staffMember.id}`,
         },
         () => load(),

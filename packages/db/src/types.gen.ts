@@ -8343,6 +8343,23 @@ export type Database = {
           starts_at: string
         }[]
       }
+      get_staff_time_off_coverage_impacts: {
+        Args: { p_request_ids: string[] }
+        Returns: {
+          ends_at: string
+          expected_children: number
+          request_id: string
+          required_staff: number
+          room_id: string
+          room_name: string
+          scheduled_staff: number
+          staff_gap: number
+          starts_at: string
+          uncertain_staff: number
+          unknown_bookings: number
+          work_date: string
+        }[]
+      }
       get_staff_invite: {
         Args: { p_code: string }
         Returns: {

@@ -60,6 +60,21 @@ export interface StaffTimeOffRequestRow {
   } | null;
 }
 
+export interface StaffTimeOffCoverageImpactRow {
+  request_id: string;
+  work_date: string;
+  room_id: string;
+  room_name: string;
+  starts_at: string;
+  ends_at: string;
+  expected_children: number;
+  scheduled_staff: number;
+  required_staff: number;
+  staff_gap: number;
+  unknown_bookings: number;
+  uncertain_staff: number;
+}
+
 const SHIFT_SELECT = `id, starts_at, ends_at, unpaid_break_minutes, planned_break_starts_at, planned_break_ends_at, status, notes,
   staff:staff_members(id, profile:profiles(id, full_name,
     classroom:classrooms!profiles_classroom_id_fkey(id, name))), classroom:classrooms(id, name)`;
@@ -109,6 +124,18 @@ export async function listStaffTimeOffRequests(
     .order('starts_on');
   if (error) throw error;
   return (data ?? []) as unknown as StaffTimeOffRequestRow[];
+}
+
+export async function listStaffTimeOffCoverageImpacts(
+  client: Client,
+  requestIds: string[],
+): Promise<StaffTimeOffCoverageImpactRow[]> {
+  if (requestIds.length === 0) return [];
+  const { data, error } = await client.rpc('get_staff_time_off_coverage_impacts', {
+    p_request_ids: requestIds,
+  });
+  if (error) throw error;
+  return (data ?? []) as StaffTimeOffCoverageImpactRow[];
 }
 
 export async function clockIn(client: Client, classroomId?: string | null): Promise<string> {

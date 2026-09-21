@@ -7,6 +7,7 @@ import type {
   StaffRow,
   StaffShiftRow,
   StaffTimeEntryRow,
+  StaffTimeOffCoverageImpactRow,
   StaffTimeOffRequestRow,
 } from "@dailylog/db/queries";
 import { useRouter } from "next/navigation";
@@ -75,6 +76,7 @@ export function StaffView({
   shifts,
   timeEntries,
   timeOff,
+  timeOffCoverageImpacts,
   timeZone,
   weekStart,
   month,
@@ -93,6 +95,7 @@ export function StaffView({
   shifts: StaffShiftRow[];
   timeEntries: StaffTimeEntryRow[];
   timeOff: StaffTimeOffRequestRow[];
+  timeOffCoverageImpacts: StaffTimeOffCoverageImpactRow[];
   timeZone: string;
   weekStart: string;
   month: string;
@@ -391,6 +394,7 @@ export function StaffView({
             shifts={shifts}
             entries={timeEntries}
             requests={timeOff}
+            coverageImpacts={timeOffCoverageImpacts}
             timeZone={timeZone}
             weekStart={weekStart}
             month={month}

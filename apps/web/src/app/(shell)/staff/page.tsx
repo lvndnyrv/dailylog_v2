@@ -8,6 +8,7 @@ import {
   listStaffDelegations,
   listStaffShifts,
   listStaffTimeEntries,
+  listStaffTimeOffCoverageImpacts,
   listStaffTimeOffRequests,
 } from "@dailylog/db/queries";
 import { SectionHeader } from "@/components/shell/header";
@@ -51,6 +52,7 @@ export default async function StaffPage({
   let shifts: Awaited<ReturnType<typeof listStaffShifts>> = [];
   let timeEntries: Awaited<ReturnType<typeof listStaffTimeEntries>> = [];
   let timeOff: Awaited<ReturnType<typeof listStaffTimeOffRequests>> = [];
+  let timeOffCoverageImpacts: Awaited<ReturnType<typeof listStaffTimeOffCoverageImpacts>> = [];
   let timekeepingError: string | null = null;
   try {
     // Fetch a one-day UTC buffer; the client filters by the center's IANA
@@ -68,6 +70,10 @@ export default async function StaffPage({
       ),
       listStaffTimeOffRequests(supabase, month.from, addDateDays(month.to, 60)),
     ]);
+    timeOffCoverageImpacts = await listStaffTimeOffCoverageImpacts(
+      supabase,
+      timeOff.filter((request) => request.status === "pending").map((request) => request.id),
+    );
   } catch (error) {
     timekeepingError =
       error instanceof Error ? error.message : "Timekeeping data is unavailable.";
@@ -100,6 +106,7 @@ export default async function StaffPage({
         shifts={shifts}
         timeEntries={timeEntries}
         timeOff={timeOff}
+        timeOffCoverageImpacts={timeOffCoverageImpacts}
         timeZone={timeZone}
         weekStart={weekStart}
         month={selectedMonth}

@@ -624,6 +624,75 @@ export default function RosterScreen({ navigation }) {
 
   const hasSearchResults = filteredBuckets.some(bucket => bucket.items.length);
 
+  if (!activeClassroom) {
+    return (
+      <SafeAreaView style={styles.safeArea} edges={['top']}>
+        <ScrollView
+          style={styles.container}
+          contentContainerStyle={styles.content}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={colors.primary} />
+          }
+        >
+          <View style={styles.header}>
+            <View style={styles.headerCopy}>
+              <Text style={styles.greeting}>Good {phase === 'morning' ? 'morning' : 'afternoon'}, {firstName}</Text>
+              <ClassroomSwitcher compact childCount={0} />
+            </View>
+            <View style={styles.headerActions}>
+              <TouchableOpacity
+                onPress={() => navigation.navigate('StaffNotifications')}
+                style={styles.notificationButton}
+                accessibilityRole="button"
+                accessibilityLabel={`Notifications${notifications.unreadCount ? `, ${notifications.unreadCount} unread` : ''}`}
+              >
+                <Ionicons name="notifications-outline" size={21} color={colors.textPrimary} />
+                {notifications.unreadCount ? (
+                  <View style={styles.notificationBadge}>
+                    <Text style={styles.notificationBadgeText}>{notifications.unreadCount > 99 ? '99+' : notifications.unreadCount}</Text>
+                  </View>
+                ) : null}
+              </TouchableOpacity>
+              <ProfileAvatar profile={profile} onPress={() => navigation.navigate('ProfileTab')} />
+            </View>
+          </View>
+
+          <View style={styles.floaterCard}>
+            <View style={styles.floaterIcon}>
+              <Ionicons name="swap-horizontal-outline" size={28} color={colors.primary} />
+            </View>
+            <Text style={styles.floaterEyebrow}>FLOATER POOL</Text>
+            <Text style={styles.floaterTitle}>You’re ready for room coverage</Text>
+            <Text style={styles.floaterBody}>
+              You don’t have a permanent classroom. When you accept a coverage invitation, that room and its children appear here only during the scheduled window.
+            </Text>
+            <TouchableOpacity
+              style={styles.floaterPrimaryButton}
+              onPress={() => navigation.navigate('RoomRatios')}
+              accessibilityRole="button"
+              accessibilityLabel="View room coverage invitations"
+            >
+              <Text style={styles.floaterPrimaryButtonText}>View room coverage</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.floaterSecondaryButton}
+              onPress={() => navigation.navigate('MyTime')}
+              accessibilityRole="button"
+              accessibilityLabel="View my schedule"
+            >
+              <Text style={styles.floaterSecondaryButtonText}>View my schedule</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.floaterNote}>
+            <Ionicons name="shield-checkmark-outline" size={20} color={colors.success} />
+            <Text style={styles.floaterNoteText}>Child information stays hidden until accepted coverage begins, and closes automatically when it ends.</Text>
+          </View>
+        </ScrollView>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
       <ScrollView
@@ -876,6 +945,85 @@ const styles = StyleSheet.create({
     gap: spacing.md,
     marginTop: spacing.sm,
     marginBottom: spacing.lg,
+  },
+  floaterCard: {
+    alignItems: 'center',
+    marginTop: spacing.lg,
+    paddingHorizontal: spacing.xl,
+    paddingVertical: spacing.xxl,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    borderRadius: radius.xl,
+    backgroundColor: colors.surface,
+  },
+  floaterIcon: {
+    width: 64,
+    height: 64,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: spacing.lg,
+    borderRadius: 32,
+    backgroundColor: colors.primaryLight,
+  },
+  floaterEyebrow: {
+    marginBottom: spacing.sm,
+    color: colors.primary,
+    fontFamily: fonts.bold,
+    fontSize: 10,
+    letterSpacing: 1.2,
+  },
+  floaterTitle: {
+    color: colors.textPrimary,
+    fontFamily: fonts.black,
+    fontSize: 21,
+    lineHeight: 26,
+    textAlign: 'center',
+  },
+  floaterBody: {
+    marginTop: spacing.sm,
+    marginBottom: spacing.xl,
+    color: colors.textMuted,
+    fontFamily: fonts.regular,
+    fontSize: 14,
+    lineHeight: 21,
+    textAlign: 'center',
+  },
+  floaterPrimaryButton: {
+    width: '100%',
+    minHeight: 50,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radius.full,
+    backgroundColor: colors.primary,
+  },
+  floaterPrimaryButtonText: { color: colors.white, fontFamily: fonts.bold, fontSize: 14 },
+  floaterSecondaryButton: {
+    width: '100%',
+    minHeight: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: spacing.sm,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    borderRadius: radius.full,
+    backgroundColor: colors.surface,
+  },
+  floaterSecondaryButtonText: { color: colors.primary, fontFamily: fonts.bold, fontSize: 14 },
+  floaterNote: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.sm,
+    marginTop: spacing.lg,
+    padding: spacing.lg,
+    borderRadius: radius.lg,
+    backgroundColor: colors.successLight,
+  },
+  floaterNoteText: {
+    flex: 1,
+    color: colors.textSecondary,
+    fontFamily: fonts.regular,
+    fontSize: 12.5,
+    lineHeight: 18,
   },
   priorityEyebrow: {
     color: '#5B7CA8',

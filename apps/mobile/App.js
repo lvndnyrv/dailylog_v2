@@ -588,7 +588,7 @@ function RootNavigator() {
   }
 
   const needsOnboarding =
-    (profile?.role === 'educator' && !profile?.classroom_id) ||
+    (profile?.role === 'educator' && !profile?.daycare_id) ||
     (isAdminRole(profile?.role) && !profile?.daycare_id) ||
     (
       profile?.role === 'parent' &&

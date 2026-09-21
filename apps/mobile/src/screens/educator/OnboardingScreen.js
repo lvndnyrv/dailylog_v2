@@ -913,7 +913,7 @@ function LegacyEducatorJoin({ onJoined }) {
         <Text style={styles.educatorEmoji}>🔑</Text>
         <Text style={styles.educatorTitle}>Connect to your daycare</Text>
         <Text style={styles.educatorDescription}>
-          Ask your daycare admin for its code, then choose your classroom.
+          Ask your daycare administrator for its connection code. They will manage your permanent room assignments and coverage.
         </Text>
         <Input
           label="Daycare code"
@@ -934,7 +934,7 @@ function LegacyEducatorJoin({ onJoined }) {
 }
 
 export default function OnboardingScreen() {
-  const { profile, user } = useAuth();
+  const { profile, user, fetchProfile } = useAuth();
   const centerSetupPending = user?.user_metadata?.setup_center_pending === true;
   const isCenterSetup = isAdminRole(profile?.role) || centerSetupPending;
   const [educatorDaycareId, setEducatorDaycareId] = useState(profile?.daycare_id || null);
@@ -942,7 +942,9 @@ export default function OnboardingScreen() {
 
   if (isCenterSetup) return <CenterSetupWizard />;
   if (!educatorDaycareId) {
-    return <LegacyEducatorJoin onJoined={setEducatorDaycareId} />;
+    return <LegacyEducatorJoin onJoined={async () => {
+      if (user?.id) await fetchProfile(user.id);
+    }} />;
   }
   if (educatorView === 'create') {
     return (

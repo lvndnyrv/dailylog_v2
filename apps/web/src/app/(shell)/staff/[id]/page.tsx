@@ -6,6 +6,7 @@ import {
 } from "@dailylog/db/queries";
 import { notFound } from "next/navigation";
 import { StaffProfileView } from "@/components/staff/staff-profile-view";
+import type { StaffPermissionMatrixData } from "@/components/staff/staff-permissions-modal";
 import { getServerSupabase } from "@/lib/supabase/server";
 
 // Educator profile 4b/4i — certifications, employment, contact, regular
@@ -24,6 +25,7 @@ export default async function StaffProfilePage({
   let credentialSubmissions: Awaited<ReturnType<typeof listStaffCredentialSubmissions>> = [];
   let regularSchedule: Awaited<ReturnType<typeof listStaffRegularSchedule>> = [];
   const currentProfile = await getMyProfile(supabase);
+  let permissionMatrix: StaffPermissionMatrixData | null = null;
   try {
     [member, credentialSubmissions, regularSchedule] = await Promise.all([
       getStaffMember(supabase, id),
@@ -34,6 +36,12 @@ export default async function StaffProfilePage({
     notFound();
   }
   if (!member.profile) notFound();
+
+  const { data: permissionData } = await supabase.rpc(
+    "get_staff_permission_matrix" as never,
+    { p_profile_id: member.profile.id } as never,
+  );
+  permissionMatrix = permissionData as StaffPermissionMatrixData | null;
 
   const submissionsWithUrls = await Promise.all(
     credentialSubmissions.map(async (submission) => {
@@ -52,6 +60,7 @@ export default async function StaffProfilePage({
       credentialSubmissions={submissionsWithUrls}
       regularSchedule={regularSchedule}
       currentProfileId={currentProfile?.id ?? null}
+      permissionMatrix={permissionMatrix}
     />
   );
 }

@@ -11,6 +11,10 @@ import {
   CredentialReviewCard,
   type CredentialSubmissionWithUrl,
 } from "./credential-review-card";
+import {
+  StaffPermissionsModal,
+  type StaffPermissionMatrixData,
+} from "./staff-permissions-modal";
 
 const card = "rounded-2xl border border-[rgba(23,51,91,.1)] bg-card p-[18px]";
 const cardTitle = "text-[14px] font-extrabold text-ink";
@@ -28,14 +32,16 @@ export function StaffProfileView({
   credentialSubmissions,
   regularSchedule,
   currentProfileId,
+  permissionMatrix,
 }: {
   member: StaffRow;
   openEdit: boolean;
   credentialSubmissions: CredentialSubmissionWithUrl[];
   regularSchedule: StaffRegularScheduleRow[];
   currentProfileId: string | null;
+  permissionMatrix: StaffPermissionMatrixData | null;
 }) {
-  const [modal, setModal] = useState<"none" | "edit" | "deactivate">(
+  const [modal, setModal] = useState<"none" | "edit" | "deactivate" | "permissions">(
     openEdit ? "edit" : "none",
   );
   const profile = member.profile!;
@@ -257,23 +263,34 @@ export function StaffProfileView({
             )}
           </section>
 
-          {/* Permissions — read-only summary */}
           <section className={card}>
             <div className="mb-2 flex items-center gap-2">
               <h2 className={cardTitle}>Permissions</h2>
               <span className="flex-1" />
-              <Link href="/staff?tab=roles" className="text-[12.5px] font-bold text-primary hover:text-primary-hover">
-                Roles overview
-              </Link>
+              {permissionMatrix && (
+                <button
+                  type="button"
+                  onClick={() => setModal("permissions")}
+                  className="text-[12.5px] font-bold text-primary hover:text-primary-hover"
+                >
+                  Open matrix
+                </button>
+              )}
             </div>
             <p className="text-[12.5px] leading-relaxed text-body">
               Inherited from the{" "}
-              <b className="text-ink">{ROLE_LABELS[profile.role] ?? profile.role}</b> role · no
-              overrides.{" "}
+              <b className="text-ink">
+                {permissionMatrix?.role_name ?? ROLE_LABELS[profile.role] ?? profile.role}
+              </b>{" "}
+              role · {permissionMatrix?.overrides.length ?? 0}{" "}
+              {(permissionMatrix?.overrides.length ?? 0) === 1 ? "override" : "overrides"}.{" "}
               {profile.role === "educator"
-                ? "No billing, enrollment or staff access."
-                : "Full console access within this center."}
+                ? "Room-specific changes can refine access without changing the whole role."
+                : "Center-wide changes apply in addition to role defaults."}
             </p>
+            <Link href="/staff?tab=roles" className="mt-2 inline-block text-[11.5px] font-bold text-primary hover:text-primary-hover">
+              Roles overview →
+            </Link>
           </section>
         </div>
 
@@ -334,6 +351,15 @@ export function StaffProfileView({
         <EditStaffModal
           member={member}
           regularSchedule={regularSchedule}
+          onClose={() => setModal("none")}
+        />
+      )}
+
+      {modal === "permissions" && permissionMatrix && (
+        <StaffPermissionsModal
+          matrix={permissionMatrix}
+          staffId={member.id}
+          viewerProfileId={currentProfileId}
           onClose={() => setModal("none")}
         />
       )}

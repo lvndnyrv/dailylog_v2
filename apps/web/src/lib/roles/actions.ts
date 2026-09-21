@@ -20,6 +20,11 @@ export interface RoleActionState {
   newRoleId?: string;
 }
 
+export interface PermissionOverrideActionState {
+  error?: string;
+  ok?: boolean;
+}
+
 function str(formData: FormData, key: string): string {
   return String(formData.get(key) ?? "").trim();
 }
@@ -126,4 +131,37 @@ export async function deleteRoleAction(formData: FormData): Promise<void> {
   const supabase = await getServerSupabase();
   await deleteCenterRole(supabase, str(formData, "role_id"));
   revalidatePath("/staff");
+}
+
+export async function saveStaffPermissionOverrideAction(
+  _prev: PermissionOverrideActionState,
+  formData: FormData,
+): Promise<PermissionOverrideActionState> {
+  const supabase = await getServerSupabase();
+  const profileId = str(formData, "profile_id");
+  const staffId = str(formData, "staff_id");
+  const classroomId = str(formData, "classroom_id") || null;
+  let permissions: unknown = {};
+
+  if (str(formData, "intent") !== "reset") {
+    try {
+      permissions = JSON.parse(str(formData, "permissions") || "{}");
+    } catch {
+      return { error: "The permission changes could not be read." };
+    }
+  }
+
+  const { error } = await supabase.rpc(
+    "save_staff_permission_override" as never,
+    {
+      p_profile_id: profileId,
+      p_classroom_id: classroomId,
+      p_permissions: permissions,
+    } as never,
+  );
+  if (error) return { error: error.message };
+
+  revalidatePath("/staff");
+  if (staffId) revalidatePath(`/staff/${staffId}`);
+  return { ok: true };
 }

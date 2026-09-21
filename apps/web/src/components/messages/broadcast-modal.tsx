@@ -44,7 +44,7 @@ export function BroadcastModal({
       {state.ok ? (
         <>
           <Notice tone="success">
-            <b>Sent.</b> Families see it the next time they open the app.
+            <b>Sent.</b> It is now in the selected families&apos; announcement feed.
           </Notice>
           <Button type="button" className="py-3 text-sm" onClick={onClose}>
             Done
@@ -165,7 +165,7 @@ export function BroadcastModal({
             </Button>
           </div>
           <p className="text-center text-[11px] text-faint">
-            Push + email delivery and scheduling arrive with notifications infra.
+            Families with announcement alerts enabled also receive a push notification.
           </p>
         </form>
       )}

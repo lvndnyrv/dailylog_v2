@@ -80,26 +80,26 @@ export default function ParentMessagesScreen() {
         setAnnouncementUnread(0);
       }
 
+      const childIds = family.children.map((child) => child.id);
+      const { data: unreadRows, error: unreadError } = childIds.length
+        ? await supabase.rpc('get_unread_child_message_counts', { p_child_ids: childIds })
+        : { data: [], error: null };
+      if (unreadError) throw unreadError;
+      const unreadByChild = new Map(
+        (unreadRows || []).map((row) => [row.child_id, Number(row.unread_count || 0)]),
+      );
+
       const threadRows = await Promise.all(
         family.children.map(async (child) => {
-          const [messagesResult, unreadResult] = await Promise.all([
-          supabase
+          const messagesResult = await supabase
             .from('messages')
-            .select('body, created_at, sender_id, sender:profiles(full_name, role)')
+            .select('body, created_at, sender_id, sender:profiles!messages_sender_id_fkey(full_name, role)')
             .eq('child_id', child.id)
             .order('created_at', { ascending: false })
-            .limit(20),
-          supabase
-            .from('messages')
-            .select('id', { count: 'exact', head: true })
-            .eq('child_id', child.id)
-            .neq('sender_id', profile.id)
-            .is('read_at', null),
-          ]);
+            .limit(20);
           if (messagesResult.error) throw messagesResult.error;
-          if (unreadResult.error) throw unreadResult.error;
           const recentMessages = messagesResult.data;
-          const unread = unreadResult.count;
+          const unread = unreadByChild.get(child.id) || 0;
         const lastMessage = recentMessages?.[0] || null;
         const staffMessage = recentMessages?.find((message) => (
           isStaffRole(message.sender?.role)
@@ -142,7 +142,8 @@ export default function ParentMessagesScreen() {
   useFocusEffect(
     useCallback(() => {
       family.refresh({ silent: true }).catch(() => {});
-    }, [family.refresh]),
+      load();
+    }, [family.refresh, load]),
   );
 
   useEffect(() => {
@@ -154,6 +155,7 @@ export default function ParentMessagesScreen() {
     const channel = supabase
       .channel(`parent-inbox:${profile.id}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, load)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'message_reads' }, load)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'announcements' }, load)
       .subscribe();
     return () => supabase.removeChannel(channel);

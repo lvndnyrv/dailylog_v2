@@ -6,7 +6,8 @@ import { useClassroom } from './useClassroom';
 
 /**
  * Returns total unread message count for the current user.
- * Uses read_at column — messages from others where read_at is null.
+ * Uses recipient-specific read receipts so one guardian or staff member cannot
+ * clear another person's badge.
  * Auto-refreshes via realtime, polling, and app state changes.
  */
 export function useUnreadMessages() {
@@ -28,14 +29,15 @@ export function useUnreadMessages() {
 
         if (!links?.length) { setCount(0); return; }
 
-        const { count: unread } = await supabase
-          .from('messages')
-          .select('id', { count: 'exact', head: true })
-          .in('child_id', links.map(l => l.child_id))
-          .neq('sender_id', profile.id)
-          .is('read_at', null);
-
-        setCount(unread || 0);
+        const { data: unreadRows, error } = await supabase.rpc(
+          'get_unread_child_message_counts',
+          { p_child_ids: links.map((link) => link.child_id) },
+        );
+        if (error) throw error;
+        setCount((unreadRows || []).reduce(
+          (total, row) => total + Number(row.unread_count || 0),
+          0,
+        ));
       } else {
         // Educator/Admin: count unread messages for active classroom's children
         const classroomId = active?.id || profile?.classroom_id;
@@ -49,14 +51,15 @@ export function useUnreadMessages() {
 
         if (!children?.length) { setCount(0); return; }
 
-        const { count: unread } = await supabase
-          .from('messages')
-          .select('id', { count: 'exact', head: true })
-          .in('child_id', children.map(c => c.id))
-          .neq('sender_id', profile.id)
-          .is('read_at', null);
-
-        setCount(unread || 0);
+        const { data: unreadRows, error } = await supabase.rpc(
+          'get_unread_child_message_counts',
+          { p_child_ids: children.map((child) => child.id) },
+        );
+        if (error) throw error;
+        setCount((unreadRows || []).reduce(
+          (total, row) => total + Number(row.unread_count || 0),
+          0,
+        ));
       }
     } catch (e) {
       // Silently fail — badge is non-critical
@@ -93,6 +96,11 @@ export function useUnreadMessages() {
         schema: 'public',
         table: 'messages',
       }, () => setTimeout(refresh, 500))
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'message_reads',
+      }, () => setTimeout(refresh, 250))
       .subscribe();
 
     return () => {
@@ -104,4 +112,3 @@ export function useUnreadMessages() {
 
   return { unreadCount: count, refresh };
 }
-

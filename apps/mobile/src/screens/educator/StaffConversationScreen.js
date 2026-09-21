@@ -43,7 +43,7 @@ export default function StaffConversationScreen({ navigation, route }) {
     const [{ data: rows, error: messageError }, { data: summaries, error: summaryError }] = await Promise.all([
       supabase
         .from('messages')
-        .select('id, body, created_at, read_at, sender_id, sender:profiles(id, full_name, role)')
+        .select('id, body, created_at, read_at, sender_id, sender:profiles!messages_sender_id_fkey(id, full_name, role)')
         .eq('conversation_id', conversationId)
         .order('created_at'),
       supabase.rpc('list_my_staff_conversations'),

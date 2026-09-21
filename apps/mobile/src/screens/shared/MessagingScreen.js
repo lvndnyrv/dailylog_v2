@@ -207,7 +207,7 @@ export default function MessagingScreen({ route, navigation }) {
   async function loadMessage(messageId, fallback) {
     const { data } = await supabase
       .from('messages')
-      .select('*, sender:profiles(id, full_name, role)')
+      .select('*, sender:profiles!messages_sender_id_fkey(id, full_name, role)')
       .eq('id', messageId)
       .maybeSingle();
     return signedAttachmentUrl(data || fallback);
@@ -216,7 +216,7 @@ export default function MessagingScreen({ route, navigation }) {
   async function loadMessages() {
     const { data, error } = await supabase
       .from('messages')
-      .select('*, sender:profiles(id, full_name, role)')
+      .select('*, sender:profiles!messages_sender_id_fkey(id, full_name, role)')
       .eq('child_id', childId)
       .order('created_at', { ascending: true });
     if (error) throw error;

@@ -3949,6 +3949,39 @@ export type Database = {
           },
         ]
       }
+      message_reads: {
+        Row: {
+          message_id: string
+          profile_id: string
+          read_at: string
+        }
+        Insert: {
+          message_id: string
+          profile_id: string
+          read_at?: string
+        }
+        Update: {
+          message_id?: string
+          profile_id?: string
+          read_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "message_reads_message_id_fkey"
+            columns: ["message_id"]
+            isOneToOne: false
+            referencedRelation: "messages"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "message_reads_profile_id_fkey"
+            columns: ["profile_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       messages: {
         Row: {
           attachment_kind: string | null
@@ -7152,6 +7185,10 @@ export type Database = {
           reason: string
         }[]
       }
+      _get_mobile_roll_call_without_enrollment_boundary: {
+        Args: { p_classroom_id: string }
+        Returns: Json
+      }
       _loan_live_source_safe: {
         Args: { p_source: string; p_staff: string }
         Returns: boolean
@@ -7239,6 +7276,10 @@ export type Database = {
       _revoke_compliance_inspection_share: {
         Args: { p_id: string }
         Returns: undefined
+      }
+      _room_coverage_review_reason: {
+        Args: { p_assignment: string }
+        Returns: string
       }
       _room_demand_forecast: {
         Args: { p_center: string; p_date: string; p_exclude_staff?: string }
@@ -7816,6 +7857,7 @@ export type Database = {
         }
         Returns: string
       }
+      enqueue_room_coverage_review_alerts: { Args: never; Returns: number }
       enqueue_staff_credential_expiry_reminders: {
         Args: never
         Returns: number
@@ -8062,10 +8104,10 @@ export type Database = {
           ends_at: string
           id: string
           notes: string
-          room_id: string
-          room_name: string
           review_issue: string
           review_issue_detected_at: string
+          room_id: string
+          room_name: string
           starts_at: string
           status: string
           timezone: string
@@ -8315,6 +8357,13 @@ export type Database = {
           role: string
         }[]
       }
+      get_unread_child_message_counts: {
+        Args: { p_child_ids?: string[] }
+        Returns: {
+          child_id: string
+          unread_count: number
+        }[]
+      }
       grant_staff_delegation: {
         Args: {
           p_access_level: string
@@ -8520,6 +8569,11 @@ export type Database = {
       process_medication_authorization_statuses: { Args: never; Returns: Json }
       process_overdue_waitlist_checkins: { Args: never; Returns: number }
       process_room_ratio_history: { Args: never; Returns: number }
+      profile_has_permission: {
+        Args: { p_action?: string; p_area: string; p_profile_id: string }
+        Returns: boolean
+      }
+      publish_daily_log: { Args: { p_daily_log_id: string }; Returns: Json }
       queue_parent_schedule_notice: {
         Args: {
           p_available_at?: string

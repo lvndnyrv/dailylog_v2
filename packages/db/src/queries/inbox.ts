@@ -26,7 +26,7 @@ export async function getThreadMessages(
 ): Promise<ThreadMessage[]> {
   const { data, error } = await client
     .from('messages')
-    .select('id, body, created_at, read_at, sender:profiles(id, full_name, role)')
+    .select('id, body, created_at, read_at, sender:profiles!messages_sender_id_fkey(id, full_name, role)')
     .eq('conversation_id', conversationId)
     .order('created_at');
   if (error) throw error;

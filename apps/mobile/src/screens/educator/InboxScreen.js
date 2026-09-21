@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity,
   StyleSheet, ActivityIndicator, RefreshControl
@@ -27,13 +27,7 @@ export default function InboxScreen() {
   const [refreshing, setRefreshing] = useState(false);
 
   // Reload threads every time the screen is focused
-  useFocusEffect(
-    useCallback(() => {
-      loadThreads();
-    }, [active?.id, profile?.id])
-  );
-
-  async function loadThreads() {
+  const loadThreads = useCallback(async () => {
     if (!profile || !active) {
       setLoading(false);
       return;
@@ -53,25 +47,31 @@ export default function InboxScreen() {
       return;
     }
 
-    // For each child, fetch latest message and unread count
+    const childIds = children.map((child) => child.id);
+    const { data: unreadRows, error: unreadError } = await supabase.rpc(
+      'get_unread_child_message_counts',
+      { p_child_ids: childIds },
+    );
+    if (unreadError) {
+      setThreads([]);
+      setLoading(false);
+      return;
+    }
+    const unreadByChild = new Map(
+      (unreadRows || []).map((row) => [row.child_id, Number(row.unread_count || 0)]),
+    );
+
+    // For each child, fetch the latest visible message.
     const threadData = await Promise.all(
       children.map(async (child) => {
         // Latest message in thread
         const { data: lastMsg } = await supabase
           .from('messages')
-          .select('body, created_at, sender_id, sender:profiles(full_name, role)')
+          .select('body, created_at, sender_id, sender:profiles!messages_sender_id_fkey(full_name, role)')
           .eq('child_id', child.id)
           .order('created_at', { ascending: false })
           .limit(1)
           .maybeSingle();
-
-        // Count unread: messages NOT from me where read_at is null
-        const { count: unread } = await supabase
-          .from('messages')
-          .select('id', { count: 'exact', head: true })
-          .eq('child_id', child.id)
-          .neq('sender_id', profile.id)
-          .is('read_at', null);
 
         return {
           childId: child.id,
@@ -83,7 +83,7 @@ export default function InboxScreen() {
           lastSenderRole: lastMsg?.sender?.role || null,
           lastSenderName: lastMsg?.sender?.full_name || null,
           isMe: lastMsg?.sender_id === profile.id,
-          unread: unread || 0,
+          unread: unreadByChild.get(child.id) || 0,
         };
       })
     );
@@ -102,7 +102,23 @@ export default function InboxScreen() {
 
     setThreads(threadData);
     setLoading(false);
-  }
+  }, [active, profile]);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadThreads();
+    }, [loadThreads])
+  );
+
+  useEffect(() => {
+    if (!profile?.id) return undefined;
+    const channel = supabase
+      .channel(`educator-family-inbox:${profile.id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, loadThreads)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'message_reads' }, loadThreads)
+      .subscribe();
+    return () => supabase.removeChannel(channel);
+  }, [loadThreads, profile?.id]);
 
   async function handleRefresh() {
     setRefreshing(true);
@@ -251,7 +267,4 @@ const styles = StyleSheet.create({
   emptyTitle: { fontSize: 17, fontWeight: '600', color: colors.textPrimary, marginBottom: spacing.sm },
   emptyText: { fontSize: 14, color: colors.textMuted, textAlign: 'center', lineHeight: 20 },
 });
-
-
-
 

@@ -11,15 +11,22 @@ import { AssignFloaterModal } from "./assign-floater-modal";
 
 type Planning = Awaited<ReturnType<typeof roomForecastAction>>;
 type Slot = Planning["rows"][number];
+type AssignmentSeed = Pick<Slot, "room_id" | "starts_at" | "ends_at"> & {
+  requiredAdditional: number;
+};
 const input = "min-w-0 rounded-xl border border-[#D6E1F0] bg-white p-2 text-[12px] text-ink";
 
-export function CoverageForecast({ rooms, today, timeZone, openingHours }: { rooms: RoomLiveStatus[]; today: string; timeZone: string; openingHours: { start: string; end: string } }) {
-  const [date, setDate] = useState(today);
+export function CoverageForecast({ rooms, today, timeZone, openingHours, initialDate, focusAssignmentId }: { rooms: RoomLiveStatus[]; today: string; timeZone: string; openingHours: { start: string; end: string }; initialDate?: string; focusAssignmentId?: string }) {
+  const latestDate = addDateDays(today, 90);
+  const safeInitialDate = initialDate && /^\d{4}-\d{2}-\d{2}$/.test(initialDate) && initialDate >= today && initialDate <= latestDate
+    ? initialDate
+    : today;
+  const [date, setDate] = useState(safeInitialDate);
   const [revision, setRevision] = useState(0);
   const key = `${date}/${revision}`;
   const [loaded, setLoaded] = useState<{ key: string; data: Planning } | null>(null);
   const [editing, setEditing] = useState(false);
-  const [assign, setAssign] = useState<Slot | null>(null);
+  const [assign, setAssign] = useState<AssignmentSeed | null>(null);
   // Keep same-day content mounted during refresh so an open review dialog is not lost.
   const data = loaded?.key.split("/")[0] === date ? loaded.data : null;
   useEffect(() => {
@@ -47,13 +54,20 @@ export function CoverageForecast({ rooms, today, timeZone, openingHours }: { roo
         return <div key={room.id} className="rounded-xl border border-[#EDF3FB] p-3"><b className="text-[12.5px] text-ink">{room.name}</b><p className="mt-1 text-[11px] text-muted">{rows.length ? `Peak ${Math.max(...rows.map(r => r.expected_children))} children · ${Math.max(...rows.map(r => r.unknown_bookings))} unknown bookings` : "No standalone forecast — closed, unopened or counted in host room"}</p></div>;
       })}</div>
       <details className="mt-3" open><summary className="cursor-pointer text-[12.5px] font-bold text-ink">{gaps.length} intervals need coverage review</summary>
-        <div className="mt-2 flex max-h-[320px] flex-col gap-2 overflow-auto">{gaps.map(row => <div key={row.room_id+row.starts_at} className="flex items-center gap-3 rounded-xl border border-[#EFD9B5] bg-[#FFFBF4] p-3"><div className="min-w-0 flex-1"><b className="text-[12px] text-ink">{rooms.find(r => r.id===row.room_id)?.name} · {time(row.starts_at)}–{time(row.ends_at)}</b><p className="text-[11px] text-muted">{row.expected_children} children · {row.scheduled_staff}/{row.required_staff} confirmed educators · 1:{row.ratio}{row.unknown_bookings ? ` · ${row.unknown_bookings} unknown bookings` : ""}{row.uncertain_staff ? ` · ${row.uncertain_staff} untimed breaks` : ""}{row.pending_staff ? ` · ${row.pending_staff} invitations pending` : ""}</p></div><button type="button" onClick={() => setAssign(row)} className="shrink-0 text-[12px] font-bold text-primary">Fix coverage</button></div>)}
+        <div className="mt-2 flex max-h-[320px] flex-col gap-2 overflow-auto">{gaps.map(row => <div key={row.room_id+row.starts_at} className="flex items-center gap-3 rounded-xl border border-[#EFD9B5] bg-[#FFFBF4] p-3"><div className="min-w-0 flex-1"><b className="text-[12px] text-ink">{rooms.find(r => r.id===row.room_id)?.name} · {time(row.starts_at)}–{time(row.ends_at)}</b><p className="text-[11px] text-muted">{row.expected_children} children · {row.scheduled_staff}/{row.required_staff} confirmed educators · 1:{row.ratio}{row.unknown_bookings ? ` · ${row.unknown_bookings} unknown bookings` : ""}{row.uncertain_staff ? ` · ${row.uncertain_staff} untimed breaks` : ""}{row.pending_staff ? ` · ${row.pending_staff} invitations pending` : ""}</p></div><button type="button" onClick={() => setAssign({ room_id: row.room_id, starts_at: row.starts_at, ends_at: row.ends_at, requiredAdditional: Math.max(1,row.required_staff-row.scheduled_staff) })} className="shrink-0 text-[12px] font-bold text-primary">Fix coverage</button></div>)}
         {!gaps.length && <p className="text-[12px] text-muted">No gaps in the available planning inputs. Confirm bookings and refresh after schedule changes.</p>}</div>
       </details>
-      <CoveragePlanReview rows={data.review} roomNames={Object.fromEntries(rooms.map(room => [room.id,room.name]))} timeZone={timeZone} onChanged={refresh} />
+      <CoveragePlanReview
+        rows={data.review}
+        roomNames={Object.fromEntries(rooms.map(room => [room.id,room.name]))}
+        timeZone={timeZone}
+        focusAssignmentId={focusAssignmentId}
+        onChanged={refresh}
+        onReplace={row => setAssign({ room_id: row.room_id, starts_at: row.starts_at, ends_at: row.ends_at, requiredAdditional: 1 })}
+      />
     </>}
     {editing && data && <BookingEditor data={data} rooms={rooms} date={date} hours={openingHours} onClose={() => setEditing(false)} onSaved={() => { setEditing(false); refresh(); }} />}
-    {assign && <AssignFloaterModal rooms={rooms} floaters={[]} shifts={[]} initialEducatorId={null} initialRoomId={assign.room_id} date={today} initialDate={date} initialStart={time(assign.starts_at)} initialEnd={time(assign.ends_at)} requiredAdditional={Math.max(1,assign.required_staff-assign.scheduled_staff)} timeZone={timeZone} onClose={() => { setAssign(null); refresh(); }} />}
+    {assign && <AssignFloaterModal rooms={rooms} floaters={[]} shifts={[]} initialEducatorId={null} initialRoomId={assign.room_id} date={today} initialDate={date} initialStart={time(assign.starts_at)} initialEnd={time(assign.ends_at)} requiredAdditional={assign.requiredAdditional} timeZone={timeZone} onClose={() => { setAssign(null); refresh(); }} />}
   </section>;
 }
 

@@ -23,7 +23,7 @@ import { getServerSupabase } from "@/lib/supabase/server";
 export default async function RoomsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ modal?: string }>;
+  searchParams: Promise<{ modal?: string; coverageDate?: string; coverageAssignment?: string }>;
 }) {
   const params = await searchParams;
   const supabase = await getServerSupabase();
@@ -112,6 +112,8 @@ export default async function RoomsPage({
           blockCheckins: daycare?.ratio_block_checkins ?? false,
         }}
         initialModal={params.modal}
+        initialCoverageDate={params.coverageDate}
+        focusCoverageAssignmentId={params.coverageAssignment}
       />
     </>
   );

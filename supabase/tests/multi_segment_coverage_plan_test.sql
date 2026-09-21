@@ -136,6 +136,14 @@ begin
   perform public.respond_to_room_coverage(cover,'declined');
   perform public.respond_to_room_coverage(cover,'declined');
   reset role;
+  if not exists(
+    select 1 from public.notification_outbox
+     where recipient_id=owner_id
+       and kind='coverage_response'
+       and payload->>'assignmentId'=cover::text
+       and payload->>'response'='declined'
+       and payload->>'href' like '/rooms?coverageDate=%'
+  ) then raise exception 'FAIL: educator decline was not queued and deep-linked for administrator follow-up'; end if;
   perform set_config('request.jwt.claims',json_build_object('sub',owner_id,'role','authenticated')::text,true);
   set local role authenticated;
   if not exists(select 1 from public.get_room_coverage_review(day) where profile_id=people[2] and status='declined' and reason like 'Educator declined%') then raise exception 'FAIL: educator decline not surfaced'; end if;

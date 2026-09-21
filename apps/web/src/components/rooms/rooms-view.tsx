@@ -70,6 +70,8 @@ export function RoomsView({
   timeZone,
   alertSettings,
   initialModal,
+  initialCoverageDate,
+  focusCoverageAssignmentId,
   openingHours,
 }: {
   rooms: RoomLiveStatus[];
@@ -87,6 +89,8 @@ export function RoomsView({
   timeZone: string;
   alertSettings: { afterMinutes: number; notifyFloaters: boolean; blockCheckins: boolean };
   initialModal?: string;
+  initialCoverageDate?: string;
+  focusCoverageAssignmentId?: string;
   openingHours: { start: string; end: string };
 }) {
   const router = useRouter();
@@ -121,7 +125,14 @@ export function RoomsView({
         />
 
         <PlannedBreaks shifts={shifts} date={date} timeZone={timeZone} />
-        <CoverageForecast rooms={rooms} today={date} timeZone={timeZone} openingHours={openingHours} />
+        <CoverageForecast
+          rooms={rooms}
+          today={date}
+          timeZone={timeZone}
+          openingHours={openingHours}
+          initialDate={initialCoverageDate}
+          focusAssignmentId={focusCoverageAssignmentId}
+        />
 
         <FloaterPool
           floaters={floaters}

@@ -178,26 +178,51 @@ export async function listStaffCredentialSubmissions(
 export interface PendingStaffInvite {
   id: string;
   email: string;
+  full_name: string | null;
   role: string;
   code: string;
   job_title: string | null;
   require_background_check: boolean;
   expires_at: string | null;
   created_at: string | null;
+  last_sent_at: string;
+  resend_count: number;
   classroom: { id: string; name: string } | null;
+  inviter: { id: string; full_name: string } | null;
 }
 
 export async function listPendingStaffInvites(client: Client): Promise<PendingStaffInvite[]> {
   const { data, error } = await client
     .from('staff_invites')
     .select(
-      'id, email, role, code, job_title, require_background_check, expires_at, created_at, classroom:classrooms(id, name)',
+      `id, email, full_name, role, code, job_title, require_background_check,
+       expires_at, created_at, last_sent_at, resend_count,
+       classroom:classrooms(id, name),
+       inviter:profiles!staff_invites_invited_by_fkey(id, full_name)`,
     )
     .is('accepted_at', null)
     .order('created_at', { ascending: false });
 
   if (error) throw error;
   return (data ?? []) as unknown as PendingStaffInvite[];
+}
+
+export interface ResentStaffInvite {
+  code: string;
+  email: string;
+  expiresAt: string;
+  resendCount: number;
+}
+
+export async function resendStaffInvite(
+  client: Client,
+  inviteId: string,
+): Promise<ResentStaffInvite> {
+  const { data, error } = await client.rpc('resend_staff_invite', {
+    p_invite_id: inviteId,
+  });
+  if (error) throw error;
+  return data as unknown as ResentStaffInvite;
 }
 
 // invite_staff RPC (admins only, enforced in the function) returns the code.

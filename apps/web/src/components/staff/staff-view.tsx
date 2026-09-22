@@ -13,10 +13,10 @@ import type {
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Avatar } from "@/components/ui/avatar";
-import { revokeInviteAction } from "@/lib/staff/actions";
 import { InviteEducatorModal } from "./invite-educator-modal";
 import { RolesLibrary } from "./roles-library";
 import { StaffDelegations } from "./staff-delegations";
+import { StaffInviteLifecycleModal } from "./staff-invite-lifecycle-modal";
 import { StaffTimekeeping } from "./staff-timekeeping";
 import { StaffRowMenu } from "./staff-row-menu";
 
@@ -110,6 +110,7 @@ export function StaffView({
   const [roomFilter, setRoomFilter] = useState<string | null>(null);
   const [certFilter, setCertFilter] = useState(false);
   const [inviting, setInviting] = useState(openInvite);
+  const [selectedInvite, setSelectedInvite] = useState<PendingStaffInvite | null>(null);
   const [inviteTemplate, setInviteTemplate] = useState<{
     name: string;
     role: "educator" | "lead" | "admin";
@@ -331,11 +332,11 @@ export function StaffView({
                         ?
                       </span>
                       <span className="min-w-0">
-                        <span className="block truncate text-[13px] font-bold text-ink">
-                          {invite.email}
-                        </span>
+                        <button type="button" onClick={() => setSelectedInvite(invite)} className="block max-w-full truncate text-left text-[13px] font-bold text-ink hover:text-primary">
+                          {invite.full_name || invite.email}
+                        </button>
                         <span className="block font-mono text-[10.5px] text-faint">
-                          code {invite.code}
+                          {invite.full_name ? invite.email : `code ${invite.code}`}
                         </span>
                       </span>
                     </span>
@@ -355,16 +356,9 @@ export function StaffView({
                         </span>
                       )}
                     </span>
-                    <form action={revokeInviteAction}>
-                      <input type="hidden" name="invite_id" value={invite.id} />
-                      <button
-                        type="submit"
-                        title="Revoke invite"
-                        className="text-[11.5px] font-bold text-danger hover:underline"
-                      >
-                        ✕
-                      </button>
-                    </form>
+                    <button type="button" onClick={() => setSelectedInvite(invite)} className="text-[11.5px] font-bold text-primary hover:underline">
+                      View
+                    </button>
                   </div>
                 );
               })}
@@ -411,6 +405,12 @@ export function StaffView({
             setInviting(false);
             setInviteTemplate(null);
           }}
+        />
+      )}
+      {selectedInvite && (
+        <StaffInviteLifecycleModal
+          invite={selectedInvite}
+          onClose={() => setSelectedInvite(null)}
         />
       )}
     </div>

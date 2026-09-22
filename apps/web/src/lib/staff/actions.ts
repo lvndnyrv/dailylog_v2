@@ -6,6 +6,7 @@ import {
   getMyProfile,
   grantStaffDelegation,
   inviteStaff,
+  resendStaffInvite,
   revokeStaffDelegation,
   revokeStaffInvite,
   updateStaffMember,
@@ -19,6 +20,7 @@ export interface StaffActionState {
   ok?: boolean;
   inviteLink?: string;
   emailQueued?: boolean;
+  expiresAt?: string;
 }
 
 export interface TimekeepingActionState {
@@ -110,6 +112,50 @@ export async function revokeInviteAction(formData: FormData): Promise<void> {
   const supabase = await getServerSupabase();
   await revokeStaffInvite(supabase, str(formData, "invite_id"));
   revalidatePath("/staff");
+}
+
+export async function resendInviteAction(
+  _prev: StaffActionState,
+  formData: FormData,
+): Promise<StaffActionState> {
+  const inviteId = str(formData, "invite_id");
+  if (!UUID.test(inviteId)) return { error: "Invalid invitation." };
+
+  try {
+    const supabase = await getServerSupabase();
+    const profile = await getMyProfile(supabase);
+    if (!profile?.daycare_id || !(await hasPermission(supabase, "staff", "edit"))) {
+      return { error: "Staff edit permission required." };
+    }
+    const resent = await resendStaffInvite(supabase, inviteId);
+    const origin = (await headers()).get("origin") ?? "";
+    const inviteLink = `${origin}/invite?code=${resent.code}`;
+    let emailQueued = true;
+    try {
+      await enqueueEmailNotification(supabase, {
+        daycareId: profile.daycare_id,
+        recipientEmail: resent.email,
+        kind: "staff_invite",
+        title: "Your updated DailyLog invitation",
+        body: `Your center sent a fresh DailyLog invitation. The previous link no longer works. Accept this invitation within seven days: ${inviteLink}`,
+        payload: { type: "staff_invite", inviteLink },
+        dedupeKey: `staff-invite:${resent.code}`,
+      });
+    } catch {
+      emailQueued = false;
+    }
+    revalidatePath("/staff");
+    return {
+      ok: true,
+      inviteLink,
+      emailQueued,
+      expiresAt: resent.expiresAt,
+    };
+  } catch (error) {
+    return {
+      error: error instanceof Error ? error.message : "Could not resend the invitation.",
+    };
+  }
 }
 
 const DELEGATION_AREAS = new Set([

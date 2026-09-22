@@ -6469,7 +6469,9 @@ export type Database = {
           id: string
           invited_by: string | null
           job_title: string | null
+          last_sent_at: string
           require_background_check: boolean
+          resend_count: number
           role: string
         }
         Insert: {
@@ -6487,7 +6489,9 @@ export type Database = {
           id?: string
           invited_by?: string | null
           job_title?: string | null
+          last_sent_at?: string
           require_background_check?: boolean
+          resend_count?: number
           role: string
         }
         Update: {
@@ -6505,7 +6509,9 @@ export type Database = {
           id?: string
           invited_by?: string | null
           job_title?: string | null
+          last_sent_at?: string
           require_background_check?: boolean
+          resend_count?: number
           role?: string
         }
         Relationships: [
@@ -8404,6 +8410,10 @@ export type Database = {
           p_role: string
         }
         Returns: string
+      }
+      resend_staff_invite: {
+        Args: { p_invite_id: string }
+        Returns: Json
       }
       is_admin: { Args: never; Returns: boolean }
       is_staff: { Args: never; Returns: boolean }

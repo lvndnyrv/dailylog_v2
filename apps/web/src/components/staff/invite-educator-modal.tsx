@@ -84,7 +84,7 @@ export function InviteEducatorModal({
           <Notice tone="success">
             <b>Invite created.</b>{" "}
             {state.emailQueued
-              ? "Email queued for delivery. The link works once and expires in 14 days."
+              ? "Email queued for delivery. The link works once and expires in 7 days."
               : "Email could not be queued; send this one-time link manually."}
           </Notice>
           <div className="flex items-center gap-2 rounded-[13px] bg-canvas px-3.5 py-3">

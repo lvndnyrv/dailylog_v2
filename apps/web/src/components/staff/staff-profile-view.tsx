@@ -31,6 +31,7 @@ const ROLE_LABELS: Record<string, string> = {
 export function StaffProfileView({
   member,
   openEdit,
+  openPermissions,
   credentialSubmissions,
   regularSchedule,
   currentProfileId,
@@ -40,6 +41,7 @@ export function StaffProfileView({
 }: {
   member: StaffRow;
   openEdit: boolean;
+  openPermissions: boolean;
   credentialSubmissions: CredentialSubmissionWithUrl[];
   regularSchedule: StaffRegularScheduleRow[];
   currentProfileId: string | null;
@@ -48,7 +50,7 @@ export function StaffProfileView({
   ownerView: boolean;
 }) {
   const [modal, setModal] = useState<"none" | "edit" | "deactivate" | "permissions">(
-    openEdit ? "edit" : "none",
+    openEdit ? "edit" : openPermissions ? "permissions" : "none",
   );
   const profile = member.profile!;
   const certs = member.certifications ?? [];

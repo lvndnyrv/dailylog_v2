@@ -43,6 +43,12 @@ export interface StaffDocumentActionState {
   ok?: boolean;
 }
 
+export interface StaffBulkActionState {
+  error?: string;
+  ok?: boolean;
+  affected?: number;
+}
+
 function str(formData: FormData, key: string): string {
   return String(formData.get(key) ?? "").trim();
 }
@@ -155,6 +161,61 @@ export async function resendInviteAction(
     return {
       error: error instanceof Error ? error.message : "Could not resend the invitation.",
     };
+  }
+}
+
+function selectedIds(formData: FormData, key: string): string[] {
+  return [...new Set(formData.getAll(key).map(String).filter((value) => UUID.test(value)))];
+}
+
+export async function bulkAssignStaffRoomAction(
+  _prev: StaffBulkActionState,
+  formData: FormData,
+): Promise<StaffBulkActionState> {
+  const staffIds = selectedIds(formData, "staff_ids");
+  const classroomId = str(formData, "classroom_id");
+  if (staffIds.length === 0) return { error: "Select at least one educator." };
+  if (classroomId && !UUID.test(classroomId)) return { error: "Choose a valid room." };
+
+  try {
+    const { supabase } = await requireStaffPermission("edit");
+    const { data, error } = await supabase.rpc("bulk_assign_staff_room", {
+      p_staff_member_ids: staffIds,
+      p_classroom_id: classroomId || null,
+    });
+    if (error) throw error;
+    const result = data as { updated?: number } | null;
+    revalidatePath("/staff");
+    revalidatePath("/rooms");
+    revalidatePath("/dashboard");
+    return { ok: true, affected: Number(result?.updated ?? 0) };
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : "Could not assign the room." };
+  }
+}
+
+export async function bulkMessageStaffAction(
+  _prev: StaffBulkActionState,
+  formData: FormData,
+): Promise<StaffBulkActionState> {
+  const profileIds = selectedIds(formData, "profile_ids");
+  const body = str(formData, "body");
+  if (profileIds.length === 0) return { error: "Select at least one staff member." };
+  if (!body) return { error: "Write a message first." };
+  if (body.length > 4000) return { error: "Message is too long." };
+
+  try {
+    const { supabase } = await requireStaffPermission("edit");
+    const { data, error } = await supabase.rpc("send_bulk_staff_message", {
+      p_profile_ids: profileIds,
+      p_body: body,
+    });
+    if (error) throw error;
+    const result = data as { sent?: number } | null;
+    revalidatePath("/staff");
+    return { ok: true, affected: Number(result?.sent ?? 0) };
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : "Could not send the message." };
   }
 }
 

@@ -55,13 +55,15 @@ export function StaffDelegations({
   staff,
   timeZone,
   defaultDelegationDays,
+  initialDelegateProfileId,
 }: {
   delegations: StaffDelegationRow[];
   staff: StaffRow[];
   timeZone: string;
   defaultDelegationDays: number;
+  initialDelegateProfileId: string | null;
 }) {
-  const [granting, setGranting] = useState(false);
+  const [granting, setGranting] = useState(Boolean(initialDelegateProfileId));
   const [openLog, setOpenLog] = useState<string | null>(null);
   const active = delegations.filter(delegationIsActive);
   const past = delegations.filter((item) => !delegationIsActive(item));
@@ -160,6 +162,7 @@ export function StaffDelegations({
         <GrantDelegationModal
           candidates={candidates}
           defaultDelegationDays={defaultDelegationDays}
+          initialCandidateProfileId={initialDelegateProfileId}
           onClose={() => setGranting(false)}
         />
       )}
@@ -225,10 +228,12 @@ function ActiveDelegation({ item, timeZone }: { item: StaffDelegationRow; timeZo
 function GrantDelegationModal({
   candidates,
   defaultDelegationDays,
+  initialCandidateProfileId,
   onClose,
 }: {
   candidates: StaffRow[];
   defaultDelegationDays: number;
+  initialCandidateProfileId: string | null;
   onClose: () => void;
 }) {
   const [accessLevel, setAccessLevel] = useState<"specific_areas" | "full_admin">(
@@ -240,7 +245,13 @@ function GrantDelegationModal({
     grantDelegationAction,
     {},
   );
-  const firstCandidate = useMemo(() => candidates[0]?.profile?.id ?? "", [candidates]);
+  const firstCandidate = useMemo(
+    () =>
+      candidates.some((member) => member.profile?.id === initialCandidateProfileId)
+        ? initialCandidateProfileId ?? ""
+        : candidates[0]?.profile?.id ?? "",
+    [candidates, initialCandidateProfileId],
+  );
 
   useEffect(() => {
     if (state.ok) onClose();

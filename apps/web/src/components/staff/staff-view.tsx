@@ -17,6 +17,7 @@ import { InviteEducatorModal } from "./invite-educator-modal";
 import { RolesLibrary } from "./roles-library";
 import { StaffDelegations } from "./staff-delegations";
 import { StaffInviteLifecycleModal } from "./staff-invite-lifecycle-modal";
+import { StaffBulkActions } from "./staff-bulk-actions";
 import { StaffTimekeeping } from "./staff-timekeeping";
 import { StaffRowMenu } from "./staff-row-menu";
 
@@ -86,6 +87,7 @@ export function StaffView({
   canManageDelegations,
   currentProfileId,
   defaultDelegationDays,
+  initialDelegateProfileId,
 }: {
   staff: StaffRow[];
   invites: PendingStaffInvite[];
@@ -105,12 +107,14 @@ export function StaffView({
   canManageDelegations: boolean;
   currentProfileId: string;
   defaultDelegationDays: number;
+  initialDelegateProfileId: string | null;
 }) {
   const [tab, setTab] = useState<Tab>(initialTab);
   const [roomFilter, setRoomFilter] = useState<string | null>(null);
   const [certFilter, setCertFilter] = useState(false);
   const [inviting, setInviting] = useState(openInvite);
   const [selectedInvite, setSelectedInvite] = useState<PendingStaffInvite | null>(null);
+  const [selectedStaffIds, setSelectedStaffIds] = useState<Set<string>>(() => new Set());
   const [inviteTemplate, setInviteTemplate] = useState<{
     name: string;
     role: "educator" | "lead" | "admin";
@@ -144,6 +148,18 @@ export function StaffView({
     }
     return true;
   });
+  const selectedStaff = staff.filter((member) => selectedStaffIds.has(member.id));
+  const selectableFiltered = filtered.filter((member) => member.profile?.id !== currentProfileId);
+  const allFilteredSelected =
+    selectableFiltered.length > 0 && selectableFiltered.every((member) => selectedStaffIds.has(member.id));
+  const toggleSelected = (staffId: string) => {
+    setSelectedStaffIds((current) => {
+      const next = new Set(current);
+      if (next.has(staffId)) next.delete(staffId);
+      else next.add(staffId);
+      return next;
+    });
+  };
 
   return (
     <div className="flex flex-1 flex-col">
@@ -227,8 +243,26 @@ export function StaffView({
               )}
             </div>
 
+            <StaffBulkActions
+              selected={selectedStaff}
+              classrooms={classrooms}
+              onClear={() => setSelectedStaffIds(new Set())}
+            />
+
             <div className="overflow-hidden rounded-2xl border-[1.5px] border-[#D6E1F0] bg-card">
-              <div className={`grid grid-cols-[1.8fr_1fr_1fr_1.4fr_.9fr_34px] gap-2.5 border-b-[1.5px] border-[#EDF3FB] bg-[#F8FBFE] px-[18px] py-3 ${HEAD}`}>
+              <div className={`grid grid-cols-[28px_1.8fr_1fr_1fr_1.4fr_.9fr_34px] items-center gap-2.5 border-b-[1.5px] border-[#EDF3FB] bg-[#F8FBFE] px-[18px] py-3 ${HEAD}`}>
+                <input
+                  type="checkbox"
+                  aria-label="Select visible staff"
+                  checked={allFilteredSelected}
+                  onChange={() => setSelectedStaffIds((current) => {
+                    const next = new Set(current);
+                    if (allFilteredSelected) selectableFiltered.forEach((member) => next.delete(member.id));
+                    else selectableFiltered.forEach((member) => next.add(member.id));
+                    return next;
+                  })}
+                  className="size-4 accent-[var(--primary)]"
+                />
                 <span>NAME</span>
                 <span>ROLE</span>
                 <span>ROOM</span>
@@ -248,8 +282,18 @@ export function StaffView({
                     onKeyDown={(e) => {
                       if (e.key === "Enter" || e.key === " ") router.push(`/staff/${member.id}`);
                     }}
-                    className="grid cursor-pointer grid-cols-[1.8fr_1fr_1fr_1.4fr_.9fr_34px] items-center gap-2.5 border-b border-[#EDF3FB] px-[18px] py-3 last:border-b-0 hover:bg-[#F8FBFE] focus-visible:bg-[#F8FBFE] focus-visible:outline-none"
+                    className="grid cursor-pointer grid-cols-[28px_1.8fr_1fr_1fr_1.4fr_.9fr_34px] items-center gap-2.5 border-b border-[#EDF3FB] px-[18px] py-3 last:border-b-0 hover:bg-[#F8FBFE] focus-visible:bg-[#F8FBFE] focus-visible:outline-none"
                   >
+                    <input
+                      type="checkbox"
+                      aria-label={`Select ${member.profile!.full_name}`}
+                      checked={selectedStaffIds.has(member.id)}
+                      disabled={member.profile!.id === currentProfileId}
+                      title={member.profile!.id === currentProfileId ? "Bulk actions cannot target your own account" : undefined}
+                      onClick={(event) => event.stopPropagation()}
+                      onChange={() => toggleSelected(member.id)}
+                      className="size-4 accent-[var(--primary)] disabled:opacity-30"
+                    />
                     <span className="flex items-center gap-2.5">
                       <Avatar name={member.profile!.full_name} size={32} />
                       <span className="min-w-0">
@@ -300,7 +344,7 @@ export function StaffView({
                       profileId={member.profile!.id}
                       currentProfileId={currentProfileId}
                       name={member.profile!.full_name}
-                      email={member.profile!.email}
+                      canStartDelegation={canManageDelegations && member.profile!.role === "educator"}
                       onDuplicate={() => {
                         setInviteTemplate({
                           name: member.profile!.full_name,
@@ -325,8 +369,9 @@ export function StaffView({
                 return (
                   <div
                     key={invite.id}
-                    className="grid grid-cols-[1.8fr_1fr_1fr_1.4fr_.9fr_34px] items-center gap-2.5 border-b border-[#EDF3FB] bg-[#FBFDFF] px-[18px] py-3 last:border-b-0"
+                    className="grid grid-cols-[28px_1.8fr_1fr_1fr_1.4fr_.9fr_34px] items-center gap-2.5 border-b border-[#EDF3FB] bg-[#FBFDFF] px-[18px] py-3 last:border-b-0"
                   >
+                    <span />
                     <span className="flex items-center gap-2.5">
                       <span className="grid size-8 flex-none place-items-center rounded-full border-[1.5px] border-dashed border-[#C3D2E6] text-[11px] font-bold text-faint">
                         ?
@@ -379,6 +424,7 @@ export function StaffView({
             staff={staff}
             timeZone={timeZone}
             defaultDelegationDays={defaultDelegationDays}
+            initialDelegateProfileId={initialDelegateProfileId}
           />
         )}
         {(tab === "timesheets" || tab === "time-off") && (

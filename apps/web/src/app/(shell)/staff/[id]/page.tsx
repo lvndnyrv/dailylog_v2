@@ -17,9 +17,9 @@ export default async function StaffProfilePage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ edit?: string }>;
+  searchParams: Promise<{ edit?: string; permissions?: string }>;
 }) {
-  const [{ id }, { edit }] = await Promise.all([params, searchParams]);
+  const [{ id }, { edit, permissions }] = await Promise.all([params, searchParams]);
   const supabase = await getServerSupabase();
 
   let member: Awaited<ReturnType<typeof getStaffMember>>;
@@ -69,6 +69,7 @@ export default async function StaffProfilePage({
     <StaffProfileView
       member={member}
       openEdit={edit === "1"}
+      openPermissions={permissions === "1"}
       credentialSubmissions={submissionsWithUrls}
       regularSchedule={regularSchedule}
       currentProfileId={currentProfile?.id ?? null}

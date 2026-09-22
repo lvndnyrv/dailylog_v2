@@ -7395,6 +7395,10 @@ export type Database = {
             }
             Returns: undefined
           }
+      bulk_assign_staff_room: {
+        Args: { p_classroom_id?: string | null; p_staff_member_ids: string[] }
+        Returns: Json
+      }
       acknowledge_incident: {
         Args: { p_incident_id: string; p_name: string }
         Returns: undefined
@@ -8963,6 +8967,10 @@ export type Database = {
       send_staff_message: {
         Args: { p_body: string; p_conversation_id: string }
         Returns: string
+      }
+      send_bulk_staff_message: {
+        Args: { p_body: string; p_profile_ids: string[] }
+        Returns: Json
       }
       send_waitlist_checkins: {
         Args: { p_enrollment_ids: string[]; p_message: string }

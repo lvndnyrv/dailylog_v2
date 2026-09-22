@@ -23,7 +23,7 @@ const TABS = ["roster", "timesheets", "time-off", "delegations", "roles"] as con
 export default async function StaffPage({
   searchParams,
 }: {
-  searchParams: Promise<{ invite?: string; tab?: string; week?: string; month?: string }>;
+  searchParams: Promise<{ invite?: string; tab?: string; week?: string; month?: string; delegate?: string }>;
 }) {
   const params = await searchParams;
   const supabase = await getServerSupabase();
@@ -98,6 +98,7 @@ export default async function StaffPage({
         }`}
       />
       <StaffView
+        key={`${initialTab}:${params.delegate ?? ""}`}
         staff={staff}
         invites={invites}
         classrooms={classrooms}
@@ -116,6 +117,7 @@ export default async function StaffPage({
         canManageDelegations={canManageDelegations}
         currentProfileId={profile!.id}
         defaultDelegationDays={daycare?.default_delegation_days ?? 14}
+        initialDelegateProfileId={params.delegate ?? null}
       />
     </>
   );

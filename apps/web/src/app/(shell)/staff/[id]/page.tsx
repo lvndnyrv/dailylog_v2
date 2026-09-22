@@ -7,6 +7,7 @@ import {
 import { notFound } from "next/navigation";
 import { StaffProfileView } from "@/components/staff/staff-profile-view";
 import type { StaffPermissionMatrixData } from "@/components/staff/staff-permissions-modal";
+import type { StaffPrivateDocument } from "@/components/staff/staff-documents-card";
 import { getServerSupabase } from "@/lib/supabase/server";
 
 // Educator profile 4b/4i — certifications, employment, contact, regular
@@ -26,6 +27,7 @@ export default async function StaffProfilePage({
   let regularSchedule: Awaited<ReturnType<typeof listStaffRegularSchedule>> = [];
   const currentProfile = await getMyProfile(supabase);
   let permissionMatrix: StaffPermissionMatrixData | null = null;
+  let privateDocuments: StaffPrivateDocument[] = [];
   try {
     [member, credentialSubmissions, regularSchedule] = await Promise.all([
       getStaffMember(supabase, id),
@@ -42,6 +44,16 @@ export default async function StaffProfilePage({
     { p_profile_id: member.profile.id } as never,
   );
   permissionMatrix = permissionData as StaffPermissionMatrixData | null;
+  if (currentProfile?.role === "owner_admin") {
+    const { data } = await supabase
+      .from("documents")
+      .select("id,title,category,mime_type,size_bytes,created_at")
+      .eq("profile_id", member.profile.id)
+      .like("category", "staff_private_%")
+      .is("archived_at", null)
+      .order("created_at", { ascending: false });
+    privateDocuments = (data ?? []) as StaffPrivateDocument[];
+  }
 
   const submissionsWithUrls = await Promise.all(
     credentialSubmissions.map(async (submission) => {
@@ -61,6 +73,8 @@ export default async function StaffProfilePage({
       regularSchedule={regularSchedule}
       currentProfileId={currentProfile?.id ?? null}
       permissionMatrix={permissionMatrix}
+      privateDocuments={privateDocuments}
+      ownerView={currentProfile?.role === "owner_admin"}
     />
   );
 }

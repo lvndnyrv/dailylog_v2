@@ -15,6 +15,7 @@ import {
   StaffPermissionsModal,
   type StaffPermissionMatrixData,
 } from "./staff-permissions-modal";
+import { StaffDocumentsCard, type StaffPrivateDocument } from "./staff-documents-card";
 
 const card = "rounded-2xl border border-[rgba(23,51,91,.1)] bg-card p-[18px]";
 const cardTitle = "text-[14px] font-extrabold text-ink";
@@ -33,6 +34,8 @@ export function StaffProfileView({
   regularSchedule,
   currentProfileId,
   permissionMatrix,
+  privateDocuments,
+  ownerView,
 }: {
   member: StaffRow;
   openEdit: boolean;
@@ -40,6 +43,8 @@ export function StaffProfileView({
   regularSchedule: StaffRegularScheduleRow[];
   currentProfileId: string | null;
   permissionMatrix: StaffPermissionMatrixData | null;
+  privateDocuments: StaffPrivateDocument[];
+  ownerView: boolean;
 }) {
   const [modal, setModal] = useState<"none" | "edit" | "deactivate" | "permissions">(
     openEdit ? "edit" : "none",
@@ -319,16 +324,7 @@ export function StaffProfileView({
             </dl>
           </section>
 
-          <section className={card}>
-            <h2 className={`${cardTitle} mb-2`}>Documents</h2>
-            <p className="text-[12.5px] text-faint">
-              Credential renewals uploaded from the educator app are private and retained with their review history. Certifications also live on the{" "}
-              <Link href="/compliance" className="font-bold text-primary hover:text-primary-hover">
-                Compliance register
-              </Link>
-              .
-            </p>
-          </section>
+          <StaffDocumentsCard staffId={member.id} documents={privateDocuments} ownerView={ownerView} />
 
           <section className={`${card} border-danger-bg`}>
             <h2 className={`${cardTitle} mb-2`}>Leaving the center?</h2>

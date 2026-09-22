@@ -36,6 +36,11 @@ export interface CredentialReviewActionState {
   ok?: boolean;
 }
 
+export interface StaffDocumentActionState {
+  error?: string;
+  ok?: boolean;
+}
+
 function str(formData: FormData, key: string): string {
   return String(formData.get(key) ?? "").trim();
 }
@@ -295,6 +300,103 @@ export async function deactivateStaffAction(formData: FormData): Promise<void> {
     ended_on: new Date().toISOString().slice(0, 10),
   });
   revalidatePath("/staff");
+}
+
+const STAFF_DOCUMENT_CATEGORIES = new Set([
+  "staff_private_contract",
+  "staff_private_emergency",
+  "staff_private_review",
+  "staff_private_other",
+]);
+
+export async function uploadStaffDocumentAction(
+  _prev: StaffDocumentActionState,
+  formData: FormData,
+): Promise<StaffDocumentActionState> {
+  const staffId = str(formData, "staff_id");
+  const category = str(formData, "category");
+  const title = str(formData, "title");
+  const file = formData.get("file");
+  if (!UUID.test(staffId)) return { error: "Invalid staff record." };
+  if (!STAFF_DOCUMENT_CATEGORIES.has(category)) return { error: "Choose a document type." };
+  if (title.length < 2) return { error: "Add a document title." };
+  if (!(file instanceof File) || file.size === 0) return { error: "Choose a file to upload." };
+  if (file.size > 10 * 1024 * 1024) return { error: "Documents must be 10 MB or smaller." };
+  if (file.type !== "application/pdf" && !file.type.startsWith("image/")) {
+    return { error: "Upload a PDF or image document." };
+  }
+
+  try {
+    const supabase = await getServerSupabase();
+    const profile = await getMyProfile(supabase);
+    if (!profile?.daycare_id || profile.role !== "owner_admin") {
+      return { error: "Only the owner admin can manage private staff documents." };
+    }
+    const { data: member, error: memberError } = await supabase
+      .from("staff_members")
+      .select("id, profile_id, daycare_id")
+      .eq("id", staffId)
+      .eq("daycare_id", profile.daycare_id)
+      .single();
+    if (memberError) throw memberError;
+    if (!member.profile_id) throw new Error("This staff record is not linked to an account.");
+    const subjectProfileId = member.profile_id;
+
+    const extension = file.name.split(".").pop()?.toLowerCase().replace(/[^a-z0-9]/g, "") || "pdf";
+    const path = `staff-private/${subjectProfileId}/${category}-${crypto.randomUUID()}.${extension}`;
+    const { error: uploadError } = await supabase.storage.from("documents").upload(path, file, {
+      contentType: file.type,
+      upsert: false,
+    });
+    if (uploadError) throw uploadError;
+
+    const { error: archiveError } = await supabase
+      .from("documents")
+      .update({ archived_at: new Date().toISOString() })
+      .eq("profile_id", subjectProfileId)
+      .eq("category", category)
+      .is("archived_at", null);
+    if (archiveError) {
+      await supabase.storage.from("documents").remove([path]);
+      throw archiveError;
+    }
+
+    const { error: documentError } = await supabase.from("documents").insert({
+      daycare_id: profile.daycare_id,
+      profile_id: subjectProfileId,
+      title: title.slice(0, 160),
+      category,
+      storage_path: path,
+      mime_type: file.type,
+      size_bytes: file.size,
+      uploaded_by: profile.id,
+    });
+    if (documentError) {
+      await supabase.storage.from("documents").remove([path]);
+      throw documentError;
+    }
+
+    revalidatePath(`/staff/${staffId}`);
+    return { ok: true };
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : "Could not upload the document." };
+  }
+}
+
+export async function archiveStaffDocumentAction(formData: FormData): Promise<void> {
+  const staffId = str(formData, "staff_id");
+  const documentId = str(formData, "document_id");
+  if (!UUID.test(staffId) || !UUID.test(documentId)) return;
+  const supabase = await getServerSupabase();
+  const profile = await getMyProfile(supabase);
+  if (!profile?.daycare_id || profile.role !== "owner_admin") return;
+  await supabase
+    .from("documents")
+    .update({ archived_at: new Date().toISOString() })
+    .eq("id", documentId)
+    .eq("daycare_id", profile.daycare_id)
+    .like("category", "staff_private_%");
+  revalidatePath(`/staff/${staffId}`);
 }
 
 export async function approveTimeEntriesAction(

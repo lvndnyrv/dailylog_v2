@@ -53,6 +53,7 @@ export async function sendCredentialReminderAction(
   const result = data as { sent?: boolean; followUpScheduled?: boolean } | null;
   revalidatePath("/dashboard");
   revalidatePath("/compliance");
+  revalidatePath("/staff");
   return {
     ok: Boolean(result?.sent),
     followUpScheduled: Boolean(result?.followUpScheduled),

@@ -7,6 +7,7 @@ type Client = SupabaseClient<Database>;
 // Certifications live as jsonb on staff_members; expiry logic is Phase 5 —
 // Phase 1 stores and shows the fields (PHASE_1 Module D).
 export interface Certification {
+  credential_id?: string | null;
   item: string;
   issuer: string | null;
   issued: string | null;
@@ -137,6 +138,7 @@ function withNormalizedCredentials(row: StaffRow): StaffRow {
     ...row,
     credentials,
     certifications: credentials.map((credential) => ({
+      credential_id: credential.id,
       item: credential.name,
       issuer: credential.issuer,
       issued: credential.completed_on,

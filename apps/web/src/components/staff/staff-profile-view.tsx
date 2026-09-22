@@ -16,6 +16,7 @@ import {
   type StaffPermissionMatrixData,
 } from "./staff-permissions-modal";
 import { StaffDocumentsCard, type StaffPrivateDocument } from "./staff-documents-card";
+import { CredentialReminderButton } from "./credential-row-action";
 
 const card = "rounded-2xl border border-[rgba(23,51,91,.1)] bg-card p-[18px]";
 const cardTitle = "text-[14px] font-extrabold text-ink";
@@ -71,6 +72,8 @@ export function StaffProfileView({
     );
   }, 0);
   const shortTime = (value: string) => value.slice(0, 5);
+  const reminderCutoff = new Date();
+  reminderCutoff.setDate(reminderCutoff.getDate() + 60);
 
   const meta = [
     member.job_title ?? ROLE_LABELS[profile.role] ?? profile.role,
@@ -181,16 +184,21 @@ export function StaffProfileView({
               </p>
             ) : (
               <div className="flex flex-col">
-                <div className={`grid grid-cols-[1.5fr_1fr_.8fr_1.2fr] gap-2 border-b border-[#EDF3FB] pb-2 ${th}`}>
+                <div className={`grid grid-cols-[1.5fr_1fr_.8fr_1.1fr_92px] gap-2 border-b border-[#EDF3FB] pb-2 ${th}`}>
                   <span>ITEM</span>
                   <span>ISSUER</span>
                   <span>ISSUED</span>
                   <span>STATUS</span>
+                  <span>ACTION</span>
                 </div>
-                {certs.map((cert, i) => (
-                  <div
+                {certs.map((cert, i) => {
+                  const needsReminder = Boolean(
+                    cert.missing ||
+                      (cert.expires_on && new Date(`${cert.expires_on}T12:00:00`) <= reminderCutoff),
+                  );
+                  return <div
                     key={`${cert.item}-${i}`}
-                    className="grid grid-cols-[1.5fr_1fr_.8fr_1.2fr] items-center gap-2 border-b border-[#EDF3FB] py-2.5 last:border-b-0"
+                    className="grid grid-cols-[1.5fr_1fr_.8fr_1.1fr_92px] items-center gap-2 border-b border-[#EDF3FB] py-2.5 last:border-b-0"
                   >
                     <span className="text-[12.5px] font-bold text-ink">{cert.item}</span>
                     <span className="text-[12.5px] text-muted">{cert.issuer ?? "—"}</span>
@@ -213,8 +221,19 @@ export function StaffProfileView({
                         <span className="font-bold text-success">On file</span>
                       )}
                     </span>
-                  </div>
-                ))}
+                    <span className="text-right">
+                      {needsReminder && cert.credential_id ? (
+                        <CredentialReminderButton credentialId={cert.credential_id} staffName={profile.full_name} />
+                      ) : cert.document_id ? (
+                        <a href={`/documents/${cert.document_id}`} target="_blank" rel="noreferrer" className="text-[11.5px] font-bold text-primary hover:text-primary-hover">
+                          View ↗
+                        </a>
+                      ) : (
+                        <span className="text-[11.5px] text-faint">—</span>
+                      )}
+                    </span>
+                  </div>;
+                })}
                 <p className="pt-2.5 text-[11.5px] text-faint">
                   Expiry status is tracked on the{" "}
                   <Link href="/compliance" className="font-bold text-primary hover:text-primary-hover">

@@ -1,8 +1,10 @@
 "use client";
 
+import type { NotificationDeliveryHealth } from "@dailylog/db/queries";
 import Link from "next/link";
-import { Bell, Clock3, Mail, Smartphone } from "lucide-react";
+import { AlertTriangle, Bell, CheckCircle2, Clock3, Mail, Smartphone } from "lucide-react";
 import { useState } from "react";
+import { DeliveryHealthModal } from "./delivery-health-modal";
 import { useNotificationCenter } from "./notification-center";
 import {
   notificationDayKey,
@@ -26,7 +28,11 @@ const FILTERS: Array<{ value: ActivityFilter; label: string }> = [
   { value: "billing", label: "Billing" },
 ];
 
-export function NotificationActivityView() {
+export function NotificationActivityView({
+  deliveryHealth,
+}: {
+  deliveryHealth: NotificationDeliveryHealth;
+}) {
   const {
     notifications,
     unreadCount,
@@ -38,6 +44,7 @@ export function NotificationActivityView() {
     openSettings,
   } = useNotificationCenter();
   const [filter, setFilter] = useState<ActivityFilter>("all");
+  const [deliveryOpen, setDeliveryOpen] = useState(false);
 
   const filtered = notifications.filter((notification) => {
     if (filter === "all") return true;
@@ -180,6 +187,36 @@ export function NotificationActivityView() {
 
       <aside className="flex w-72 flex-none flex-col gap-4">
         <section className="rounded-2xl border-[1.5px] border-[#D6E1F0] bg-card p-4">
+          <div className="flex items-center gap-2">
+            {deliveryHealth.counts.failed > 0 ? (
+              <AlertTriangle size={16} strokeWidth={1.7} className="text-danger" aria-hidden />
+            ) : (
+              <CheckCircle2 size={16} strokeWidth={1.7} className="text-success" aria-hidden />
+            )}
+            <h2 className="text-[14px] font-extrabold text-ink">Delivery health</h2>
+          </div>
+          <p className="mt-2 text-[12px] leading-normal text-muted">
+            {deliveryHealth.counts.failed > 0
+              ? deliveryHealth.counts.failed === 1
+                ? "1 delivery needs attention."
+                : `${deliveryHealth.counts.failed} deliveries need attention.`
+              : `${deliveryHealth.counts.delivered} delivered in the last ${deliveryHealth.windowDays} days.`}
+          </p>
+          {(deliveryHealth.counts.retrying > 0 || deliveryHealth.counts.skipped > 0) && (
+            <p className="mt-1 text-[11px] text-faint">
+              {deliveryHealth.counts.retrying} retrying · {deliveryHealth.counts.skipped} skipped
+            </p>
+          )}
+          <button
+            type="button"
+            onClick={() => setDeliveryOpen(true)}
+            className="mt-2.5 text-[12px] font-bold text-primary hover:text-primary-hover"
+          >
+            Review delivery →
+          </button>
+        </section>
+
+        <section className="rounded-2xl border-[1.5px] border-[#D6E1F0] bg-card p-4">
           <h2 className="mb-3 text-[14px] font-extrabold text-ink">How you&apos;re notified</h2>
           <DeliveryRow icon={Bell} label="In-app" value="On" active />
           <DeliveryRow icon={Smartphone} label="Push · this phone" value={pushOn ? "On" : "Off"} active={pushOn} />
@@ -217,6 +254,12 @@ export function NotificationActivityView() {
           </button>
         </section>
       </aside>
+      {deliveryOpen && (
+        <DeliveryHealthModal
+          health={deliveryHealth}
+          onClose={() => setDeliveryOpen(false)}
+        />
+      )}
     </div>
   );
 }

@@ -4,6 +4,7 @@ import {
   getMyProfile,
   markAllNotificationsRead,
   markNotificationRead,
+  retryNotificationDelivery,
   saveNotificationDeliverySettings,
   saveNotificationPreferences,
 } from "@dailylog/db/queries";
@@ -17,6 +18,22 @@ import {
 export interface NotificationActionResult {
   ok?: boolean;
   error?: string;
+}
+
+export async function retryNotificationDeliveryAction(
+  deliveryId: string,
+): Promise<NotificationActionResult> {
+  if (!deliveryId) return { error: "Delivery not found." };
+  try {
+    const supabase = await getServerSupabase();
+    await retryNotificationDelivery(supabase, deliveryId);
+    revalidatePath("/notifications");
+    return { ok: true };
+  } catch (error) {
+    return {
+      error: error instanceof Error ? error.message : "Could not retry the delivery.",
+    };
+  }
 }
 
 export async function markNotificationReadAction(

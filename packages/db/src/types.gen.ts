@@ -8613,6 +8613,10 @@ export type Database = {
           requested_languages: string[]
         }[]
       }
+      list_notification_delivery_health: {
+        Args: { p_days?: number }
+        Returns: Json
+      }
       list_compliance_due_items: {
         Args: never
         Returns: {
@@ -8877,6 +8881,10 @@ export type Database = {
       resend_parent_payment_receipt: {
         Args: { p_payment_id: string }
         Returns: Json
+      }
+      retry_notification_delivery: {
+        Args: { p_delivery_id: string }
+        Returns: boolean
       }
       respond_parent_waitlist_checkin: {
         Args: { p_code: string; p_keep_spot: boolean }

@@ -3,9 +3,12 @@
 import type { Broadcast, InboxThread, ThreadMessage } from "@dailylog/db/queries";
 import { isStaffRole } from "@dailylog/shared";
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Avatar } from "@/components/ui/avatar";
-import { markReadAction } from "@/lib/messages/actions";
+import {
+  cancelScheduledBroadcastAction,
+  markReadAction,
+} from "@/lib/messages/actions";
 import { BroadcastModal } from "./broadcast-modal";
 import { ReplyComposer } from "./reply-composer";
 
@@ -33,6 +36,7 @@ export function MessagesView({
   const [filter, setFilter] = useState<Filter>("all");
   const [search, setSearch] = useState("");
   const [broadcasting, setBroadcasting] = useState(openBroadcast);
+  const [editingBroadcast, setEditingBroadcast] = useState<Broadcast | null>(null);
   const markedRef = useRef<string | null>(null);
 
   // Opening an unread thread marks the family's messages read (once).
@@ -243,11 +247,29 @@ export function MessagesView({
               New broadcast
             </button>
           </div>
+          {broadcasts.length > 0 && (
+            <div className="grid grid-cols-3 gap-2">
+              <Metric
+                label="Push queued"
+                value={`${broadcasts.reduce((sum, item) => sum + item.push_queued, 0)}`}
+              />
+              <Metric
+                label="Family reads"
+                value={`${broadcasts.reduce((sum, item) => sum + item.read_count, 0)}/${broadcasts.reduce((sum, item) => sum + item.recipient_count, 0)}`}
+              />
+              <Metric
+                label="Scheduled"
+                value={`${broadcasts.filter((item) => !item.published_at && !item.cancelled_at).length}`}
+              />
+            </div>
+          )}
           {broadcasts.length === 0 ? (
             <p className="text-[12.5px] text-faint">Nothing sent yet.</p>
           ) : (
             broadcasts.map((broadcast) => {
               const yes = broadcast.rsvps.filter((rsvp) => rsvp.response === "yes").length;
+              const scheduled = !broadcast.published_at && !broadcast.cancelled_at;
+              const cancelled = Boolean(broadcast.cancelled_at);
               return (
                 <div
                   key={broadcast.id}
@@ -260,8 +282,12 @@ export function MessagesView({
                         Pinned
                       </span>
                     )}
+                    {scheduled && <StatusPill tone="scheduled">Scheduled</StatusPill>}
+                    {cancelled && <StatusPill tone="cancelled">Cancelled</StatusPill>}
                     <span className="ml-auto whitespace-nowrap text-[10.5px] text-faint">
-                      {timeAgo(broadcast.created_at)}
+                      {scheduled && broadcast.scheduled_for
+                        ? `for ${dateTimeLabel(broadcast.scheduled_for)}`
+                        : timeAgo(broadcast.published_at ?? broadcast.created_at)}
                     </span>
                   </span>
                   <span className="text-[12px] leading-relaxed text-muted">{broadcast.body}</span>
@@ -271,6 +297,34 @@ export function MessagesView({
                     {broadcast.rsvp_enabled &&
                       ` · ${yes} yes${broadcast.rsvps.length ? ` of ${broadcast.rsvps.length} replies` : ""}`}
                   </span>
+                  {!cancelled && (
+                    <span className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-faint">
+                      {scheduled ? (
+                        <>
+                          <span>{broadcast.recipient_count} recipients at current enrollment</span>
+                          <span className="flex-1" />
+                          <button
+                            type="button"
+                            onClick={() => setEditingBroadcast(broadcast)}
+                            className="font-bold text-primary hover:underline"
+                          >
+                            Edit
+                          </button>
+                          <form action={cancelScheduledBroadcastAction}>
+                            <input type="hidden" name="announcement_id" value={broadcast.id} />
+                            <button type="submit" className="font-bold text-danger hover:underline">
+                              Cancel schedule
+                            </button>
+                          </form>
+                        </>
+                      ) : (
+                        <>
+                          <span>Read {broadcast.read_count}/{broadcast.recipient_count}</span>
+                          <span>Push delivered {broadcast.push_delivered}/{broadcast.push_queued}</span>
+                        </>
+                      )}
+                    </span>
+                  )}
                 </div>
               );
             })
@@ -281,8 +335,41 @@ export function MessagesView({
       {broadcasting && (
         <BroadcastModal classrooms={classrooms} onClose={() => setBroadcasting(false)} />
       )}
+      {editingBroadcast && (
+        <BroadcastModal
+          classrooms={classrooms}
+          broadcast={editingBroadcast}
+          onClose={() => setEditingBroadcast(null)}
+        />
+      )}
     </div>
   );
+}
+
+function Metric({ label, value }: { label: string; value: string }) {
+  return (
+    <span className="rounded-xl bg-canvas px-3 py-2">
+      <span className="block text-[15px] font-extrabold text-ink">{value}</span>
+      <span className="block text-[10.5px] font-semibold text-faint">{label}</span>
+    </span>
+  );
+}
+
+function StatusPill({ children, tone }: { children: ReactNode; tone: "scheduled" | "cancelled" }) {
+  return (
+    <span className={`rounded-full px-2 py-px text-[10px] font-bold ${tone === "scheduled" ? "bg-tint text-primary" : "bg-[#EDF2F9] text-muted"}`}>
+      {children}
+    </span>
+  );
+}
+
+function dateTimeLabel(timestamp: string): string {
+  return new Date(timestamp).toLocaleString("en-CA", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
 
 function timeAgo(timestamp: string | null): string {

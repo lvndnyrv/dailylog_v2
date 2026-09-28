@@ -170,6 +170,7 @@ export type Database = {
         Row: {
           author_id: string | null
           body: string
+          cancelled_at: string | null
           classroom_id: string | null
           created_at: string | null
           daycare_id: string
@@ -178,13 +179,16 @@ export type Database = {
           event_location: string | null
           id: string
           pinned: boolean | null
+          published_at: string | null
           rsvp_enabled: boolean
+          scheduled_for: string | null
           title: string
           updated_at: string | null
         }
         Insert: {
           author_id?: string | null
           body: string
+          cancelled_at?: string | null
           classroom_id?: string | null
           created_at?: string | null
           daycare_id: string
@@ -193,13 +197,16 @@ export type Database = {
           event_location?: string | null
           id?: string
           pinned?: boolean | null
+          published_at?: string | null
           rsvp_enabled?: boolean
+          scheduled_for?: string | null
           title: string
           updated_at?: string | null
         }
         Update: {
           author_id?: string | null
           body?: string
+          cancelled_at?: string | null
           classroom_id?: string | null
           created_at?: string | null
           daycare_id?: string
@@ -208,7 +215,9 @@ export type Database = {
           event_location?: string | null
           id?: string
           pinned?: boolean | null
+          published_at?: string | null
           rsvp_enabled?: boolean
+          scheduled_for?: string | null
           title?: string
           updated_at?: string | null
         }
@@ -8467,6 +8476,16 @@ export type Database = {
           staff_member_id: string
         }[]
       }
+      list_broadcast_delivery_metrics: {
+        Args: { p_announcement_ids: string[] }
+        Returns: {
+          announcement_id: string
+          push_delivered: number
+          push_queued: number
+          read_count: number
+          recipient_count: number
+        }[]
+      }
       list_compliance_due_items: {
         Args: never
         Returns: {
@@ -8590,6 +8609,7 @@ export type Database = {
         }[]
       }
       process_due_attendance_followups: { Args: never; Returns: number }
+      process_due_announcements: { Args: never; Returns: number }
       process_due_child_departures: { Args: never; Returns: number }
       process_due_enrollment_invoices: {
         Args: { p_daycare_id?: string }

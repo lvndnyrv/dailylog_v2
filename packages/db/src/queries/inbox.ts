@@ -112,19 +112,29 @@ export interface Broadcast {
   title: string;
   body: string;
   pinned: boolean | null;
+  scheduled_for: string | null;
+  published_at: string | null;
+  cancelled_at: string | null;
   rsvp_enabled: boolean;
   event_at: string | null;
+  event_ends_at: string | null;
+  event_location: string | null;
   created_at: string | null;
   classroom: { id: string; name: string } | null;
   author: { full_name: string } | null;
   rsvps: { response: string }[];
+  recipient_count: number;
+  read_count: number;
+  push_queued: number;
+  push_delivered: number;
 }
 
 export async function listBroadcasts(client: Client, limit = 12): Promise<Broadcast[]> {
   const { data, error } = await client
     .from('announcements')
     .select(
-      `id, title, body, pinned, rsvp_enabled, event_at, created_at,
+      `id, title, body, pinned, scheduled_for, published_at, cancelled_at,
+       rsvp_enabled, event_at, event_ends_at, event_location, created_at,
        classroom:classrooms(id, name),
        author:profiles!announcements_author_id_fkey(full_name),
        rsvps:announcement_rsvps(response)`,
@@ -132,7 +142,24 @@ export async function listBroadcasts(client: Client, limit = 12): Promise<Broadc
     .order('created_at', { ascending: false })
     .limit(limit);
   if (error) throw error;
-  return (data ?? []) as unknown as Broadcast[];
+  const rows = data ?? [];
+  if (rows.length === 0) return [];
+  const { data: metrics, error: metricsError } = await client.rpc(
+    'list_broadcast_delivery_metrics',
+    { p_announcement_ids: rows.map((row) => row.id) },
+  );
+  if (metricsError) throw metricsError;
+  const byId = new Map((metrics ?? []).map((metric) => [metric.announcement_id, metric]));
+  return rows.map((row) => {
+    const metric = byId.get(row.id);
+    return {
+      ...row,
+      recipient_count: Number(metric?.recipient_count ?? 0),
+      read_count: Number(metric?.read_count ?? 0),
+      push_queued: Number(metric?.push_queued ?? 0),
+      push_delivered: Number(metric?.push_delivered ?? 0),
+    };
+  }) as unknown as Broadcast[];
 }
 
 export async function createBroadcast(
@@ -144,6 +171,8 @@ export async function createBroadcast(
     body: string;
     classroom_id?: string | null;
     pinned?: boolean;
+    scheduled_for?: string | null;
+    published_at?: string | null;
     rsvp_enabled?: boolean;
     event_at?: string | null;
     event_ends_at?: string | null;
@@ -151,5 +180,21 @@ export async function createBroadcast(
   },
 ): Promise<void> {
   const { error } = await client.from('announcements').insert(values);
+  if (error) throw error;
+}
+
+export async function updateScheduledBroadcast(
+  client: Client,
+  id: string,
+  values: Database['public']['Tables']['announcements']['Update'],
+): Promise<void> {
+  const { error } = await client
+    .from('announcements')
+    .update(values)
+    .eq('id', id)
+    .is('published_at', null)
+    .is('cancelled_at', null)
+    .select('id')
+    .single();
   if (error) throw error;
 }

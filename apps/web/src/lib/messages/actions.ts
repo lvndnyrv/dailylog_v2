@@ -5,6 +5,7 @@ import {
   getMyProfile,
   markThreadRead,
   sendThreadMessage,
+  updateScheduledBroadcast,
 } from "@dailylog/db/queries";
 import { revalidatePath } from "next/cache";
 import { getServerSupabase } from "@/lib/supabase/server";
@@ -64,6 +65,22 @@ export async function createBroadcastAction(
   const title = str(formData, "title");
   const body = str(formData, "body");
   if (!title || !body) return { error: "Title and message are required." };
+  const announcementId = str(formData, "announcement_id");
+  const delivery = str(formData, "delivery") || "now";
+  const scheduledForValue = str(formData, "scheduled_for");
+  let scheduledFor: string | null = null;
+  let publishedAt: string | null = new Date().toISOString();
+  if (delivery === "schedule") {
+    const scheduled = new Date(scheduledForValue);
+    if (!scheduledForValue || Number.isNaN(scheduled.getTime())) {
+      return { error: "Choose when the broadcast should be sent." };
+    }
+    if (scheduled.getTime() < Date.now() + 60_000) {
+      return { error: "Scheduled delivery must be at least one minute from now." };
+    }
+    scheduledFor = scheduled.toISOString();
+    publishedAt = null;
+  }
   const rsvpEnabled = formData.get("rsvp_enabled") === "on";
   const eventAtValue = str(formData, "event_at");
   const eventEndsAtValue = str(formData, "event_ends_at");
@@ -80,14 +97,15 @@ export async function createBroadcastAction(
     if (Number.isNaN(starts.getTime()) || Number.isNaN(ends.getTime())) {
       return { error: "Enter a valid event start and end time." };
     }
-    if (starts <= new Date()) return { error: "The event must start in the future." };
+    const deliveryTime = scheduledFor ? new Date(scheduledFor) : new Date();
+    if (starts <= deliveryTime) return { error: "The event must start after the broadcast is sent." };
     if (ends <= starts) return { error: "The event end must be after its start." };
     eventAt = starts.toISOString();
     eventEndsAt = ends.toISOString();
   }
 
   try {
-    await createBroadcast(supabase, {
+    const values = {
       daycare_id: profile.daycare_id,
       author_id: profile.id,
       title,
@@ -98,11 +116,36 @@ export async function createBroadcastAction(
       event_at: eventAt,
       event_ends_at: eventEndsAt,
       event_location: rsvpEnabled ? eventLocation : null,
-    });
+      scheduled_for: scheduledFor,
+      published_at: publishedAt,
+    };
+    if (announcementId) {
+      await updateScheduledBroadcast(supabase, announcementId, values);
+    } else {
+      await createBroadcast(supabase, values);
+    }
   } catch (err) {
-    return { error: err instanceof Error ? err.message : "Could not send the broadcast." };
+    return {
+      error: err instanceof Error
+        ? err.message
+        : announcementId
+          ? "Could not update the scheduled broadcast."
+          : "Could not send the broadcast.",
+    };
   }
 
   revalidatePath("/messages");
   return { ok: true };
+}
+
+export async function cancelScheduledBroadcastAction(formData: FormData): Promise<void> {
+  const supabase = await getServerSupabase();
+  const profile = await getMyProfile(supabase);
+  if (!profile?.daycare_id) throw new Error("No center on your profile.");
+  const announcementId = str(formData, "announcement_id");
+  if (!announcementId) throw new Error("Scheduled broadcast not found.");
+  await updateScheduledBroadcast(supabase, announcementId, {
+    cancelled_at: new Date().toISOString(),
+  });
+  revalidatePath("/messages");
 }

@@ -73,15 +73,26 @@ begin
   perform pg_temp.impersonate('postgres');
   insert into public.compliance_documents(daycare_id,title,category,storage_path,mime_type,size_bytes,uploaded_by,expires_on)
     values(v_daycare,'Rollback-only expiring license','license','test/'||gen_random_uuid()::text,'application/pdf',100,v_owner,current_date+50) returning id into v_doc;
+  insert into public.notification_preferences(profile_id,daycare_id,kind,in_app,push,email)
+    values(v_owner,v_daycare,'compliance_due',true,true,true)
+    on conflict(profile_id,kind) do update set in_app=true,push=true,email=true;
   perform public.enqueue_compliance_due_reminders();
   if not exists(select 1 from public.notifications where profile_id=v_owner and kind='compliance_due' and title like 'Rollback-only expiring%') then
     raise exception 'FAIL: due document reminder missing'; end if;
+  if not exists(select 1 from public.notification_outbox where recipient_id=v_owner and kind='compliance_due' and channel='push' and title like 'Rollback-only expiring%') then
+    raise exception 'FAIL: due document push missing'; end if;
+  if not exists(select 1 from public.notification_outbox where recipient_id=v_owner and kind='compliance_due' and channel='email' and title like 'Rollback-only expiring%') then
+    raise exception 'FAIL: due document email missing'; end if;
   if exists(select 1 from public.notifications where profile_id=v_staff and kind='compliance_due' and title like 'Rollback-only expiring%') then
     raise exception 'FAIL: notification leaks a restricted compliance preview'; end if;
+  if exists(select 1 from public.notification_outbox where recipient_id=v_staff and kind='compliance_due' and title like 'Rollback-only expiring%') then
+    raise exception 'FAIL: external delivery leaks a restricted compliance preview'; end if;
   select count(*) into v_count from public.notifications where profile_id=v_owner and kind='compliance_due' and title like 'Rollback-only expiring%';
   perform public.enqueue_compliance_due_reminders();
   if (select count(*) from public.notifications where profile_id=v_owner and kind='compliance_due' and title like 'Rollback-only expiring%')<>v_count then
     raise exception 'FAIL: duplicate expiry reminder'; end if;
+  if (select count(*) from public.notification_outbox where recipient_id=v_owner and kind='compliance_due' and title like 'Rollback-only expiring%')<>2 then
+    raise exception 'FAIL: duplicate external expiry reminder'; end if;
 end $$;
 rollback;
-select 'PASS: tenant isolation, source permissions, read-only roles, expired links, creator deactivation, permission removal and reminder deduplication' as result;
+select 'PASS: tenant isolation, permissions, expired links, reminder delivery and deduplication' as result;

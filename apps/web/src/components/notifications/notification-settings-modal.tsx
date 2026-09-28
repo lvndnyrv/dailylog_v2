@@ -15,6 +15,7 @@ const LABELS: Record<NotificationPreferenceKind, { title: string; detail?: strin
   ratio_alert: { title: "Ratio alerts", detail: "Required by the center" },
   incident_report: { title: "Incident reports" },
   cert_expiry: { title: "Cert & license expiry" },
+  compliance_due: { title: "Compliance deadlines" },
   overdue_billing: { title: "Overdue billing" },
   new_device_sign_in: { title: "New device sign-in", detail: "Security" },
   waitlist_enrollment: { title: "Waitlist & enrollment" },

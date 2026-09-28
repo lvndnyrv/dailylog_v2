@@ -51,6 +51,7 @@ const DEFAULTS: Record<
   ratio_alert: { inApp: true, push: true, email: false },
   incident_report: { inApp: true, push: true, email: true },
   cert_expiry: { inApp: true, push: false, email: true },
+  compliance_due: { inApp: true, push: true, email: true },
   overdue_billing: { inApp: true, push: false, email: true },
   new_device_sign_in: { inApp: true, push: true, email: true },
   waitlist_enrollment: { inApp: true, push: false, email: false },

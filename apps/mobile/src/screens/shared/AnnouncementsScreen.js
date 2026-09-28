@@ -93,14 +93,14 @@ export default function AnnouncementsScreen({ navigation }) {
         .maybeSingle();
       if (daycare?.name) setCenterName(daycare.name);
     }
-    if (!isStaff && announcements.length) {
+    if (announcements.length) {
       const { data: reads } = await supabase
         .from('announcement_reads')
         .select('announcement_id')
         .eq('profile_id', profile.id)
         .in('announcement_id', announcements.map((item) => item.id));
       setReadIds(new Set((reads || []).map((item) => item.announcement_id)));
-    } else if (!isStaff) {
+    } else {
       setReadIds(new Set());
     }
     setLoading(false);
@@ -319,10 +319,16 @@ export default function AnnouncementsScreen({ navigation }) {
   }
 
   function renderStaffItem({ item }) {
+    const staffOnly = item.audience_type === 'staff';
+    const isRead = readIds.has(item.id);
+    function openItem() {
+      if (staffOnly && !isRead) markRead(item);
+      if (item.rsvp_enabled) navigation.navigate('EventRsvps', { announcementId: item.id });
+    }
     return (
       <TouchableOpacity
         style={[styles.staffCard, item.pinned && styles.staffCardPinned]}
-        onPress={item.rsvp_enabled ? () => navigation.navigate('EventRsvps', { announcementId: item.id }) : undefined}
+        onPress={staffOnly || item.rsvp_enabled ? openItem : undefined}
         onLongPress={() => handleDelete(item)}
         activeOpacity={0.72}
       >
@@ -332,9 +338,15 @@ export default function AnnouncementsScreen({ navigation }) {
               <Text style={styles.pinnedBadgeText}>PINNED</Text>
             </View>
           )}
+          {staffOnly && (
+            <View style={styles.staffAudienceBadge}>
+              <Text style={styles.staffAudienceBadgeText}>STAFF ONLY</Text>
+            </View>
+          )}
           <Text style={styles.metaText}>
-            {item.classroom?.name || 'All rooms'} · {announcementTime(item.created_at)}
+            {staffOnly ? 'Team update' : item.classroom?.name || 'All rooms'} · {announcementTime(item.created_at)}
           </Text>
+          {staffOnly && !isRead ? <View style={styles.unreadDot} /> : null}
         </View>
         <Text style={styles.parentCardTitle}>{item.title}</Text>
         <Text style={styles.parentCardBody}>{item.body}</Text>
@@ -347,6 +359,11 @@ export default function AnnouncementsScreen({ navigation }) {
             <Text style={styles.responsesLinkText}>View family responses</Text>
             <Ionicons name="chevron-forward" size={16} color={colors.primary} />
           </View>
+        ) : null}
+        {staffOnly && !isRead ? (
+          <TouchableOpacity onPress={() => markRead(item)} style={styles.markReadButton}>
+            <Text style={styles.markReadText}>Mark as read</Text>
+          </TouchableOpacity>
         ) : null}
       </TouchableOpacity>
     );
@@ -367,7 +384,7 @@ export default function AnnouncementsScreen({ navigation }) {
           <View style={styles.headerCopy}>
             <Text style={styles.headerTitle}>Announcements</Text>
             <Text style={styles.headerSubtitle}>
-              {isStaff ? 'Updates sent to families' : centerName}
+              {isStaff ? 'Family and team updates' : centerName}
             </Text>
           </View>
           {isStaff ? (
@@ -626,6 +643,18 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   pinnedBadgeText: { fontSize: 11, letterSpacing: 0.6, fontFamily: fonts.bold, color: colors.primary },
+  staffAudienceBadge: {
+    borderRadius: radius.full,
+    backgroundColor: '#EDF2F9',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  staffAudienceBadgeText: {
+    fontSize: 11,
+    letterSpacing: 0.6,
+    fontFamily: fonts.bold,
+    color: colors.textMuted,
+  },
   eventBadge: {
     borderRadius: radius.full,
     backgroundColor: colors.successLight,

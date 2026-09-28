@@ -109,6 +109,7 @@ export async function sendStaffMessage(
 
 export interface Broadcast {
   id: string;
+  audience_type: string;
   title: string;
   body: string;
   pinned: boolean | null;
@@ -133,7 +134,7 @@ export async function listBroadcasts(client: Client, limit = 12): Promise<Broadc
   const { data, error } = await client
     .from('announcements')
     .select(
-      `id, title, body, pinned, scheduled_for, published_at, cancelled_at,
+      `id, audience_type, title, body, pinned, scheduled_for, published_at, cancelled_at,
        rsvp_enabled, event_at, event_ends_at, event_location, created_at,
        classroom:classrooms(id, name),
        author:profiles!announcements_author_id_fkey(full_name),
@@ -171,6 +172,7 @@ export async function createBroadcast(
     body: string;
     classroom_id?: string | null;
     pinned?: boolean;
+    audience_type?: string;
     scheduled_for?: string | null;
     published_at?: string | null;
     rsvp_enabled?: boolean;

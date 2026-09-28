@@ -169,6 +169,7 @@ export type Database = {
       announcements: {
         Row: {
           author_id: string | null
+          audience_type: string
           body: string
           cancelled_at: string | null
           classroom_id: string | null
@@ -187,6 +188,7 @@ export type Database = {
         }
         Insert: {
           author_id?: string | null
+          audience_type?: string
           body: string
           cancelled_at?: string | null
           classroom_id?: string | null
@@ -205,6 +207,7 @@ export type Database = {
         }
         Update: {
           author_id?: string | null
+          audience_type?: string
           body?: string
           cancelled_at?: string | null
           classroom_id?: string | null

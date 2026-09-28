@@ -23,6 +23,9 @@ export function BroadcastModal({
     {},
   );
   const [audience, setAudience] = useState(broadcast?.classroom?.id ?? "");
+  const [audienceType, setAudienceType] = useState<"families" | "staff">(
+    broadcast?.audience_type === "staff" ? "staff" : "families",
+  );
   const [title, setTitle] = useState(broadcast?.title ?? "");
   const [body, setBody] = useState(broadcast?.body ?? "");
   const [delivery, setDelivery] = useState<"now" | "schedule">(
@@ -49,7 +52,9 @@ export function BroadcastModal({
           {broadcast ? "Edit scheduled broadcast" : "New broadcast"}
         </h2>
         <p className="mt-0.5 text-[12.5px] leading-normal text-muted">
-          One message to many — it lands in every family&apos;s app feed.
+          {audienceType === "staff"
+            ? "Share one update with the whole center team."
+            : "One message to many — it lands in every family&apos;s app feed."}
         </p>
       </div>
 
@@ -58,8 +63,10 @@ export function BroadcastModal({
           <Notice tone="success">
             <b>{delivery === "schedule" ? "Scheduled." : "Sent."}</b>{" "}
             {delivery === "schedule"
-              ? "Families will not see it until the selected delivery time."
-              : "It is now in the selected families' announcement feed."}
+              ? `${audienceType === "staff" ? "Staff" : "Families"} will not see it until the selected delivery time.`
+              : audienceType === "staff"
+                ? "It is now in the team's announcement feed."
+                : "It is now in the selected families' announcement feed."}
           </Notice>
           <Button type="button" className="py-3 text-sm" onClick={onClose}>
             Done
@@ -68,6 +75,7 @@ export function BroadcastModal({
       ) : (
         <form action={action} className="flex flex-col gap-4">
           {broadcast && <input type="hidden" name="announcement_id" value={broadcast.id} />}
+          <input type="hidden" name="audience_type" value={audienceType} />
           <input type="hidden" name="delivery" value={delivery} />
           <input
             type="hidden"
@@ -78,19 +86,40 @@ export function BroadcastModal({
             <legend className="text-[13px] font-bold text-ink">To</legend>
             <input type="hidden" name="classroom_id" value={audience} />
             <div className="flex flex-wrap gap-1.5">
-              <button type="button" className={chip(audience === "")} onClick={() => setAudience("")}>
+              <button
+                type="button"
+                className={chip(audienceType === "families" && audience === "")}
+                onClick={() => {
+                  setAudienceType("families");
+                  setAudience("");
+                }}
+              >
                 All families
               </button>
               {classrooms.map((room) => (
                 <button
                   key={room.id}
                   type="button"
-                  className={chip(audience === room.id)}
-                  onClick={() => setAudience(room.id)}
+                  className={chip(audienceType === "families" && audience === room.id)}
+                  onClick={() => {
+                    setAudienceType("families");
+                    setAudience(room.id);
+                  }}
                 >
                   {room.name}
                 </button>
               ))}
+              <button
+                type="button"
+                className={chip(audienceType === "staff")}
+                onClick={() => {
+                  setAudienceType("staff");
+                  setAudience("");
+                  setRsvpEnabled(false);
+                }}
+              >
+                Staff only
+              </button>
             </div>
           </fieldset>
 
@@ -140,7 +169,7 @@ export function BroadcastModal({
           </label>
 
           <div className="flex items-center gap-5">
-            <label className="flex items-center gap-2 text-[12.5px] font-semibold text-body">
+            {audienceType === "families" && <label className="flex items-center gap-2 text-[12.5px] font-semibold text-body">
               <input
                 type="checkbox"
                 name="pinned"
@@ -148,20 +177,22 @@ export function BroadcastModal({
                 className="size-4 rounded accent-[var(--primary)]"
               />
               Pin to the top
-            </label>
-            <label className="flex items-center gap-2 text-[12.5px] font-semibold text-body">
-              <input
-                type="checkbox"
-                name="rsvp_enabled"
-                checked={rsvpEnabled}
-                onChange={(event) => setRsvpEnabled(event.target.checked)}
-                className="size-4 rounded accent-[var(--primary)]"
-              />
-              Ask for RSVPs
-            </label>
+            </label>}
+            {audienceType === "families" && (
+              <label className="flex items-center gap-2 text-[12.5px] font-semibold text-body">
+                <input
+                  type="checkbox"
+                  name="rsvp_enabled"
+                  checked={rsvpEnabled}
+                  onChange={(event) => setRsvpEnabled(event.target.checked)}
+                  className="size-4 rounded accent-[var(--primary)]"
+                />
+                Ask for RSVPs
+              </label>
+            )}
           </div>
 
-          {rsvpEnabled ? (
+          {audienceType === "families" && rsvpEnabled ? (
             <fieldset className="rounded-[15px] border-[1.5px] border-[#D6E1F0] bg-canvas p-4">
               <legend className="px-1 text-[13px] font-bold text-ink">Event details</legend>
               <input
@@ -233,7 +264,7 @@ export function BroadcastModal({
               </label>
             )}
             <p className="text-[11px] leading-relaxed text-faint">
-              Quiet hours and each family&apos;s delivery preferences are respected by the notification worker.
+              Quiet hours and each recipient&apos;s delivery preferences are respected by the notification worker.
             </p>
           </fieldset>
 
@@ -252,7 +283,9 @@ export function BroadcastModal({
             </Button>
           </div>
           <p className="text-center text-[11px] text-faint">
-            Families with announcement alerts enabled also receive a push notification.
+            {audienceType === "staff"
+              ? "Active staff members receive this in Announcements and as a push notification."
+              : "Families with announcement alerts enabled also receive a push notification."}
           </p>
         </form>
       )}

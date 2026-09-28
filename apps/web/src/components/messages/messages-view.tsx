@@ -309,7 +309,7 @@ export function MessagesView({
                 value={`${broadcasts.reduce((sum, item) => sum + item.push_queued, 0)}`}
               />
               <Metric
-                label="Family reads"
+                label="Recipient reads"
                 value={`${broadcasts.reduce((sum, item) => sum + item.read_count, 0)}/${broadcasts.reduce((sum, item) => sum + item.recipient_count, 0)}`}
               />
               <Metric
@@ -347,7 +347,9 @@ export function MessagesView({
                   </span>
                   <span className="text-[12px] leading-relaxed text-muted">{broadcast.body}</span>
                   <span className="text-[11px] text-faint">
-                    To {broadcast.classroom?.name ?? "all families"} ·{" "}
+                    To {broadcast.audience_type === "staff"
+                      ? "staff only"
+                      : broadcast.classroom?.name ?? "all families"} ·{" "}
                     {broadcast.author?.full_name ?? "—"}
                     {broadcast.rsvp_enabled &&
                       ` · ${yes} yes${broadcast.rsvps.length ? ` of ${broadcast.rsvps.length} replies` : ""}`}

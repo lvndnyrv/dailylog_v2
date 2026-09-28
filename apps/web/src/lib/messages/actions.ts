@@ -106,6 +106,7 @@ export async function createBroadcastAction(
   const body = str(formData, "body");
   if (!title || !body) return { error: "Title and message are required." };
   const announcementId = str(formData, "announcement_id");
+  const audienceType = str(formData, "audience_type") === "staff" ? "staff" : "families";
   const delivery = str(formData, "delivery") || "now";
   const scheduledForValue = str(formData, "scheduled_for");
   let scheduledFor: string | null = null;
@@ -121,7 +122,7 @@ export async function createBroadcastAction(
     scheduledFor = scheduled.toISOString();
     publishedAt = null;
   }
-  const rsvpEnabled = formData.get("rsvp_enabled") === "on";
+  const rsvpEnabled = audienceType === "families" && formData.get("rsvp_enabled") === "on";
   const eventAtValue = str(formData, "event_at");
   const eventEndsAtValue = str(formData, "event_ends_at");
   const eventLocation = str(formData, "event_location");
@@ -148,9 +149,10 @@ export async function createBroadcastAction(
     const values = {
       daycare_id: profile.daycare_id,
       author_id: profile.id,
+      audience_type: audienceType,
       title,
       body,
-      classroom_id: str(formData, "classroom_id") || null,
+      classroom_id: audienceType === "families" ? str(formData, "classroom_id") || null : null,
       pinned: formData.get("pinned") === "on",
       rsvp_enabled: rsvpEnabled,
       event_at: eventAt,

@@ -175,6 +175,7 @@ export type Database = {
           classroom_id: string | null
           created_at: string | null
           daycare_id: string
+          email_nudge_eligible_at: string | null
           event_at: string | null
           event_ends_at: string | null
           event_location: string | null
@@ -194,6 +195,7 @@ export type Database = {
           classroom_id?: string | null
           created_at?: string | null
           daycare_id: string
+          email_nudge_eligible_at?: string | null
           event_at?: string | null
           event_ends_at?: string | null
           event_location?: string | null
@@ -213,6 +215,7 @@ export type Database = {
           classroom_id?: string | null
           created_at?: string | null
           daycare_id?: string
+          email_nudge_eligible_at?: string | null
           event_at?: string | null
           event_ends_at?: string | null
           event_location?: string | null
@@ -8483,6 +8486,7 @@ export type Database = {
         Args: { p_announcement_ids: string[] }
         Returns: {
           announcement_id: string
+          email_nudged: number
           push_delivered: number
           push_queued: number
           read_count: number
@@ -8613,6 +8617,10 @@ export type Database = {
       }
       process_due_attendance_followups: { Args: never; Returns: number }
       process_due_announcements: { Args: never; Returns: number }
+      process_unread_announcement_email_nudges: {
+        Args: never
+        Returns: number
+      }
       process_due_child_departures: { Args: never; Returns: number }
       process_due_enrollment_invoices: {
         Args: { p_daycare_id?: string }

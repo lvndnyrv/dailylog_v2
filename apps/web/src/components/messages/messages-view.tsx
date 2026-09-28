@@ -378,6 +378,9 @@ export function MessagesView({
                         <>
                           <span>Read {broadcast.read_count}/{broadcast.recipient_count}</span>
                           <span>Push delivered {broadcast.push_delivered}/{broadcast.push_queued}</span>
+                          {broadcast.email_nudged > 0 && (
+                            <span>Email reminders {broadcast.email_nudged}</span>
+                          )}
                         </>
                       )}
                     </span>

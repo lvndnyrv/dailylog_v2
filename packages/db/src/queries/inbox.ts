@@ -128,6 +128,7 @@ export interface Broadcast {
   read_count: number;
   push_queued: number;
   push_delivered: number;
+  email_nudged: number;
 }
 
 export async function listBroadcasts(client: Client, limit = 12): Promise<Broadcast[]> {
@@ -159,6 +160,7 @@ export async function listBroadcasts(client: Client, limit = 12): Promise<Broadc
       read_count: Number(metric?.read_count ?? 0),
       push_queued: Number(metric?.push_queued ?? 0),
       push_delivered: Number(metric?.push_delivered ?? 0),
+      email_nudged: Number(metric?.email_nudged ?? 0),
     };
   }) as unknown as Broadcast[];
 }

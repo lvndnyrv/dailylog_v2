@@ -14,7 +14,17 @@ export async function listInboxThreads(client: Client): Promise<InboxThread[]> {
 
 export interface ThreadMessage {
   id: string;
+  item_type?: 'message' | 'announcement';
   body: string;
+  title?: string | null;
+  announcement_id?: string | null;
+  pinned?: boolean;
+  rsvp_enabled?: boolean;
+  event_at?: string | null;
+  attachment_kind?: string | null;
+  attachment_path?: string | null;
+  attachment_name?: string | null;
+  attachment_mime?: string | null;
   created_at: string | null;
   read_at: string | null;
   sender: { id: string; full_name: string; role: string } | null;
@@ -29,6 +39,17 @@ export async function getThreadMessages(
     .select('id, body, created_at, read_at, sender:profiles!messages_sender_id_fkey(id, full_name, role)')
     .eq('conversation_id', conversationId)
     .order('created_at');
+  if (error) throw error;
+  return (data ?? []) as unknown as ThreadMessage[];
+}
+
+export async function getFamilyThreadTimeline(
+  client: Client,
+  conversationId: string,
+): Promise<ThreadMessage[]> {
+  const { data, error } = await client.rpc('get_family_conversation_timeline', {
+    p_conversation_id: conversationId,
+  });
   if (error) throw error;
   return (data ?? []) as unknown as ThreadMessage[];
 }

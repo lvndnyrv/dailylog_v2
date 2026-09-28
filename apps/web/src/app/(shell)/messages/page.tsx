@@ -1,6 +1,7 @@
 import {
   getMyProfile,
   getThreadMessages,
+  getFamilyThreadTimeline,
   listBroadcasts,
   listClassrooms,
   listInboxThreads,
@@ -59,12 +60,11 @@ export default async function MessagesPage({
   const selected = threads.find((thread) => thread.conversation_id === selectedId) ?? null;
   const selectedStaff =
     staffThreads.find((thread) => thread.conversation_id === selectedId) ?? null;
-  const messages = selected || selectedStaff
-    ? await getThreadMessages(
-        supabase,
-        (selected ?? selectedStaff)!.conversation_id,
-      )
-    : [];
+  const messages = selected
+    ? await getFamilyThreadTimeline(supabase, selected.conversation_id)
+    : selectedStaff
+      ? await getThreadMessages(supabase, selectedStaff.conversation_id)
+      : [];
 
   const needsReply = [...threads, ...staffThreads].filter(
     (thread) => Number(thread.unread_count) > 0,

@@ -110,16 +110,19 @@ export default function MessagingScreen({ route, navigation }) {
   useEffect(() => {
     if (!profile?.id) return undefined;
     let active = true;
+    let activeConversationId = null;
 
     async function start() {
-      const [childRow, messageRows] = await Promise.all([
+      const [childRow, threadId] = await Promise.all([
         loadChild(),
-        loadMessages(),
+        getOrCreateConversation(),
       ]);
+      const messageRows = await loadMessages(threadId);
       if (!active) return;
+      activeConversationId = threadId;
       setChild(childRow);
       setMessages(messageRows);
-      setConversationId(messageRows.find((item) => item.conversation_id)?.conversation_id || null);
+      setConversationId(threadId);
       setLoading(false);
       await markMessagesAsRead();
       setTimeout(() => listRef.current?.scrollToEnd({ animated: false }), 120);
@@ -171,6 +174,21 @@ export default function MessagingScreen({ route, navigation }) {
           )));
         },
       )
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'announcement_thread_deliveries',
+        },
+        async (payload) => {
+          if (!activeConversationId || payload.new.conversation_id !== activeConversationId) return;
+          const timeline = await loadMessages(activeConversationId);
+          if (!active) return;
+          setMessages(timeline);
+          setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 100);
+        },
+      )
       .subscribe();
 
     return () => {
@@ -210,15 +228,20 @@ export default function MessagingScreen({ route, navigation }) {
       .select('*, sender:profiles!messages_sender_id_fkey(id, full_name, role)')
       .eq('id', messageId)
       .maybeSingle();
-    return signedAttachmentUrl(data || fallback);
+    return signedAttachmentUrl({ item_type: 'message', ...(data || fallback) });
   }
 
-  async function loadMessages() {
+  async function getOrCreateConversation() {
     const { data, error } = await supabase
-      .from('messages')
-      .select('*, sender:profiles!messages_sender_id_fkey(id, full_name, role)')
-      .eq('child_id', childId)
-      .order('created_at', { ascending: true });
+      .rpc('get_or_create_child_conversation', { p_child_id: childId });
+    if (error) throw error;
+    return data;
+  }
+
+  async function loadMessages(threadId) {
+    const { data, error } = await supabase.rpc('get_family_conversation_timeline', {
+      p_conversation_id: threadId,
+    });
     if (error) throw error;
     return Promise.all((data || []).map(signedAttachmentUrl));
   }
@@ -230,12 +253,9 @@ export default function MessagingScreen({ route, navigation }) {
 
   async function ensureConversation() {
     if (conversationId) return conversationId;
-
-    const { data, error } = await supabase
-      .rpc('get_or_create_child_conversation', { p_child_id: childId });
-    if (error) throw error;
-    setConversationId(data);
-    return data;
+    const threadId = await getOrCreateConversation();
+    setConversationId(threadId);
+    return threadId;
   }
 
   async function prepareAttachment(option) {
@@ -400,6 +420,7 @@ export default function MessagingScreen({ route, navigation }) {
       };
       const optimistic = await signedAttachmentUrl({
         ...row,
+        item_type: 'message',
         created_at: new Date().toISOString(),
         read_at: null,
         sender: { id: profile.id, full_name: profile.full_name, role: profile.role },
@@ -438,6 +459,25 @@ export default function MessagingScreen({ route, navigation }) {
     if (message.attachment_url) {
       Linking.openURL(message.attachment_url);
     }
+  }
+
+  async function openTimelineAnnouncement(item) {
+    if (!isStaff && item.announcement_id) {
+      const { error } = await supabase.from('announcement_reads').upsert(
+        {
+          announcement_id: item.announcement_id,
+          profile_id: profile.id,
+          read_at: new Date().toISOString(),
+        },
+        { onConflict: 'announcement_id,profile_id' },
+      );
+      if (error) console.log('Announcement read receipt failed:', error.message);
+    }
+    if (!isStaff && item.rsvp_enabled) {
+      navigation.navigate('EventDetail', { announcementId: item.announcement_id });
+      return;
+    }
+    navigation.navigate('Announcements');
   }
 
   function renderAttachment(message, isMe) {
@@ -495,6 +535,42 @@ export default function MessagingScreen({ route, navigation }) {
   }
 
   function renderMessage({ item, index }) {
+    if (item.item_type === 'announcement') {
+      const previous = messages[index - 1];
+      const showDay = !previous || !isSameDay(new Date(previous.created_at), new Date(item.created_at));
+      return (
+        <View>
+          {showDay && (
+            <View style={styles.dayPill}>
+              <Text style={styles.dayPillText}>{formatDay(item.created_at)}</Text>
+            </View>
+          )}
+          <TouchableOpacity
+            style={styles.announcementCard}
+            onPress={() => openTimelineAnnouncement(item)}
+            activeOpacity={0.76}
+          >
+            <View style={styles.announcementIcon}>
+              <Ionicons name="megaphone-outline" size={20} color={colors.primary} />
+            </View>
+            <View style={styles.announcementCopy}>
+              <View style={styles.announcementMetaRow}>
+                <Text style={styles.announcementEyebrow}>CENTER ANNOUNCEMENT</Text>
+                {item.pinned ? <Text style={styles.announcementPinned}>PINNED</Text> : null}
+                <Text style={styles.announcementTime}>{formatMessageTime(item.created_at)}</Text>
+              </View>
+              <Text style={styles.announcementTitle}>{item.title}</Text>
+              <Text style={styles.announcementBody} numberOfLines={4}>{item.body}</Text>
+              {item.rsvp_enabled ? (
+                <Text style={styles.announcementAction}>Family event · Tap to RSVP</Text>
+              ) : (
+                <Text style={styles.announcementAction}>View all announcements</Text>
+              )}
+            </View>
+          </TouchableOpacity>
+        </View>
+      );
+    }
     const isMe = item.sender_id === profile.id;
     const previous = messages[index - 1];
     const showDay = !previous || !isSameDay(new Date(previous.created_at), new Date(item.created_at));
@@ -783,6 +859,66 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontFamily: fonts.bold,
     color: colors.textFaint,
+  },
+  announcementCard: {
+    flexDirection: 'row',
+    gap: spacing.md,
+    marginBottom: spacing.lg,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    backgroundColor: colors.surface,
+    padding: spacing.lg,
+  },
+  announcementIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: radius.md,
+    backgroundColor: colors.primaryLight,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  announcementCopy: { flex: 1, minWidth: 0 },
+  announcementMetaRow: { flexDirection: 'row', alignItems: 'center', gap: 7 },
+  announcementEyebrow: {
+    fontSize: 10,
+    letterSpacing: 0.7,
+    fontFamily: fonts.bold,
+    color: colors.primary,
+  },
+  announcementPinned: {
+    borderRadius: radius.full,
+    backgroundColor: '#FBF3E4',
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    fontSize: 9,
+    fontFamily: fonts.bold,
+    color: '#B0782B',
+  },
+  announcementTime: {
+    marginLeft: 'auto',
+    fontSize: 10.5,
+    fontFamily: fonts.regular,
+    color: colors.textFaint,
+  },
+  announcementTitle: {
+    marginTop: 5,
+    fontSize: 14,
+    fontFamily: fonts.bold,
+    color: colors.textPrimary,
+  },
+  announcementBody: {
+    marginTop: 3,
+    fontSize: 13,
+    lineHeight: 19,
+    fontFamily: fonts.regular,
+    color: colors.textMuted,
+  },
+  announcementAction: {
+    marginTop: 7,
+    fontSize: 11.5,
+    fontFamily: fonts.bold,
+    color: colors.primary,
   },
   messageWrap: { alignItems: 'flex-start', maxWidth: '82%', marginBottom: spacing.md },
   messageWrapMe: { alignSelf: 'flex-end', alignItems: 'flex-end' },

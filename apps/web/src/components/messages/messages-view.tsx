@@ -243,6 +243,44 @@ export function MessagesView({
 
           <div className="flex flex-1 flex-col gap-2.5 overflow-y-auto p-4">
             {messages.map((message) => {
+              if (message.item_type === "announcement") {
+                return (
+                  <div
+                    key={`announcement-${message.id}`}
+                    className="my-1 flex w-full items-start gap-3 rounded-2xl border border-[#D6E1F0] bg-canvas px-4 py-3"
+                  >
+                    <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-[#E3EDFA] text-base">
+                      📢
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-center gap-2">
+                        <span className="text-[10px] font-extrabold uppercase tracking-[0.08em] text-primary">
+                          Center announcement
+                        </span>
+                        {message.pinned && (
+                          <span className="rounded-full bg-warning-bg px-2 py-px text-[9.5px] font-bold text-warning-text">
+                            Pinned
+                          </span>
+                        )}
+                        <span className="ml-auto text-[10.5px] text-faint">
+                          {timeAgo(message.created_at)}
+                        </span>
+                      </span>
+                      <span className="mt-1 block text-[13px] font-extrabold text-ink">
+                        {message.title}
+                      </span>
+                      <span className="mt-0.5 block text-[12px] leading-relaxed text-muted">
+                        {message.body}
+                      </span>
+                      {message.rsvp_enabled && (
+                        <span className="mt-1.5 block text-[11px] font-bold text-primary">
+                          Family event · RSVP available in the parent app
+                        </span>
+                      )}
+                    </span>
+                  </div>
+                );
+              }
               const mine = selectedStaff
                 ? message.sender?.id === currentProfileId
                 : isStaffRole(message.sender?.role);

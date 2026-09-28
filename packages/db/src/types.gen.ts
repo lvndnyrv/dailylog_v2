@@ -166,6 +166,49 @@ export type Database = {
           },
         ]
       }
+      announcement_thread_deliveries: {
+        Row: {
+          announcement_id: string
+          conversation_id: string
+          daycare_id: string
+          delivered_at: string
+        }
+        Insert: {
+          announcement_id: string
+          conversation_id: string
+          daycare_id: string
+          delivered_at?: string
+        }
+        Update: {
+          announcement_id?: string
+          conversation_id?: string
+          daycare_id?: string
+          delivered_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "announcement_thread_deliveries_announcement_id_fkey"
+            columns: ["announcement_id"]
+            isOneToOne: false
+            referencedRelation: "announcements"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "announcement_thread_deliveries_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "announcement_thread_deliveries_daycare_id_fkey"
+            columns: ["daycare_id"]
+            isOneToOne: false
+            referencedRelation: "daycares"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       announcements: {
         Row: {
           author_id: string | null
@@ -8029,6 +8072,29 @@ export type Database = {
           staffing_status: string
           start_on: string
           undercovered_segments: number
+        }[]
+      }
+      get_family_conversation_timeline: {
+        Args: { p_conversation_id: string }
+        Returns: {
+          announcement_id: string
+          attachment_kind: string
+          attachment_mime: string
+          attachment_name: string
+          attachment_path: string
+          body: string
+          child_id: string
+          conversation_id: string
+          created_at: string
+          event_at: string
+          id: string
+          item_type: string
+          pinned: boolean
+          read_at: string
+          rsvp_enabled: boolean
+          sender: Json
+          sender_id: string
+          title: string
         }[]
       }
       get_family_ledger_balance: {

@@ -150,6 +150,9 @@ export interface Broadcast {
   push_queued: number;
   push_delivered: number;
   email_nudged: number;
+  requested_languages: string[];
+  ready_languages: string[];
+  missing_languages: string[];
 }
 
 export async function listBroadcasts(client: Client, limit = 12): Promise<Broadcast[]> {
@@ -167,14 +170,21 @@ export async function listBroadcasts(client: Client, limit = 12): Promise<Broadc
   if (error) throw error;
   const rows = data ?? [];
   if (rows.length === 0) return [];
-  const { data: metrics, error: metricsError } = await client.rpc(
-    'list_broadcast_delivery_metrics',
-    { p_announcement_ids: rows.map((row) => row.id) },
-  );
+  const announcementIds = rows.map((row) => row.id);
+  const [deliveryResult, languageResult] = await Promise.all([
+    client.rpc('list_broadcast_delivery_metrics', { p_announcement_ids: announcementIds }),
+    client.rpc('list_broadcast_language_metrics', { p_announcement_ids: announcementIds }),
+  ]);
+  const { data: metrics, error: metricsError } = deliveryResult;
   if (metricsError) throw metricsError;
+  if (languageResult.error) throw languageResult.error;
   const byId = new Map((metrics ?? []).map((metric) => [metric.announcement_id, metric]));
+  const languagesById = new Map(
+    (languageResult.data ?? []).map((metric) => [metric.announcement_id, metric]),
+  );
   return rows.map((row) => {
     const metric = byId.get(row.id);
+    const languageMetric = languagesById.get(row.id);
     return {
       ...row,
       recipient_count: Number(metric?.recipient_count ?? 0),
@@ -182,6 +192,9 @@ export async function listBroadcasts(client: Client, limit = 12): Promise<Broadc
       push_queued: Number(metric?.push_queued ?? 0),
       push_delivered: Number(metric?.push_delivered ?? 0),
       email_nudged: Number(metric?.email_nudged ?? 0),
+      requested_languages: languageMetric?.requested_languages ?? [],
+      ready_languages: languageMetric?.ready_languages ?? [],
+      missing_languages: languageMetric?.missing_languages ?? [],
     };
   }) as unknown as Broadcast[];
 }

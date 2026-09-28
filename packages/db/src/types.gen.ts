@@ -8604,6 +8604,15 @@ export type Database = {
           recipient_count: number
         }[]
       }
+      list_broadcast_language_metrics: {
+        Args: { p_announcement_ids: string[] }
+        Returns: {
+          announcement_id: string
+          missing_languages: string[]
+          ready_languages: string[]
+          requested_languages: string[]
+        }[]
+      }
       list_compliance_due_items: {
         Args: never
         Returns: {

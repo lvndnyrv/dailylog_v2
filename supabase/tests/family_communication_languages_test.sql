@@ -24,6 +24,9 @@ declare
   v_announcement uuid;
   v_conversation uuid;
   v_payload jsonb;
+  v_requested text[];
+  v_ready text[];
+  v_missing text[];
 begin
   perform pg_temp.impersonate('authenticated', v_owner);
   insert into public.announcements (
@@ -77,6 +80,18 @@ begin
      or (v_payload -> 0 ->> 'is_translated')::boolean is true
      or v_payload -> 0 ->> 'language_code' <> 'en' then
     raise exception 'FAIL: missing translation did not fall back to source copy: %', v_payload;
+  end if;
+
+  perform pg_temp.impersonate('authenticated', v_owner);
+  select metric.requested_languages, metric.ready_languages, metric.missing_languages
+    into v_requested, v_ready, v_missing
+    from public.list_broadcast_language_metrics(array[v_announcement]) metric;
+  if array_position(v_requested, 'en') is null
+     or array_position(v_requested, 'es') is null
+     or array_position(v_ready, 'en') is null
+     or array_position(v_missing, 'es') is null then
+    raise exception 'FAIL: admin language readiness metric is incorrect: requested %, ready %, missing %',
+      v_requested, v_ready, v_missing;
   end if;
 end $$;
 

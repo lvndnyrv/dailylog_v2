@@ -12,6 +12,7 @@ type OutboxRow = {
 };
 
 type ExpoTicket = { status?: string; details?: { error?: string } };
+type TranslationCopy = { title: string; body: string };
 
 const jsonHeaders = { 'content-type': 'application/json' };
 
@@ -36,6 +37,227 @@ function requiredEnv(name: string): string {
   const value = Deno.env.get(name);
   if (!value) throw new Error(`Missing ${name}`);
   return value;
+}
+
+function nonEmptyString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function parseTranslationPayload(payload: Record<string, unknown>): TranslationCopy {
+  const title = nonEmptyString(payload.title ?? payload.translatedTitle);
+  const body = nonEmptyString(payload.body ?? payload.translatedBody);
+  if (!title || !body || title.length > 180 || body.length > 5000) {
+    throw new Error('Translation provider returned invalid title or body');
+  }
+  return { title, body };
+}
+
+async function translateWithWebhook(
+  webhookUrl: string,
+  announcementId: string,
+  languageCode: string,
+  source: TranslationCopy,
+): Promise<TranslationCopy> {
+  const bearer = Deno.env.get('TRANSLATION_WEBHOOK_BEARER_TOKEN');
+  const response = await fetch(webhookUrl, {
+    method: 'POST',
+    headers: {
+      ...jsonHeaders,
+      ...(bearer ? { authorization: `Bearer ${bearer}` } : {}),
+    },
+    body: JSON.stringify({
+      idempotencyKey: `${announcementId}:${languageCode}`,
+      sourceLanguage: 'en',
+      targetLanguage: languageCode,
+      title: source.title,
+      body: source.body,
+    }),
+    signal: AbortSignal.timeout(12_000),
+  });
+  const responseBody = await response.text();
+  if (!response.ok) {
+    throw new Error(`Translation webhook HTTP ${response.status}: ${responseBody.slice(0, 500)}`);
+  }
+  try {
+    return parseTranslationPayload(JSON.parse(responseBody) as Record<string, unknown>);
+  } catch (error) {
+    if (error instanceof SyntaxError) throw new Error('Translation webhook returned invalid JSON');
+    throw error;
+  }
+}
+
+async function translateWithOpenAI(
+  apiKey: string,
+  languageCode: string,
+  source: TranslationCopy,
+): Promise<TranslationCopy> {
+  const languageNames: Record<string, string> = {
+    fr: 'French', es: 'Spanish', pt: 'Portuguese', ar: 'Arabic',
+    zh: 'Simplified Chinese', pa: 'Punjabi', ur: 'Urdu', tl: 'Tagalog',
+  };
+  const targetLanguage = languageNames[languageCode];
+  if (!targetLanguage) throw new Error(`Unsupported target language: ${languageCode}`);
+
+  const response = await fetch('https://api.openai.com/v1/responses', {
+    method: 'POST',
+    headers: {
+      ...jsonHeaders,
+      authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: Deno.env.get('OPENAI_TRANSLATION_MODEL') || 'gpt-6-luna',
+      store: false,
+      reasoning: { effort: 'none' },
+      input: [
+        {
+          role: 'system',
+          content: [{
+            type: 'input_text',
+            text: `Translate childcare-center announcements from English to ${targetLanguage}. Preserve names, dates, times, URLs, safety instructions, and formatting. Do not add, remove, summarize, or explain any content.`,
+          }],
+        },
+        {
+          role: 'user',
+          content: [{ type: 'input_text', text: JSON.stringify(source) }],
+        },
+      ],
+      text: {
+        format: {
+          type: 'json_schema',
+          name: 'announcement_translation',
+          strict: true,
+          schema: {
+            type: 'object',
+            properties: {
+              title: { type: 'string' },
+              body: { type: 'string' },
+            },
+            required: ['title', 'body'],
+            additionalProperties: false,
+          },
+        },
+      },
+      max_output_tokens: 1200,
+    }),
+    signal: AbortSignal.timeout(20_000),
+  });
+  const responseBody = await response.text();
+  if (!response.ok) {
+    throw new Error(`OpenAI translation HTTP ${response.status}: ${responseBody.slice(0, 500)}`);
+  }
+  let payload: Record<string, unknown>;
+  try {
+    payload = JSON.parse(responseBody) as Record<string, unknown>;
+  } catch {
+    throw new Error('OpenAI translation returned invalid JSON');
+  }
+  const output = Array.isArray(payload.output) ? payload.output : [];
+  const outputText = output
+    .flatMap((item) => (
+      item && typeof item === 'object' && Array.isArray((item as { content?: unknown[] }).content)
+        ? (item as { content: unknown[] }).content
+        : []
+    ))
+    .find((content) => (
+      content && typeof content === 'object'
+      && (content as { type?: unknown }).type === 'output_text'
+    ));
+  const text = outputText && typeof outputText === 'object'
+    ? nonEmptyString((outputText as { text?: unknown }).text)
+    : null;
+  if (!text) throw new Error('OpenAI translation returned no output text');
+  try {
+    return parseTranslationPayload(JSON.parse(text) as Record<string, unknown>);
+  } catch (error) {
+    if (error instanceof SyntaxError) throw new Error('OpenAI translation output was not valid JSON');
+    throw error;
+  }
+}
+
+async function fetchAnnouncementTranslation(
+  supabase: ReturnType<typeof createClient>,
+  announcementId: string,
+  languageCode: string,
+): Promise<TranslationCopy | null> {
+  const { data: existing, error: existingError } = await supabase
+    .from('announcement_translations')
+    .select('title,body')
+    .eq('announcement_id', announcementId)
+    .eq('language_code', languageCode)
+    .maybeSingle();
+  if (existingError) throw existingError;
+  if (existing?.title && existing?.body) return existing as TranslationCopy;
+
+  const { data: announcement, error: announcementError } = await supabase
+    .from('announcements')
+    .select('title,body')
+    .eq('id', announcementId)
+    .single();
+  if (announcementError) throw announcementError;
+  const source = { title: announcement.title, body: announcement.body };
+  const webhookUrl = Deno.env.get('TRANSLATION_WEBHOOK_URL');
+  const openAiKey = Deno.env.get('OPENAI_API_KEY');
+  const translation = webhookUrl
+    ? await translateWithWebhook(webhookUrl, announcementId, languageCode, source)
+    : openAiKey
+      ? await translateWithOpenAI(openAiKey, languageCode, source)
+      : null;
+  if (!translation) return null;
+  const { error: saveError } = await supabase
+    .from('announcement_translations')
+    .upsert({
+      announcement_id: announcementId,
+      language_code: languageCode,
+      title: translation.title,
+      body: translation.body,
+      provider: webhookUrl ? 'webhook' : `openai:${Deno.env.get('OPENAI_TRANSLATION_MODEL') || 'gpt-6-luna'}`,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'announcement_id,language_code' });
+  if (saveError) throw saveError;
+  return translation;
+}
+
+async function localizeAnnouncementDelivery(
+  supabase: ReturnType<typeof createClient>,
+  row: OutboxRow,
+  cache: Map<string, Promise<TranslationCopy | null>>,
+): Promise<OutboxRow> {
+  const announcementId = nonEmptyString(row.payload?.announcementId);
+  if (row.kind !== 'announcement' || !row.recipient_id || !announcementId) return row;
+
+  const { data: recipient, error } = await supabase
+    .from('profiles')
+    .select('role,preferred_language')
+    .eq('id', row.recipient_id)
+    .single();
+  if (error) throw error;
+  const languageCode = recipient?.role === 'parent'
+    ? nonEmptyString(recipient.preferred_language) ?? 'en'
+    : 'en';
+  if (languageCode === 'en') return row;
+
+  const cacheKey = `${announcementId}:${languageCode}`;
+  let pending = cache.get(cacheKey);
+  if (!pending) {
+    pending = fetchAnnouncementTranslation(supabase, announcementId, languageCode);
+    cache.set(cacheKey, pending);
+  }
+  try {
+    const translated = await pending;
+    if (!translated) return row;
+    return {
+      ...row,
+      title: `📢 ${translated.title}`,
+      body: translated.body,
+      payload: { ...row.payload, languageCode, translated: true },
+    };
+  } catch (translationError) {
+    // Translation is an enhancement, never a reason to suppress an urgent
+    // center message. Delivery continues with the source copy and the durable
+    // outbox retains the provider error in function logs for operations.
+    console.warn(`Translation fallback for ${cacheKey}: ${errorMessage(translationError)}`);
+    return row;
+  }
 }
 
 async function deliverPush(
@@ -155,12 +377,14 @@ Deno.serve(async (request) => {
     // maintenance query from starving time-sensitive push delivery.
     const { data: rows, error } = await supabase.rpc('claim_notification_batch', { p_limit: 50 });
     if (error) throw error;
+    const translationCache = new Map<string, Promise<TranslationCopy | null>>();
 
     const results = await Promise.allSettled((rows as OutboxRow[]).map(async (row) => {
       try {
-        const result = row.channel === 'push'
-          ? await deliverPush(supabase, row)
-          : await deliverEmail(supabase, row);
+        const deliveryRow = await localizeAnnouncementDelivery(supabase, row, translationCache);
+        const result = deliveryRow.channel === 'push'
+          ? await deliverPush(supabase, deliveryRow)
+          : await deliverEmail(supabase, deliveryRow);
         const { error: completeError } = await supabase.rpc('complete_notification_delivery', {
           p_id: row.id,
           p_succeeded: true,

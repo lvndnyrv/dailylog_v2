@@ -341,7 +341,7 @@ export function MessagesView({
             </button>
           </div>
           {broadcasts.length > 0 && (
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-4 gap-2">
               <Metric
                 label="Push queued"
                 value={`${broadcasts.reduce((sum, item) => sum + item.push_queued, 0)}`}
@@ -353,6 +353,10 @@ export function MessagesView({
               <Metric
                 label="Scheduled"
                 value={`${broadcasts.filter((item) => !item.published_at && !item.cancelled_at).length}`}
+              />
+              <Metric
+                label="Family languages"
+                value={`${new Set(broadcasts.flatMap((item) => item.requested_languages)).size}`}
               />
             </div>
           )}
@@ -418,6 +422,14 @@ export function MessagesView({
                           <span>Push delivered {broadcast.push_delivered}/{broadcast.push_queued}</span>
                           {broadcast.email_nudged > 0 && (
                             <span>Email reminders {broadcast.email_nudged}</span>
+                          )}
+                          {broadcast.audience_type === "families" && broadcast.requested_languages.length > 0 && (
+                            <span className={broadcast.missing_languages.length > 0 ? "font-semibold text-warning-text" : "text-success"}>
+                              Translation ready {broadcast.ready_languages.length}/{broadcast.requested_languages.length}
+                              {broadcast.missing_languages.length > 0
+                                ? ` · waiting for ${broadcast.missing_languages.map(languageLabel).join(", ")}`
+                                : ""}
+                            </span>
                           )}
                         </>
                       )}
@@ -567,6 +579,21 @@ function roleLabel(role: string): string {
   if (role === "owner_admin") return "Owner admin";
   if (role === "admin") return "Administrator";
   return "Educator";
+}
+
+function languageLabel(code: string): string {
+  const labels: Record<string, string> = {
+    en: "English",
+    fr: "French",
+    es: "Spanish",
+    pt: "Portuguese",
+    ar: "Arabic",
+    zh: "Chinese",
+    pa: "Punjabi",
+    ur: "Urdu",
+    tl: "Tagalog",
+  };
+  return labels[code] ?? code.toUpperCase();
 }
 
 function timeAgo(timestamp: string | null): string {

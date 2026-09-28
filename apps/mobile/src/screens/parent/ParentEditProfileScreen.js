@@ -17,9 +17,22 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useAuth } from '../../hooks/useAuth';
 import { supabase } from '../../lib/supabase';
+import { savePreferredLanguage } from '../../lib/localizedAnnouncements';
 import { showToast } from '../../components/Toast';
 import { colors, fonts, radius, spacing } from '../../theme';
 import { ParentAccountHeader, initials } from './ParentAccountShared';
+
+const COMMUNICATION_LANGUAGES = [
+  { code: 'en', label: 'English' },
+  { code: 'fr', label: 'Français' },
+  { code: 'es', label: 'Español' },
+  { code: 'pt', label: 'Português' },
+  { code: 'ar', label: 'العربية' },
+  { code: 'zh', label: '中文' },
+  { code: 'pa', label: 'ਪੰਜਾਬੀ' },
+  { code: 'ur', label: 'اردو' },
+  { code: 'tl', label: 'Tagalog' },
+];
 
 function Field({ label, required, value, onChangeText, error, ...inputProps }) {
   return (
@@ -55,6 +68,7 @@ export default function ParentEditProfileScreen({ navigation }) {
   const [fullName, setFullName] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [phone, setPhone] = useState('');
+  const [preferredLanguage, setPreferredLanguage] = useState('en');
   const [stagedPhoto, setStagedPhoto] = useState(null);
   const [removePhoto, setRemovePhoto] = useState(false);
   const [errors, setErrors] = useState({});
@@ -65,9 +79,10 @@ export default function ParentEditProfileScreen({ navigation }) {
     setFullName(profile?.full_name || '');
     setDisplayName(profile?.display_name || profile?.full_name?.split(/\s+/)[0] || '');
     setPhone(profile?.phone || '');
+    setPreferredLanguage(profile?.preferred_language || 'en');
     setStagedPhoto(null);
     setRemovePhoto(false);
-  }, [profile?.id]);
+  }, [profile?.id, profile?.preferred_language]);
 
   const previewUri = stagedPhoto || (removePhoto ? null : profile?.avatar_url);
   const avatarLabel = useMemo(() => initials(fullName || profile?.full_name), [fullName, profile?.full_name]);
@@ -151,6 +166,7 @@ export default function ParentEditProfileScreen({ navigation }) {
         p_avatar_url: avatarUrl,
       });
       if (updateError) throw updateError;
+      await savePreferredLanguage(preferredLanguage);
 
       const oldPath = ownAvatarPath(profile?.avatar_url, user.id);
       if (oldPath && (uploadedPath || removePhoto)) {
@@ -246,6 +262,32 @@ export default function ParentEditProfileScreen({ navigation }) {
           <Text style={styles.emailHint}>Contact support if this sign-in address needs to change.</Text>
         </View>
 
+        <View style={styles.card}>
+          <Text style={styles.label}>Communication language</Text>
+          <Text style={styles.languageHint}>
+            Family announcements use this language when the center has a translated copy. The original message remains available as a safe fallback.
+          </Text>
+          <View style={styles.languageGrid}>
+            {COMMUNICATION_LANGUAGES.map((language) => {
+              const selected = preferredLanguage === language.code;
+              return (
+                <TouchableOpacity
+                  key={language.code}
+                  style={[styles.languageChip, selected && styles.languageChipSelected]}
+                  onPress={() => setPreferredLanguage(language.code)}
+                  accessibilityRole="radio"
+                  accessibilityState={{ checked: selected }}
+                  accessibilityLabel={language.label}
+                >
+                  <Text style={[styles.languageChipText, selected && styles.languageChipTextSelected]}>
+                    {language.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </View>
+
         <View style={styles.securityCard}>
           <View style={styles.securityIcon}>
             <Ionicons name="lock-closed-outline" size={19} color={colors.primary} />
@@ -324,6 +366,15 @@ const styles = StyleSheet.create({
   verifiedBadge: { backgroundColor: colors.successLight, borderRadius: radius.full, paddingHorizontal: 9, paddingVertical: 4 },
   verifiedText: { color: colors.success, fontFamily: fonts.bold, fontSize: 10.5 },
   emailHint: { color: colors.textFaint, fontFamily: fonts.regular, fontSize: 11.5, lineHeight: 16, marginTop: spacing.sm },
+  languageHint: { color: colors.textMuted, fontFamily: fonts.regular, fontSize: 12, lineHeight: 17, marginTop: -2, marginBottom: spacing.md },
+  languageGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  languageChip: {
+    minHeight: 38, justifyContent: 'center', borderWidth: 1.5, borderColor: colors.border,
+    borderRadius: radius.full, paddingHorizontal: spacing.md, backgroundColor: colors.surface,
+  },
+  languageChipSelected: { borderColor: colors.primary, backgroundColor: colors.primaryLight },
+  languageChipText: { color: colors.textSecondary, fontFamily: fonts.bold, fontSize: 12.5 },
+  languageChipTextSelected: { color: colors.primary },
   securityCard: {
     minHeight: 74, flexDirection: 'row', alignItems: 'center', gap: spacing.md,
     backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.borderSoft,

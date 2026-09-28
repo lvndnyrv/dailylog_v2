@@ -20,6 +20,7 @@ import { isStaffRole } from '@dailylog/shared';
 import { useAuth } from '../../hooks/useAuth';
 import { useClassroom } from '../../hooks/useClassroom';
 import { supabase } from '../../lib/supabase';
+import { listLocalizedAnnouncements } from '../../lib/localizedAnnouncements';
 import { notifyAnnouncement } from '../../hooks/usePushNotifications';
 import { Button, EmptyState, Input } from '../../components/ui';
 import { DatePickerField } from '../../components/DatePickerField';
@@ -62,26 +63,32 @@ export default function AnnouncementsScreen({ navigation }) {
     if (silent) setRefreshing(true);
     else setLoading(true);
     setLoadError('');
-    const { data, error } = await supabase
-      .from('announcements')
-      .select(`
-        *,
-        author:profiles!announcements_author_id_fkey(full_name),
-        daycare:daycares(name),
-        classroom:classrooms(name),
-        rsvps:announcement_rsvps(profile_id, response, guests, child_id)
-      `)
-      .order('pinned', { ascending: false })
-      .order('created_at', { ascending: false })
-      .limit(50);
-    if (error) {
+    let announcements;
+    try {
+      if (isStaff) {
+        const { data, error } = await supabase
+          .from('announcements')
+          .select(`
+            *,
+            author:profiles!announcements_author_id_fkey(full_name),
+            daycare:daycares(name),
+            classroom:classrooms(name),
+            rsvps:announcement_rsvps(profile_id, response, guests, child_id)
+          `)
+          .order('pinned', { ascending: false })
+          .order('created_at', { ascending: false })
+          .limit(50);
+        if (error) throw error;
+        announcements = data || [];
+      } else {
+        announcements = await listLocalizedAnnouncements(50);
+      }
+    } catch (error) {
       setLoadError(error.message || 'We could not load announcements.');
       setLoading(false);
       setRefreshing(false);
       return;
     }
-
-    const announcements = data || [];
     setItems(announcements);
     if (announcements[0]?.daycare?.name) {
       setCenterName(announcements[0].daycare.name);

@@ -209,6 +209,44 @@ export type Database = {
           },
         ]
       }
+      announcement_translations: {
+        Row: {
+          announcement_id: string
+          body: string
+          created_at: string
+          language_code: string
+          provider: string
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          announcement_id: string
+          body: string
+          created_at?: string
+          language_code: string
+          provider?: string
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          announcement_id?: string
+          body?: string
+          created_at?: string
+          language_code?: string
+          provider?: string
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "announcement_translations_announcement_id_fkey"
+            columns: ["announcement_id"]
+            isOneToOne: false
+            referencedRelation: "announcements"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       announcements: {
         Row: {
           author_id: string | null
@@ -5279,6 +5317,7 @@ export type Database = {
           full_name: string
           id: string
           phone: string | null
+          preferred_language: string
           role: string
           updated_at: string | null
         }
@@ -5294,6 +5333,7 @@ export type Database = {
           full_name: string
           id: string
           phone?: string | null
+          preferred_language?: string
           role: string
           updated_at?: string | null
         }
@@ -5309,6 +5349,7 @@ export type Database = {
           full_name?: string
           id?: string
           phone?: string | null
+          preferred_language?: string
           role?: string
           updated_at?: string | null
         }
@@ -8178,6 +8219,10 @@ export type Database = {
       }
       get_my_classroom_id: { Args: never; Returns: string }
       get_my_daycare_id: { Args: never; Returns: string }
+      get_my_localized_announcements: {
+        Args: { p_announcement_id?: string; p_limit?: number }
+        Returns: Json
+      }
       get_my_operational_classrooms: {
         Args: never
         Returns: {
@@ -9209,6 +9254,10 @@ export type Database = {
           p_phone?: string
         }
         Returns: Json
+      }
+      set_my_preferred_language: {
+        Args: { p_language: string }
+        Returns: string
       }
       verify_mobile_pickup_pass: {
         Args: {

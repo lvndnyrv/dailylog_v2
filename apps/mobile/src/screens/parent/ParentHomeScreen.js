@@ -3,6 +3,7 @@ import { ActivityIndicator, View, Text, ScrollView, TouchableOpacity, StyleSheet
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../../lib/supabase';
+import { listLocalizedAnnouncements } from '../../lib/localizedAnnouncements';
 import { useDailyLog } from '../../hooks/useDailyLog';
 import { useParentFamily } from '../../hooks/useParentFamily';
 import { useParentNotifications } from '../../hooks/useParentNotifications';
@@ -335,14 +336,7 @@ export default function ParentHomeScreen({ navigation, route }) {
   }, [selectedChild?.id, selectedDate]);
 
   const fetchAnnouncements = useCallback(async () => {
-    const { data, error } = await supabase
-      .from('announcements')
-      .select('id, title, body, pinned, created_at, classroom_id')
-      .order('pinned', { ascending: false })
-      .order('created_at', { ascending: false })
-      .limit(5);
-    if (error) throw error;
-    setAnnouncements(data || []);
+    setAnnouncements(await listLocalizedAnnouncements(5));
   }, []);
 
   const refreshAll = useCallback(async () => {

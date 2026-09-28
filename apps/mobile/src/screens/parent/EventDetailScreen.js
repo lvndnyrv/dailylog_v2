@@ -9,6 +9,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { useParentFamily } from '../../hooks/useParentFamily';
 import { sendEventRsvp } from '../../hooks/useStaffVisibility';
 import { supabase } from '../../lib/supabase';
+import { getLocalizedAnnouncement } from '../../lib/localizedAnnouncements';
 import { Button, EmptyState } from '../../components/ui';
 import { showToast } from '../../components/Toast';
 import { colors, fonts, radius, spacing } from '../../theme';
@@ -38,12 +39,11 @@ export default function EventDetailScreen({ navigation, route }) {
       return;
     }
     setError('');
-    const { data, error: loadError } = await supabase
-      .from('announcements')
-      .select('*, classroom:classrooms(name), rsvps:announcement_rsvps(profile_id,response,guests,child_id,updated_at)')
-      .eq('id', announcementId)
-      .single();
-    if (loadError) {
+    let data;
+    try {
+      data = await getLocalizedAnnouncement(announcementId);
+      if (!data) throw new Error('This event is not available.');
+    } catch (loadError) {
       setError(loadError.message || 'This event is not available.');
       setLoading(false);
       return;

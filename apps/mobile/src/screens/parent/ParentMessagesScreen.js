@@ -16,6 +16,7 @@ import { format, isToday, isYesterday } from 'date-fns';
 import { useAuth } from '../../hooks/useAuth';
 import { useParentFamily } from '../../hooks/useParentFamily';
 import { supabase } from '../../lib/supabase';
+import { listLocalizedAnnouncements } from '../../lib/localizedAnnouncements';
 import { colors, fonts, radius, spacing } from '../../theme';
 
 function formatTime(value) {
@@ -54,15 +55,7 @@ export default function ParentMessagesScreen() {
     setError(null);
 
     try {
-      const { data: announcements, error: announcementError } = await supabase
-        .from('announcements')
-        .select('id, title, created_at')
-        .order('pinned', { ascending: false })
-        .order('created_at', { ascending: false })
-        .limit(20);
-      if (announcementError) throw announcementError;
-
-      const visibleAnnouncements = announcements || [];
+      const visibleAnnouncements = await listLocalizedAnnouncements(20);
       setAnnouncement(visibleAnnouncements[0] || null);
 
       if (visibleAnnouncements.length) {

@@ -4,6 +4,8 @@ import {
   listBroadcasts,
   listClassrooms,
   listInboxThreads,
+  listMyStaffConversations,
+  listStaff,
 } from "@dailylog/db/queries";
 import { redirect } from "next/navigation";
 import { SectionHeader } from "@/components/shell/header";
@@ -45,35 +47,63 @@ export default async function MessagesPage({
     redirect(conversationId ? `/messages?t=${conversationId}` : "/messages");
   }
 
-  const [threads, broadcasts, classrooms, profile] = await Promise.all([
+  const [threads, staffThreads, broadcasts, classrooms, profile, staff] = await Promise.all([
     listInboxThreads(supabase),
+    listMyStaffConversations(supabase),
     listBroadcasts(supabase),
     listClassrooms(supabase),
     getMyProfile(supabase),
+    listStaff(supabase),
   ]);
 
   const selected = threads.find((thread) => thread.conversation_id === selectedId) ?? null;
-  const messages = selected ? await getThreadMessages(supabase, selected.conversation_id) : [];
+  const selectedStaff =
+    staffThreads.find((thread) => thread.conversation_id === selectedId) ?? null;
+  const messages = selected || selectedStaff
+    ? await getThreadMessages(
+        supabase,
+        (selected ?? selectedStaff)!.conversation_id,
+      )
+    : [];
 
-  const needsReply = threads.filter((thread) => Number(thread.unread_count) > 0).length;
+  const needsReply = [...threads, ...staffThreads].filter(
+    (thread) => Number(thread.unread_count) > 0,
+  ).length;
+  const conversationCount = threads.length + staffThreads.length;
 
   return (
     <>
       <SectionHeader
         title="Messages"
-        subtitle={`${threads.length} conversations${
+        subtitle={`${conversationCount} conversations${
           needsReply ? ` · ${needsReply} need a reply` : ""
-        } · replies land in the family's app`}
+        } · family and private staff threads in one place`}
       />
       <MessagesView
         threads={threads}
+        staffThreads={staffThreads}
         selected={selected}
+        selectedStaff={selectedStaff}
         messages={messages}
         broadcasts={broadcasts}
         classrooms={classrooms}
         currentProfileId={profile?.id ?? null}
+        staffCandidates={staff
+          .filter((member) => member.profile && member.profile.id !== profile?.id)
+          .map((member) => ({
+            profileId: member.profile!.id,
+            fullName: member.profile!.full_name,
+            role: member.job_title ?? roleLabel(member.profile!.role),
+            roomName: member.profile!.classroom?.name ?? null,
+          }))}
         openBroadcast={broadcast === "1"}
       />
     </>
   );
+}
+
+function roleLabel(role: string): string {
+  if (role === "owner_admin") return "Owner admin";
+  if (role === "admin") return "Administrator";
+  return "Educator";
 }

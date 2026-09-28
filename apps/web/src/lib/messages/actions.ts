@@ -3,11 +3,15 @@
 import {
   createBroadcast,
   getMyProfile,
+  getOrCreateStaffConversation,
   markThreadRead,
+  markStaffConversationRead,
+  sendStaffMessage,
   sendThreadMessage,
   updateScheduledBroadcast,
 } from "@dailylog/db/queries";
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { getServerSupabase } from "@/lib/supabase/server";
 
 export interface MessageActionState {
@@ -52,6 +56,42 @@ export async function markReadAction(formData: FormData): Promise<void> {
   const supabase = await getServerSupabase();
   await markThreadRead(supabase, str(formData, "child_id")).catch(() => {});
   revalidatePath("/messages");
+}
+
+export async function markStaffReadAction(formData: FormData): Promise<void> {
+  const supabase = await getServerSupabase();
+  const conversationId = str(formData, "conversation_id");
+  if (!conversationId) return;
+  await markStaffConversationRead(supabase, conversationId).catch(() => {});
+  revalidatePath("/messages");
+}
+
+export async function sendStaffMessageAction(
+  _prev: MessageActionState,
+  formData: FormData,
+): Promise<MessageActionState> {
+  const supabase = await getServerSupabase();
+  const body = str(formData, "body");
+  const conversationId = str(formData, "conversation_id");
+  if (!body) return { error: "Write something first." };
+  if (!conversationId) return { error: "Staff conversation not found." };
+
+  try {
+    await sendStaffMessage(supabase, conversationId, body);
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Could not send." };
+  }
+
+  revalidatePath("/messages");
+  return { ok: true };
+}
+
+export async function startStaffConversationAction(formData: FormData): Promise<void> {
+  const supabase = await getServerSupabase();
+  const profileId = str(formData, "profile_id");
+  if (!profileId) redirect("/messages");
+  const conversationId = await getOrCreateStaffConversation(supabase, profileId);
+  redirect(`/messages?t=${conversationId}`);
 }
 
 export async function createBroadcastAction(

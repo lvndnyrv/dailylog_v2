@@ -7,3 +7,11 @@ packages:
 allowBuilds:
   sharp: false
   unrs-resolver: false
+
+minimumReleaseAgeExclude:
+  - expo-asset@56.0.25
+  - expo-constants@56.0.27
+  - expo-modules-core@56.0.27
+  - expo-modules-jsi@56.0.14
+  - expo@56.0.23
+  - expo-notifications@56.0.26

@@ -9,7 +9,7 @@
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.dailylog.app",
+      "bundleIdentifier": "com.elvindanyarov.dailylog",
       "infoPlist": {
         "NSUserNotificationsUsageDescription": "DailyLog sends you notifications when your child's daily log is ready to view.",
         "NSPhotoLibraryUsageDescription": "DailyLog needs access to your photos to attach them to daily logs.",
@@ -18,7 +18,7 @@
       "icon": "./assets/icon.png"
     },
     "android": {
-      "package": "com.dailylog.app",
+      "package": "com.elvindanyarov.dailylog",
       "adaptiveIcon": {
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
@@ -38,7 +38,7 @@
       [
         "expo-notifications",
         {
-          "icon": "./assets/icon.png",
+          "icon": "./assets/android-icon-monochrome.png",
           "color": "#2F7CD8",
           "sounds": []
         }
@@ -81,13 +81,14 @@
       "autolinkingModuleResolution": true
     },
     "extra": {
-      "eas": {
-        "projectId": "YOUR_EAS_PROJECT_ID"
-      },
       "storeUrls": {
         "ios": "YOUR_IOS_APP_STORE_URL",
         "android": "YOUR_ANDROID_PLAY_STORE_URL"
+      },
+      "eas": {
+        "projectId": "6d59f1c4-557a-4e88-85f7-93039c7c6ec2"
       }
-    }
+    },
+    "owner": "elvindanyarov"
   }
 }

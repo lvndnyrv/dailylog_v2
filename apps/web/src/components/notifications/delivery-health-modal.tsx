@@ -3,6 +3,7 @@
 import type {
   NotificationDeliveryHealth,
   NotificationDeliveryStatus,
+  PushDeliveryReachability,
 } from "@dailylog/db/queries";
 import { Mail, RotateCcw, Smartphone } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -23,9 +24,11 @@ const STATUS: Record<NotificationDeliveryStatus, { label: string; className: str
 
 export function DeliveryHealthModal({
   health,
+  pushReachability,
   onClose,
 }: {
   health: NotificationDeliveryHealth;
+  pushReachability: PushDeliveryReachability;
   onClose: () => void;
 }) {
   const router = useRouter();
@@ -66,6 +69,38 @@ export function DeliveryHealthModal({
         <Metric label="Retrying" value={health.counts.retrying} tone="warning" />
         <Metric label="Needs attention" value={health.counts.failed} tone="danger" />
       </div>
+
+      <section className="rounded-[14px] border-[1.5px] border-[#D6E1F0] bg-canvas p-4">
+        <div className="flex items-start gap-4">
+          <span className="min-w-0 flex-1">
+            <h3 className="text-[13.5px] font-extrabold text-ink">Push reachability</h3>
+            <p className="mt-0.5 text-[11px] text-muted">
+              {pushReachability.counts.pushReady} of {pushReachability.counts.total} active accounts have a registered device.
+            </p>
+          </span>
+          <span className="rounded-full bg-card px-3 py-1 text-[11px] font-bold text-ink">
+            {pushReachability.counts.withoutPush} without push
+          </span>
+        </div>
+        {pushReachability.gaps.length > 0 && (
+          <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1.5 border-t border-[#D6E1F0] pt-3">
+            {pushReachability.gaps.slice(0, 8).map((profile) => (
+              <div key={profile.profileId} className="flex min-w-0 items-center gap-2 text-[10.5px]">
+                <span className="min-w-0 flex-1 truncate font-bold text-ink">{profile.fullName}</span>
+                <span className="text-faint">{profile.role === "parent" ? "Family" : "Staff"}</span>
+                <span className={profile.emailPresent ? "text-success" : "text-danger"}>
+                  {profile.emailPresent ? "Email on file" : "No fallback"}
+                </span>
+              </div>
+            ))}
+            {pushReachability.gaps.length > 8 && (
+              <p className="col-span-2 mt-1 text-[10.5px] text-faint">
+                + {pushReachability.gaps.length - 8} more accounts without a registered device
+              </p>
+            )}
+          </div>
+        )}
+      </section>
 
       {error && <Notice tone="error">{error}</Notice>}
       {providerSetupNeeded && (

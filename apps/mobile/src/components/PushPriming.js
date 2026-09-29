@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, Modal, Platform, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, Modal, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
@@ -13,6 +13,7 @@ import {
 } from '../hooks/usePushNotifications';
 import { Button } from './ui';
 import { colors, fonts, spacing } from '../theme';
+import { pushTokenRecord } from '../lib/pushTokenRecord';
 
 export { PUSH_PRIME_KEY };
 
@@ -74,7 +75,7 @@ export function PushPrimingModal() {
       const token = await registerForPushNotificationsAsync();
       if (token && user) {
         await supabase.from('push_tokens').upsert(
-          { user_id: user.id, token, platform: Platform.OS === 'ios' ? 'ios' : 'android' },
+          pushTokenRecord(user.id, token),
           { onConflict: 'user_id,token' }
         );
       }

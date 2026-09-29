@@ -5379,22 +5379,37 @@ export type Database = {
       }
       push_tokens: {
         Row: {
+          app_version: string | null
           created_at: string | null
+          device_model: string | null
           id: string
+          is_physical: boolean | null
+          last_delivered_at: string | null
+          last_seen_at: string
           platform: string
           token: string
           user_id: string
         }
         Insert: {
+          app_version?: string | null
           created_at?: string | null
+          device_model?: string | null
           id?: string
+          is_physical?: boolean | null
+          last_delivered_at?: string | null
+          last_seen_at?: string
           platform: string
           token: string
           user_id: string
         }
         Update: {
+          app_version?: string | null
           created_at?: string | null
+          device_model?: string | null
           id?: string
+          is_physical?: boolean | null
+          last_delivered_at?: string | null
+          last_seen_at?: string
           platform?: string
           token?: string
           user_id?: string
@@ -8327,6 +8342,10 @@ export type Database = {
           platform: string
           token: string
         }[]
+      }
+      get_push_delivery_reachability: {
+        Args: never
+        Returns: Json
       }
       get_parent_schedule_hub: { Args: never; Returns: Json }
       get_public_center_info: {

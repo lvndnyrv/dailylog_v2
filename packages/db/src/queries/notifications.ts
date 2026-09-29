@@ -36,6 +36,24 @@ export interface NotificationDeliveryHealth {
   }>;
 }
 
+export interface PushDeliveryReachability {
+  counts: {
+    total: number;
+    pushReady: number;
+    withoutPush: number;
+    parentsWithoutPush: number;
+    staffWithoutPush: number;
+  };
+  gaps: Array<{
+    profileId: string;
+    fullName: string;
+    role: string;
+    emailPresent: boolean;
+    lastSeenAt: string | null;
+    lastDeliveredAt: string | null;
+  }>;
+}
+
 const EMPTY_DELIVERY_HEALTH: NotificationDeliveryHealth = {
   windowDays: 7,
   counts: {
@@ -70,6 +88,26 @@ export async function retryNotificationDelivery(client: Client, deliveryId: stri
   });
   if (error) throw error;
   return data;
+}
+
+export async function getPushDeliveryReachability(
+  client: Client,
+): Promise<PushDeliveryReachability> {
+  const { data, error } = await client.rpc('get_push_delivery_reachability');
+  if (error) throw error;
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    return {
+      counts: {
+        total: 0,
+        pushReady: 0,
+        withoutPush: 0,
+        parentsWithoutPush: 0,
+        staffWithoutPush: 0,
+      },
+      gaps: [],
+    };
+  }
+  return data as unknown as PushDeliveryReachability;
 }
 
 export async function listMyNotifications(

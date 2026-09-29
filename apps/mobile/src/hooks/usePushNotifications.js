@@ -6,6 +6,7 @@ import { supabase } from '../lib/supabase';
 import { extractNotificationDestination } from '../lib/authLinks';
 import { openNotificationRoute } from '../lib/notificationRoutes';
 import { markNotificationPayloadRead } from './useParentNotifications';
+import { pushTokenRecord } from '../lib/pushTokenRecord';
 
 let notificationsPromise = null;
 
@@ -226,11 +227,7 @@ export function usePushNotifications(userId, role) {
         const token = await registerForPushNotificationsAsync();
         if (!token || !mounted) return;
         const { error } = await supabase.from('push_tokens').upsert(
-          {
-            user_id: userId,
-            token,
-            platform: Platform.OS === 'ios' ? 'ios' : 'android',
-          },
+          pushTokenRecord(userId, token),
           { onConflict: 'user_id,token' }
         );
         if (error) console.warn('Push token save failed:', error.message);

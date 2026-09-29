@@ -1,6 +1,9 @@
 "use client";
 
-import type { NotificationDeliveryHealth } from "@dailylog/db/queries";
+import type {
+  NotificationDeliveryHealth,
+  PushDeliveryReachability,
+} from "@dailylog/db/queries";
 import Link from "next/link";
 import { AlertTriangle, Bell, CheckCircle2, Clock3, Mail, Smartphone } from "lucide-react";
 import { useState } from "react";
@@ -30,8 +33,10 @@ const FILTERS: Array<{ value: ActivityFilter; label: string }> = [
 
 export function NotificationActivityView({
   deliveryHealth,
+  pushReachability,
 }: {
   deliveryHealth: NotificationDeliveryHealth;
+  pushReachability: PushDeliveryReachability;
 }) {
   const {
     notifications,
@@ -257,6 +262,7 @@ export function NotificationActivityView({
       {deliveryOpen && (
         <DeliveryHealthModal
           health={deliveryHealth}
+          pushReachability={pushReachability}
           onClose={() => setDeliveryOpen(false)}
         />
       )}

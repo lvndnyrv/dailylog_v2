@@ -308,6 +308,16 @@ async function deliverPush(
   ).filter((id: string | undefined): id is string => Boolean(id));
   if (invalidTokenIds.length) await supabase.from('push_tokens').delete().in('id', invalidTokenIds);
 
+  const deliveredTokenIds = tickets.flatMap((ticket, index) =>
+    ticket?.status === 'ok' ? [pushTokens[index]?.id] : []
+  ).filter((id: string | undefined): id is string => Boolean(id));
+  if (deliveredTokenIds.length) {
+    await supabase
+      .from('push_tokens')
+      .update({ last_delivered_at: new Date().toISOString() })
+      .in('id', deliveredTokenIds);
+  }
+
   const delivered = tickets.some((ticket) => ticket?.status === 'ok');
   const allPermanent = tickets.length > 0 && tickets.every(
     (ticket) => ticket?.details?.error === 'DeviceNotRegistered',

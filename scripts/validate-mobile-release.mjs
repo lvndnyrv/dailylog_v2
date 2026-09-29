@@ -13,8 +13,8 @@ function requireValue(label, value, predicate = (item) => Boolean(item)) {
   if (!predicate(value)) errors.push(`${label} is missing or still a placeholder`);
 }
 
-requireValue('Expo SDK 56 dependency alignment', mobilePackage.dependencies?.expo, (value) =>
-  /(?:\^|~)?56\./.test(value),
+requireValue('Expo SDK 57 dependency alignment', mobilePackage.dependencies?.expo, (value) =>
+  /(?:\^|~)?57\./.test(value),
 );
 
 requireValue('extra.eas.projectId', app.extra?.eas?.projectId, (value) =>

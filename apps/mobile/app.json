@@ -75,7 +75,8 @@
           "resizeMode": "contain",
           "backgroundColor": "#F4F8FD"
         }
-      ]
+      ],
+      "expo-status-bar"
     ],
     "experiments": {
       "autolinkingModuleResolution": true

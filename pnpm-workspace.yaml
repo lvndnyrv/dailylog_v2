@@ -10,8 +10,10 @@ allowBuilds:
 
 minimumReleaseAgeExclude:
   - expo-asset@56.0.25
-  - expo-constants@56.0.27
-  - expo-modules-core@56.0.27
+  - expo-constants@56.0.27 || 57.0.20
+  - expo-modules-core@56.0.27 || 57.0.20
   - expo-modules-jsi@56.0.14
-  - expo@56.0.23
+  - expo@56.0.23 || 57.0.26
   - expo-notifications@56.0.26
+  - expo-camera@57.0.6
+  - expo-document-picker@57.0.3

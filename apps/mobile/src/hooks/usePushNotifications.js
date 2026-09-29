@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { Linking, Platform } from 'react-native';
+import { AppState, Linking, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
 import { supabase } from '../lib/supabase';
@@ -187,11 +187,41 @@ export function usePushNotifications(userId, role) {
     if (!userId || !role || remotePushUnavailable()) return undefined;
     let mounted = true;
     let responseSubscription = null;
+    let tokenSubscription = null;
+    let appStateSubscription = null;
+    let registrationPromise = null;
 
     (async () => {
       try {
         const Notifications = await loadNotifications();
         if (!Notifications || !mounted) return;
+
+        const syncRegistration = async () => {
+          if (!mounted) return;
+          if (registrationPromise) return registrationPromise;
+
+          registrationPromise = (async () => {
+            // Respect the soft-ask priming: only auto-register if the user
+            // accepted priming OR the OS permission is already granted.
+            const prime = await getPushPrimeChoice(userId);
+            const permission = await Notifications.getPermissionsAsync();
+            const status = normalizedPermissionStatus(Notifications, permission);
+            if (status === 'denied') return;
+            if (status !== 'granted' && prime !== 'accepted') return;
+
+            const token = await registerForPushNotificationsAsync();
+            if (!token || !mounted) return;
+            const { error } = await supabase.from('push_tokens').upsert(
+              pushTokenRecord(userId, token),
+              { onConflict: 'user_id,token' }
+            );
+            if (error) console.warn('Push token save failed:', error.message);
+          })().finally(() => {
+            registrationPromise = null;
+          });
+
+          return registrationPromise;
+        };
 
         const handleResponse = (response) => {
           const identifier = response?.notification?.request?.identifier
@@ -216,21 +246,26 @@ export function usePushNotifications(userId, role) {
           await Notifications.clearLastNotificationResponseAsync();
         }
 
-        // Respect the soft-ask priming: only auto-register if the user
-        // accepted priming OR the OS permission is already granted.
-        const prime = await getPushPrimeChoice(userId);
-        const permission = await Notifications.getPermissionsAsync();
-        const status = normalizedPermissionStatus(Notifications, permission);
-        if (status === 'denied') return;
-        if (status !== 'granted' && prime !== 'accepted') return;
+        // A token can rotate while the app is running. Expo's listener emits
+        // the underlying device-token change, so obtain a fresh Expo token
+        // before updating the delivery record used by our worker.
+        tokenSubscription = Notifications.addPushTokenListener(() => {
+          syncRegistration().catch((error) => {
+            console.log('Push token refresh failed:', error.message);
+          });
+        });
 
-        const token = await registerForPushNotificationsAsync();
-        if (!token || !mounted) return;
-        const { error } = await supabase.from('push_tokens').upsert(
-          pushTokenRecord(userId, token),
-          { onConflict: 'user_id,token' }
-        );
-        if (error) console.warn('Push token save failed:', error.message);
+        // Permission may be enabled later in system settings. Re-check every
+        // foreground transition so reachability repairs itself without a new
+        // sign-in or a reinstall.
+        appStateSubscription = AppState.addEventListener('change', (state) => {
+          if (state !== 'active') return;
+          syncRegistration().catch((error) => {
+            console.log('Push foreground refresh failed:', error.message);
+          });
+        });
+
+        await syncRegistration();
 
       } catch (err) {
         console.log('Push registration failed:', err.message);
@@ -240,6 +275,8 @@ export function usePushNotifications(userId, role) {
     return () => {
       mounted = false;
       responseSubscription?.remove();
+      tokenSubscription?.remove();
+      appStateSubscription?.remove();
     };
   }, [role, userId]);
 }

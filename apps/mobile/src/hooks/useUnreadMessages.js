@@ -13,10 +13,13 @@ import { useClassroom } from './useClassroom';
 export function useUnreadMessages() {
   const { profile } = useAuth();
   const { active } = useClassroom();
+  const roomKey = (active?.member_room_ids?.length ? active.member_room_ids : active?.id ? [active.id] : []).join(',');
   const [count, setCount] = useState(0);
   const intervalRef = useRef(null);
+  const requestId = useRef(0);
 
   const refresh = useCallback(async () => {
+    const currentRequest = ++requestId.current;
     if (!profile) { setCount(0); return; }
 
     try {
@@ -27,6 +30,7 @@ export function useUnreadMessages() {
           .select('child_id')
           .eq('parent_id', profile.id);
 
+        if (currentRequest !== requestId.current) return;
         if (!links?.length) { setCount(0); return; }
 
         const { data: unreadRows, error } = await supabase.rpc(
@@ -34,21 +38,24 @@ export function useUnreadMessages() {
           { p_child_ids: links.map((link) => link.child_id) },
         );
         if (error) throw error;
+        if (currentRequest !== requestId.current) return;
         setCount((unreadRows || []).reduce(
           (total, row) => total + Number(row.unread_count || 0),
           0,
         ));
       } else {
-        // Educator/Admin: count unread messages for active classroom's children
+        // Staff: count the active operating group, including a temporary partner room.
         const classroomId = active?.id || profile?.classroom_id;
         if (!classroomId) { setCount(0); return; }
+        const roomIds = roomKey ? roomKey.split(',') : [classroomId];
 
         const { data: children } = await supabase
           .from('children')
           .select('id')
-          .eq('classroom_id', classroomId)
+          .in('classroom_id', roomIds)
           .is('archived_at', null);
 
+        if (currentRequest !== requestId.current) return;
         if (!children?.length) { setCount(0); return; }
 
         const { data: unreadRows, error } = await supabase.rpc(
@@ -56,6 +63,7 @@ export function useUnreadMessages() {
           { p_child_ids: children.map((child) => child.id) },
         );
         if (error) throw error;
+        if (currentRequest !== requestId.current) return;
         setCount((unreadRows || []).reduce(
           (total, row) => total + Number(row.unread_count || 0),
           0,
@@ -64,7 +72,7 @@ export function useUnreadMessages() {
     } catch (e) {
       // Silently fail — badge is non-critical
     }
-  }, [profile?.id, profile?.role, active?.id, profile?.classroom_id]);
+  }, [profile?.id, profile?.role, active?.id, profile?.classroom_id, roomKey]);
 
   useEffect(() => {
     refresh();
@@ -104,6 +112,7 @@ export function useUnreadMessages() {
       .subscribe();
 
     return () => {
+      requestId.current += 1;
       clearInterval(intervalRef.current);
       appStateSub.remove();
       supabase.removeChannel(channel);

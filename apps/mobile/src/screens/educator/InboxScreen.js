@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity,
   StyleSheet, ActivityIndicator, RefreshControl
@@ -21,26 +21,37 @@ function formatTime(ts) {
 export default function InboxScreen() {
   const navigation = useNavigation();
   const { profile } = useAuth();
-  const { active } = useClassroom();
+  const { active, classrooms } = useClassroom();
+  const roomKey = (active?.member_room_ids?.length ? active.member_room_ids : active?.id ? [active.id] : []).join(',');
+  const sharedRoom = roomKey.split(',').filter(Boolean).length > 1;
   const [threads, setThreads] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const requestId = useRef(0);
 
   // Reload threads every time the screen is focused
   const loadThreads = useCallback(async () => {
+    const currentRequest = ++requestId.current;
     if (!profile || !active) {
+      setThreads([]);
       setLoading(false);
       return;
     }
 
-    // Get children in active classroom (excluding archived)
-    const { data: children } = await supabase
+    const roomIds = roomKey.split(',').filter(Boolean);
+    const { data: children, error: childError } = await supabase
       .from('children')
-      .select('id, first_name, last_name')
-      .eq('classroom_id', active.id)
+      .select('id, first_name, last_name, classroom_id')
+      .in('classroom_id', roomIds)
       .is('archived_at', null)
       .order('first_name');
 
+    if (currentRequest !== requestId.current) return;
+    if (childError) {
+      setThreads([]);
+      setLoading(false);
+      return;
+    }
     if (!children?.length) {
       setThreads([]);
       setLoading(false);
@@ -52,6 +63,7 @@ export default function InboxScreen() {
       'get_unread_child_message_counts',
       { p_child_ids: childIds },
     );
+    if (currentRequest !== requestId.current) return;
     if (unreadError) {
       setThreads([]);
       setLoading(false);
@@ -77,6 +89,7 @@ export default function InboxScreen() {
           childId: child.id,
           childName: `${child.first_name} ${child.last_name || ''}`.trim(),
           childFirstName: child.first_name,
+          homeRoomName: classrooms.find(room => room.id === child.classroom_id)?.name || null,
           initial: child.first_name[0]?.toUpperCase() || '?',
           lastMessage: lastMsg?.body || null,
           lastMessageTime: lastMsg?.created_at || null,
@@ -87,6 +100,8 @@ export default function InboxScreen() {
         };
       })
     );
+
+    if (currentRequest !== requestId.current) return;
 
     // Sort: unread first, then by most recent message
     threadData.sort((a, b) => {
@@ -102,11 +117,12 @@ export default function InboxScreen() {
 
     setThreads(threadData);
     setLoading(false);
-  }, [active, profile]);
+  }, [active?.id, classrooms, profile?.id, roomKey]);
 
   useFocusEffect(
     useCallback(() => {
       loadThreads();
+      return () => { requestId.current += 1; };
     }, [loadThreads])
   );
 
@@ -156,6 +172,9 @@ export default function InboxScreen() {
               </Text>
             )}
           </View>
+          {sharedRoom && item.homeRoomName && (
+            <Text style={styles.homeRoom}>{item.homeRoomName} home room</Text>
+          )}
           {item.lastMessage ? (
             <Text
               style={[styles.threadPreview, item.unread > 0 && styles.threadPreviewUnread]}
@@ -182,7 +201,7 @@ export default function InboxScreen() {
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Inbox</Text>
         <Text style={styles.headerSub}>
-          {active ? `${active.name} — Messages with parents` : 'Messages with parents'}
+          {active ? `${active.name} — Messages with parents${sharedRoom ? ' in both shared rooms' : ''}` : 'Messages with parents'}
         </Text>
       </View>
 
@@ -251,6 +270,7 @@ const styles = StyleSheet.create({
     alignItems: 'center', marginBottom: 3,
   },
   threadName: { fontSize: 15, fontWeight: '600', color: colors.textPrimary },
+  homeRoom: { color: colors.primary, fontSize: 11, marginBottom: 3 },
   threadTime: { fontSize: 12, color: colors.textMuted },
   threadTimeUnread: { color: colors.primary, fontWeight: '600' },
   threadPreview: { fontSize: 13, color: colors.textSecondary, lineHeight: 18 },
@@ -267,4 +287,3 @@ const styles = StyleSheet.create({
   emptyTitle: { fontSize: 17, fontWeight: '600', color: colors.textPrimary, marginBottom: spacing.sm },
   emptyText: { fontSize: 14, color: colors.textMuted, textAlign: 'center', lineHeight: 20 },
 });
-

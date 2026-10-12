@@ -309,6 +309,12 @@ Operational follow-up migrations also applied: `20260906000100_operational_room_
 - Its query follows operating-room membership changes and discards stale in-flight results after switching rooms or leaving the screen. The rollback-only combination fixture confirmed partner-child incident creation/read and expiry of temporary access after pause. The educator→admin→parent incident handoff suite and mobile typecheck passed.
 - The iPhone 17 Pro simulator loaded the normal Preschool incident list and child picker through accessibility controls. Active-combination visual verification remains pending; no live room combination was activated merely to create a screenshot.
 
+### Shared-room family Inbox — October 12
+
+- Educator Inbox threads and the unread badge now use all current operating-room members, including the temporary partner room. Shared-room threads show each child's permanent home room, and older in-flight Inbox/badge responses cannot overwrite a newer room selection.
+- Message read/send permissions remain on the existing child-scoped database policies; the app does not grant permanent partner access. The rollback-only operational fixture verified a partner-room unread message during the combination and its disappearance for the source educator after pause. The recipient-specific read-receipt suite passed.
+- Mobile typecheck passed, and the normal Preschool Inbox loaded on the iPhone 17 Pro through accessibility controls. Active-combination visual verification remains pending; no real parent message or live schedule was changed.
+
 ## Still required before calling Group 7 complete
 
 1. **7d remaining boundary:** future-opening room lead moves remain an explicit administrator decision; the opening-day review is visible but not an automatic transfer or notification. No licensing-rule authority/preset verification is claimed.

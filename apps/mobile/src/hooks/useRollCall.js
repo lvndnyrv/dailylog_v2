@@ -16,8 +16,10 @@ export function useRollCall(classroomId) {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
   const mounted = useRef(true);
+  const requestId = useRef(0);
 
   const load = useCallback(async ({ quiet = false } = {}) => {
+    const currentRequest = ++requestId.current;
     if (!classroomId) {
       setRollCall(null);
       setLoading(false);
@@ -28,7 +30,7 @@ export function useRollCall(classroomId) {
     const { data, error: loadError } = await supabase.rpc('get_mobile_roll_call', {
       p_classroom_id: classroomId,
     });
-    if (!mounted.current) return null;
+    if (!mounted.current || currentRequest !== requestId.current) return null;
     if (loadError) {
       setError(loadError);
     } else {
@@ -72,7 +74,7 @@ export function useRollCall(classroomId) {
   useEffect(() => {
     mounted.current = true;
     load();
-    return () => { mounted.current = false; };
+    return () => { mounted.current = false; requestId.current += 1; };
   }, [load]);
 
   useEffect(() => {

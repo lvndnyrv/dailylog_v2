@@ -79,6 +79,19 @@ begin
     raise exception 'FAIL: both educators must see the complete operating-group pickup list'; end if;
   if not exists(select 1 from public.get_mobile_today_pickups(source_id) pickup where pickup.child_id=host_child and pickup.room_name='Rollback combined host') then
     raise exception 'FAIL: partner child lost the permanent-room label on the pickup list'; end if;
+  if (public.get_mobile_roll_call(source_id)->'summary'->>'present')::integer<>3
+    or (public.get_mobile_roll_call(host_id)->'summary'->>'present')::integer<>3
+    or jsonb_array_length(public.get_mobile_roll_call(source_id)->'children')<>4 then
+    raise exception 'FAIL: shared roll call omitted an operating-group child'; end if;
+  if not exists(select 1 from jsonb_array_elements(public.get_mobile_roll_call(source_id)->'children') item
+    where item->>'id'=host_child::text and item->>'homeRoomName'='Rollback combined host') then
+    raise exception 'FAIL: shared roll call lost the partner child home-room label'; end if;
+  if (public.complete_mobile_roll_call(source_id)->>'present')::integer<>3 then
+    raise exception 'FAIL: shared roll call completion returned incomplete totals'; end if;
+  if not exists(select 1 from public.mobile_roll_call_sessions session
+      where session.classroom_id=host_id and session.attendance_date=current_day
+        and session.present_count=3 and session.awaited_count=1) then
+    raise exception 'FAIL: shared roll call saved incomplete operating-group totals'; end if;
   begin perform public.pause_room_combination_today(combination_id,true); raise exception 'FAIL: educator paused center schedule';
   exception when others then if sqlerrm like 'FAIL:%' then raise; end if; end;
   perform pg_temp.impersonate('authenticated',owner_id);
@@ -110,6 +123,12 @@ begin
   if host_id in(select public.my_classroom_ids()) or public.can_write_child(host_child) then raise exception 'FAIL: temporary access survived pause'; end if;
   if (select count(*) from public.get_mobile_today_pickups(source_id))<>3 then
     raise exception 'FAIL: paused pickup list did not return to the home room'; end if;
+  if jsonb_array_length(public.get_mobile_roll_call(source_id)->'children')<>3
+    or (public.get_mobile_roll_call(source_id)->'summary'->>'present')::integer<>3 then
+    raise exception 'FAIL: paused roll call did not return to home-room children'; end if;
+  begin perform public.get_mobile_roll_call(host_id);
+    raise exception 'FAIL: paused partner roll call access survived';
+  exception when others then if sqlerrm like 'FAIL:%' then raise; end if; end;
   begin perform public.get_mobile_today_pickups(host_id);
     raise exception 'FAIL: paused partner pickup access survived';
   exception when others then if sqlerrm like 'FAIL:%' then raise; end if; end;
@@ -131,4 +150,4 @@ begin
     raise exception 'FAIL: legacy plan activated without saving'; end if;
 end; $$;
 rollback;
-select 'PASS: combined counts/strict ratio, shared pickup roster, capacity and check-in guards, temporary access, pause/resume, time boundaries and legacy safety; rolled back' as result;
+select 'PASS: combined counts/strict ratio, shared pickup and roll-call rosters, roll-call completion, capacity and check-in guards, temporary access, pause/resume, time boundaries and legacy safety; rolled back' as result;

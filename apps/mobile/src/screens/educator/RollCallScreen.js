@@ -37,7 +37,7 @@ function SummaryCard({ label, value, tone }) {
   );
 }
 
-function ChildRow({ child, busy, onCheckIn, onAbsent, onLatePickup }) {
+function ChildRow({ child, busy, showHomeRoom, onCheckIn, onAbsent, onLatePickup }) {
   const checkedIn = child.checkedInAt ? format(new Date(child.checkedInAt), 'h:mm a') : null;
   const checkedOut = child.checkedOutAt ? format(new Date(child.checkedOutAt), 'h:mm a') : null;
   const isPresent = child.rollStatus === 'present';
@@ -68,6 +68,7 @@ function ChildRow({ child, busy, onCheckIn, onAbsent, onLatePickup }) {
       </View>
       <View style={styles.childCopy}>
         <Text style={styles.childName}>{child.fullName}</Text>
+        {showHomeRoom && child.homeRoomName && <Text style={styles.homeRoom}>{child.homeRoomName} home room</Text>}
         <Text style={styles.childDetail} numberOfLines={2}>{detail}</Text>
         {child.notes && (isAbsent || isPresent) && (
           <Text style={styles.childNote} numberOfLines={2}>{child.notes}</Text>
@@ -269,7 +270,7 @@ export default function RollCallScreen({ navigation }) {
 
         <View style={styles.listCard}>
           <View style={styles.listHeading}>
-            <Text style={styles.listTitle}>Classroom roll</Text>
+            <Text style={styles.listTitle}>{rollCall?.combined ? 'Combined room roll' : 'Classroom roll'}</Text>
             <Text style={styles.listMeta}>{children.length} children</Text>
           </View>
           {children.length ? children.map((child, index) => (
@@ -277,6 +278,7 @@ export default function RollCallScreen({ navigation }) {
               <ChildRow
                 child={child}
                 busy={busyChildId === child.id}
+                showHomeRoom={rollCall?.combined}
                 onCheckIn={() => handleCheckIn(child)}
                 onAbsent={() => navigation.navigate('MarkAbsent', { child })}
                 onLatePickup={() => navigation.navigate('LatePickup', { child })}
@@ -393,6 +395,7 @@ const styles = StyleSheet.create({
   avatarTextComing: { color: colors.purple },
   childCopy: { flex: 1, minWidth: 0, marginLeft: spacing.md, marginRight: spacing.sm },
   childName: { color: colors.textPrimary, fontSize: 14.5, fontFamily: fonts.bold },
+  homeRoom: { marginTop: 2, color: colors.primary, fontSize: 11, fontFamily: fonts.bold },
   childDetail: { marginTop: 2, color: colors.textMuted, fontSize: 12, lineHeight: 16, fontFamily: fonts.regular },
   childNote: { marginTop: 2, color: colors.textFaint, fontSize: 11, lineHeight: 15, fontFamily: fonts.regular },
   rowActions: { alignItems: 'stretch', gap: 5 },

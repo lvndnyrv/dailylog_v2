@@ -297,6 +297,12 @@ Operational follow-up migrations also applied: `20260906000100_operational_room_
 - The existing same-center, attendance-view and room-access checks still run before the list is returned. The mobile screen explains the temporary shared list and shows home-room labels, without changing any child assignment. It reloads when the operating-room membership changes and ignores older in-flight responses.
 - Applied `20261012000200_combined_room_pickup_list.sql` to the linked project. The rollback-only operational Group 7 test passed for both rooms and for access after pause; linked database lint, mobile typecheck, Expo dependency validation and iOS production bundle export passed. Four Expo patch versions were aligned with the installed SDK. Device visual verification is pending because the Mac was locked.
 
+### Shared-room educator roll call — October 12
+
+- The educator Attendance roll now follows the active operating group as well. Source- and host-room selection return the same children and totals while combined, with each child's permanent home-room label. Saving roll call records one completion for the operating host, using exactly the first-day-filtered children shown on screen rather than a home-room-only count.
+- Pausing the combination restores each permanent-room roll and removes temporary partner access. No child assignment or historical attendance record is rewritten.
+- Applied `20261012000300_combined_room_roll_call.sql` to the linked project. The rollback-only operational combination, mobile attendance and first-day onboarding suites passed; linked database lint and mobile typecheck passed. The iPhone 17 Pro simulator opened the educator Attendance screen through accessibility controls; its normal single-room roll loaded without error. An active-combination visual pass remains to be done with a safe temporary fixture.
+
 ## Still required before calling Group 7 complete
 
 1. **7d remaining boundary:** future-opening room lead moves remain an explicit administrator decision; the opening-day review is visible but not an automatic transfer or notification. No licensing-rule authority/preset verification is claimed.

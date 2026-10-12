@@ -14,7 +14,7 @@ declare
   combination_id uuid; source_count integer; host_count integer; counted_staff integer;
   before_home uuid; test_zone text; monday date := '2026-09-14'; record_id uuid;
   incident_id uuid; conversation_id uuid;
-  initial_rules jsonb; current_day date; p uuid;
+  initial_rules jsonb; v_consents jsonb; current_day date; p uuid;
 begin
   -- Choose a zone with a current weekday so public now()-based APIs are exercised.
   select zone into test_zone from unnest(array['UTC','Pacific/Kiritimati','Pacific/Pago_Pago']) zone
@@ -80,6 +80,26 @@ begin
     raise exception 'FAIL: both educators must see the complete operating-group pickup list'; end if;
   if not exists(select 1 from public.get_mobile_today_pickups(source_id) pickup where pickup.child_id=host_child and pickup.room_name='Rollback combined host') then
     raise exception 'FAIL: partner child lost the permanent-room label on the pickup list'; end if;
+  v_consents := public.get_mobile_classroom_consents(source_id);
+  if not (v_consents->>'combined')::boolean
+    or jsonb_array_length(v_consents->'children')<>4
+    or jsonb_array_length(public.get_mobile_classroom_consents(host_id)->'children')<>4
+    or not exists(select 1 from jsonb_array_elements(v_consents->'children') item
+      where item->>'childId'=host_child::text and item->>'homeRoomName'='Rollback combined host') then
+    raise exception 'FAIL: shared-room consent matrix omitted a partner child or home room'; end if;
+  perform pg_temp.impersonate('postgres',owner_id);
+  insert into public.staff_permission_overrides(daycare_id,profile_id,classroom_id,permissions)
+    values(center_id,educator_id,host_id,'{"children":{"view":false}}'::jsonb);
+  perform pg_temp.impersonate('authenticated',educator_id);
+  v_consents := public.get_mobile_classroom_consents(source_id);
+  if jsonb_array_length(v_consents->'children')<>3
+    or exists(select 1 from jsonb_array_elements(v_consents->'children') item
+      where item->>'childId'=host_child::text) then
+    raise exception 'FAIL: shared consent matrix bypassed the partner-room permission override'; end if;
+  perform pg_temp.impersonate('postgres',owner_id);
+  delete from public.staff_permission_overrides
+    where profile_id=educator_id and classroom_id=host_id;
+  perform pg_temp.impersonate('authenticated',educator_id);
   if (public.get_mobile_roll_call(source_id)->'summary'->>'present')::integer<>3
     or (public.get_mobile_roll_call(host_id)->'summary'->>'present')::integer<>3
     or jsonb_array_length(public.get_mobile_roll_call(source_id)->'children')<>4 then
@@ -146,6 +166,11 @@ begin
   if jsonb_array_length(public.get_mobile_roll_call(source_id)->'children')<>3
     or (public.get_mobile_roll_call(source_id)->'summary'->>'present')::integer<>3 then
     raise exception 'FAIL: paused roll call did not return to home-room children'; end if;
+  if jsonb_array_length(public.get_mobile_classroom_consents(source_id)->'children')<>3 then
+    raise exception 'FAIL: paused consent matrix did not return to home-room children'; end if;
+  begin perform public.get_mobile_classroom_consents(host_id);
+    raise exception 'FAIL: paused partner consent access survived';
+  exception when others then if sqlerrm like 'FAIL:%' then raise; end if; end;
   begin perform public.get_mobile_roll_call(host_id);
     raise exception 'FAIL: paused partner roll call access survived';
   exception when others then if sqlerrm like 'FAIL:%' then raise; end if; end;
@@ -170,4 +195,4 @@ begin
     raise exception 'FAIL: legacy plan activated without saving'; end if;
 end; $$;
 rollback;
-select 'PASS: combined counts/strict ratio, shared pickup and roll-call rosters, incident and message access, roll-call completion, capacity and check-in guards, temporary access, pause/resume, time boundaries and legacy safety; rolled back' as result;
+select 'PASS: combined counts/strict ratio, shared pickup and roll-call rosters, consent matrix, incident and message access, roll-call completion, capacity and check-in guards, temporary access, pause/resume, time boundaries and legacy safety; rolled back' as result;

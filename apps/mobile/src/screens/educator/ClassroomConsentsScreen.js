@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View,
 } from 'react-native';
@@ -18,14 +18,19 @@ const TABS = [
 ];
 
 export default function ClassroomConsentsScreen({ navigation, route }) {
-  const { activeClassroom } = useClassroom();
-  const classroom = route.params?.classroom || activeClassroom;
+  const { active, classrooms } = useClassroom();
+  const requestedRoomId = route.params?.classroom?.id || active?.id;
+  const classroom = classrooms.find((room) => room.id === requestedRoomId)
+    || route.params?.classroom || active;
+  const roomKey = (classroom?.member_room_ids?.length ? classroom.member_room_ids : requestedRoomId ? [requestedRoomId] : []).join(',');
   const [selectedTab, setSelectedTab] = useState('photos');
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const requestId = useRef(0);
 
   const load = useCallback(async () => {
+    const currentRequest = ++requestId.current;
     if (!classroom?.id) {
       setError('Choose a classroom to review permissions.');
       setLoading(false);
@@ -33,15 +38,22 @@ export default function ClassroomConsentsScreen({ navigation, route }) {
     }
     setError('');
     try {
-      setData(await getClassroomConsents(classroom.id));
+      const result = await getClassroomConsents(classroom.id);
+      if (currentRequest === requestId.current) setData(result);
     } catch (loadError) {
-      setError(loadError.message || 'Classroom consents could not be loaded.');
+      if (currentRequest === requestId.current) {
+        setError(loadError.message || 'Classroom consents could not be loaded.');
+      }
     } finally {
-      setLoading(false);
+      if (currentRequest === requestId.current) setLoading(false);
     }
-  }, [classroom?.id]);
+  }, [classroom?.id, roomKey]);
 
-  useFocusEffect(useCallback(() => { load(); }, [load]));
+  useFocusEffect(useCallback(() => {
+    setLoading(true);
+    load();
+    return () => { requestId.current += 1; };
+  }, [load]));
 
   const selectedMeta = TABS.find((tab) => tab.key === selectedTab) || TABS[0];
   const children = data?.children || [];
@@ -125,6 +137,13 @@ export default function ClassroomConsentsScreen({ navigation, route }) {
             </View>
           </View>
 
+          {data?.combined && (
+            <View style={styles.sharedNote}>
+              <Ionicons name="git-merge-outline" size={18} color={colors.primary} />
+              <Text style={styles.sharedNoteText}>Both rooms are shown during shared care. Check every child's permission before including them in an activity.</Text>
+            </View>
+          )}
+
           <Text style={styles.sectionLabel}>CHILDREN</Text>
           <View style={styles.card}>
             {children.map((child, index) => {
@@ -141,7 +160,12 @@ export default function ClassroomConsentsScreen({ navigation, route }) {
                   <View style={styles.avatar}>
                     <Text style={styles.avatarText}>{(child.firstName || child.childName || '?').slice(0, 1)}</Text>
                   </View>
-                  <Text style={styles.childName}>{child.childName}</Text>
+                  <View style={styles.childCopy}>
+                    <Text style={styles.childName}>{child.childName}</Text>
+                    {data?.combined && child.homeRoomName && (
+                      <Text style={styles.homeRoom}>{child.homeRoomName} home room</Text>
+                    )}
+                  </View>
                   <View style={[
                     styles.statusBadge,
                     allowed ? styles.allowedBadge : (declined ? styles.declinedBadge : styles.pendingBadge),
@@ -201,13 +225,17 @@ const styles = StyleSheet.create({
   summaryNumber: { fontSize: 20, fontFamily: fonts.black },
   summaryLabel: { marginTop: 3, fontSize: 11, fontFamily: fonts.regular, color: colors.textMuted },
   summaryDivider: { width: 1, backgroundColor: colors.border },
+  sharedNote: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm, marginTop: spacing.lg, padding: spacing.md, borderRadius: radius.lg, backgroundColor: colors.primaryLight },
+  sharedNoteText: { flex: 1, color: colors.textMuted, fontSize: 12, lineHeight: 18, fontFamily: fonts.regular },
   sectionLabel: { marginTop: spacing.xl, marginBottom: spacing.sm, fontSize: 11.5, letterSpacing: 0.9, fontFamily: fonts.bold, color: colors.textFaint },
   card: { overflow: 'hidden', borderWidth: 1.5, borderColor: colors.border, borderRadius: 18, backgroundColor: colors.surface },
   childRow: { minHeight: 68, flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingHorizontal: spacing.lg, paddingVertical: spacing.sm },
   childBorder: { borderTopWidth: 1, borderTopColor: colors.primarySoft },
   avatar: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.primaryLight },
   avatarText: { fontSize: 14, fontFamily: fonts.bold, color: colors.primary },
-  childName: { flex: 1, minWidth: 0, fontSize: 14, fontFamily: fonts.bold, color: colors.textPrimary },
+  childCopy: { flex: 1, minWidth: 0 },
+  childName: { fontSize: 14, fontFamily: fonts.bold, color: colors.textPrimary },
+  homeRoom: { marginTop: 2, fontSize: 11, fontFamily: fonts.regular, color: colors.primary },
   statusBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, borderRadius: radius.full, paddingHorizontal: 9, paddingVertical: 5 },
   allowedBadge: { backgroundColor: colors.successLight },
   declinedBadge: { backgroundColor: colors.dangerLight },

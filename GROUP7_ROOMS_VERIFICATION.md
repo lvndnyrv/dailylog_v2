@@ -315,6 +315,12 @@ Operational follow-up migrations also applied: `20260906000100_operational_room_
 - Message read/send permissions remain on the existing child-scoped database policies; the app does not grant permanent partner access. The rollback-only operational fixture verified a partner-room unread message during the combination and its disappearance for the source educator after pause. The recipient-specific read-receipt suite passed.
 - Mobile typecheck passed, and the normal Preschool Inbox loaded on the iPhone 17 Pro through accessibility controls. Active-combination visual verification remains pending; no real parent message or live schedule was changed.
 
+### Shared-room consent safety — October 12
+
+- The educator Classroom consents matrix now covers every child in the active operating group, not just the selected permanent room. It shows each child's home-room label and a shared-care reminder; no consent values or home assignments are changed.
+- The server still verifies the requested room and filters each child through their own room-scoped view permission. The rollback-only operational fixture covers both-room totals, partner labels, a denied partner-room permission override, and the return to home-room lists/access after pause. The existing Group 20 consent regression passed.
+- Applied `20261012000400_combined_room_consents.sql` to the linked project. Mobile typecheck passed, and the normal Preschool consent matrix loaded on the iPhone 17 Pro through accessibility controls. An active-combination visual pass remains pending.
+
 ## Still required before calling Group 7 complete
 
 1. **7d remaining boundary:** future-opening room lead moves remain an explicit administrator decision; the opening-day review is visible but not an automatic transfer or notification. No licensing-rule authority/preset verification is claimed.

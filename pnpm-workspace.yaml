@@ -25,9 +25,19 @@ allowBuilds:
 minimumReleaseAgeExclude:
   - expo-asset@56.0.25
   - expo-constants@56.0.27 || 57.0.20
-  - expo-modules-core@56.0.27 || 57.0.20
-  - expo-modules-jsi@56.0.14
-  - expo@56.0.23 || 57.0.26
+  - expo-modules-core@56.0.27 || 57.0.20 || 57.0.22
+  - expo-modules-jsi@56.0.14 || 57.1.2
+  - expo@56.0.23 || 57.0.26 || 57.0.28
   - expo-notifications@56.0.26
   - expo-camera@57.0.6
   - expo-document-picker@57.0.3
+  - '@expo/cli@57.0.29'
+  - '@expo/fingerprint@0.20.14'
+  - '@expo/inline-modules@0.1.8'
+  - '@expo/local-build-cache-provider@57.0.9'
+  - '@expo/prebuild-config@57.0.18'
+  - babel-preset-expo@57.0.15
+  - expo-modules-autolinking@57.0.15
+  - expo-sharing@57.0.23
+  - expo-splash-screen@57.0.10
+  - expo-updates@57.0.26

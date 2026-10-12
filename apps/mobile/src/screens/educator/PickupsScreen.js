@@ -33,7 +33,7 @@ function timeLabel(value) {
   return Number.isNaN(date.getTime()) ? 'Time not set' : `~ ${format(date, 'h:mm a')}`;
 }
 
-function PickupRow({ pickup, completed, onVerify }) {
+function PickupRow({ pickup, completed, onVerify, showHomeRoom = false }) {
   return (
     <View style={styles.pickupRow}>
       <View style={[styles.avatar, completed && styles.avatarCompleted]}>
@@ -43,6 +43,7 @@ function PickupRow({ pickup, completed, onVerify }) {
       </View>
       <View style={styles.pickupCopy}>
         <Text style={styles.childName} numberOfLines={1}>{pickup.child_name}</Text>
+        {showHomeRoom && <Text style={styles.homeRoomText} numberOfLines={1}>Home room · {pickup.room_name}</Text>}
         <Text style={styles.presenterText} numberOfLines={1}>
           {pickup.presenter_name}
           {pickup.relationship ? ` · ${pickup.relationship}` : ''}
@@ -79,7 +80,8 @@ function PickupRow({ pickup, completed, onVerify }) {
 
 export default function PickupsScreen({ navigation, route }) {
   const { active } = useClassroom();
-  const { pickups, loading, error, load } = useTodayPickups(active?.id);
+  const operatingRoomKey = active?.member_room_ids?.join(',') || active?.id || '';
+  const { pickups, loading, error, load } = useTodayPickups(active?.id, operatingRoomKey);
   const security = usePickupSecurityEvents();
   const [resolvingEventId, setResolvingEventId] = useState(null);
   const [securityActionError, setSecurityActionError] = useState('');
@@ -101,6 +103,7 @@ export default function PickupsScreen({ navigation, route }) {
     () => pickups.filter((pickup) => pickup.pickup_status === 'completed'),
     [pickups]
   );
+  const sharedPickupRoster = (active?.member_room_ids?.length || 0) > 1;
 
   function verify(pickup) {
     navigation.navigate('VerifyPickup', { pickup });
@@ -144,6 +147,14 @@ export default function PickupsScreen({ navigation, route }) {
           <RefreshControl refreshing={loading && pickups.length > 0} onRefresh={() => load()} />
         )}
       >
+        {sharedPickupRoster && (
+          <View style={styles.sharedRoomNote}>
+            <Ionicons name="people-outline" size={18} color={colors.primary} />
+            <Text style={styles.sharedRoomText}>
+              Shared pickup roster · children from both rooms appear here while they are combined. Their home rooms stay unchanged.
+            </Text>
+          </View>
+        )}
         {openSecurityEvents.length > 0 && (
           <View style={styles.securitySection}>
             <View style={styles.securityHeading}>
@@ -252,7 +263,7 @@ export default function PickupsScreen({ navigation, route }) {
               {expected.length ? expected.map((pickup, index) => (
                 <View key={pickup.child_id}>
                   {index > 0 && <View style={styles.divider} />}
-                  <PickupRow pickup={pickup} onVerify={verify} />
+                  <PickupRow pickup={pickup} onVerify={verify} showHomeRoom={sharedPickupRoster} />
                 </View>
               )) : (
                 <View style={styles.allDone}>
@@ -272,7 +283,7 @@ export default function PickupsScreen({ navigation, route }) {
                   {completed.map((pickup, index) => (
                     <View key={pickup.child_id}>
                       {index > 0 && <View style={styles.divider} />}
-                      <PickupRow pickup={pickup} completed />
+                      <PickupRow pickup={pickup} completed showHomeRoom={sharedPickupRoster} />
                     </View>
                   ))}
                 </View>
@@ -305,6 +316,12 @@ const styles = StyleSheet.create({
   headerCopy: { flex: 1, minWidth: 0 },
   title: { fontSize: 23, fontFamily: fonts.black, color: colors.textPrimary },
   content: { paddingHorizontal: spacing.xl, paddingBottom: spacing.xxxl },
+  sharedRoomNote: {
+    flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.md,
+    padding: spacing.md, borderWidth: 1, borderColor: colors.border,
+    borderRadius: radius.lg, backgroundColor: colors.primaryLight,
+  },
+  sharedRoomText: { flex: 1, color: colors.textSecondary, fontFamily: fonts.regular, fontSize: 11.5, lineHeight: 17 },
   securitySection: { marginBottom: spacing.xl, overflow: 'hidden', borderWidth: 1.5, borderColor: colors.danger + '55', borderRadius: radius.xl, backgroundColor: colors.dangerLight },
   securityHeading: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md },
   securityHeadingIcon: { width: 38, height: 38, alignItems: 'center', justifyContent: 'center', borderRadius: radius.md, backgroundColor: colors.surface },
@@ -384,6 +401,7 @@ const styles = StyleSheet.create({
   avatarTextCompleted: { color: colors.success },
   pickupCopy: { flex: 1, minWidth: 0 },
   childName: { fontSize: 14.5, fontFamily: fonts.black, color: colors.textPrimary },
+  homeRoomText: { marginTop: 2, fontSize: 10.5, fontFamily: fonts.bold, color: colors.primary },
   presenterText: { marginTop: 2, fontSize: 12.5, fontFamily: fonts.regular, color: colors.textSecondary },
   pickupTime: { marginTop: 2, fontSize: 11.5, fontFamily: fonts.regular, color: colors.textFaint },
   rowActionWrap: { alignItems: 'flex-end', gap: spacing.xs },

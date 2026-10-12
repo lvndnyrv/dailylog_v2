@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { format } from 'date-fns';
 import { supabase } from '../lib/supabase';
 
@@ -38,12 +38,14 @@ export function dedupeParentPickupOptions(rows = []) {
   return Array.from(unique.values());
 }
 
-export function useTodayPickups(classroomId) {
+export function useTodayPickups(classroomId, operatingRoomKey = '') {
   const [pickups, setPickups] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const latestRequest = useRef(0);
 
   const load = useCallback(async ({ quiet = false } = {}) => {
+    const requestId = ++latestRequest.current;
     if (!classroomId) {
       setPickups([]);
       setLoading(false);
@@ -53,6 +55,7 @@ export function useTodayPickups(classroomId) {
     const { data, error: queryError } = await supabase.rpc('get_mobile_today_pickups', {
       p_classroom_id: classroomId,
     });
+    if (requestId !== latestRequest.current) return [];
     if (queryError) {
       setError(queryError);
       setLoading(false);
@@ -62,7 +65,7 @@ export function useTodayPickups(classroomId) {
     setPickups(data || []);
     setLoading(false);
     return data || [];
-  }, [classroomId]);
+  }, [classroomId, operatingRoomKey]);
 
   useEffect(() => {
     load();

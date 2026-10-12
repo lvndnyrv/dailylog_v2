@@ -1,9 +1,9 @@
 # Group 7 — Rooms & ratios verification
 
-Updated: 2026-10-11. **Status: operational 7f, 7a/7c availability planning, recurring and dated demand forecasting (including room detail), multi-person plans, coverage review and educator responses, the reviewed 7e vacancy-to-waitlist handoff, and scheduled release of expired enrollment offers are implemented; Group 7 is not fully complete.**
+Updated: 2026-10-12. **Status: operational 7f, 7a/7c availability planning, recurring and dated demand forecasting (including room detail), multi-person plans, coverage review and educator responses, the reviewed 7e vacancy-to-waitlist handoff, and scheduled release of expired enrollment offers are implemented; Group 7 is not fully complete.**
 
 Reference: `design/designs/DailyLog WEB - Admin.dc.html`, screens 7a–7f.
-Changes remain uncommitted on the existing branch. Earlier unrelated work was preserved.
+Earlier work was merged into local `main`; the current follow-up is on `codex/group7-shared-room-pickups`.
 
 ## Fixed in this pass
 
@@ -290,6 +290,12 @@ Operational follow-up migrations also applied: `20260906000100_operational_room_
 
 - Rooms & ratios now lists future-opening and opening-due rooms whose designated lead still has another home room. Each row links to a room-detail review card with the educator's current room and the appropriate opening-day action.
 - The review deliberately does not move staff automatically. Once the room is open, the administrator can use the existing explicit, atomic home-room transfer after checking published shifts and regular schedules. Web typecheck, lint and production build passed.
+
+### Shared-room pickup handoff — October 12
+
+- An educator's pickup list now follows the active operating group. While two rooms are combined, selecting either room shows checked-in children from both rooms with each child's permanent room label. Pausing or ending the combination returns the list to the selected home room.
+- The existing same-center, attendance-view and room-access checks still run before the list is returned. The mobile screen explains the temporary shared list and shows home-room labels, without changing any child assignment. It reloads when the operating-room membership changes and ignores older in-flight responses.
+- Applied `20261012000200_combined_room_pickup_list.sql` to the linked project. The rollback-only operational Group 7 test passed for both rooms and for access after pause; linked database lint, mobile typecheck, Expo dependency validation and iOS production bundle export passed. Four Expo patch versions were aligned with the installed SDK. Device visual verification is pending because the Mac was locked.
 
 ## Still required before calling Group 7 complete
 

@@ -74,6 +74,11 @@ begin
   if host_id not in(select public.my_classroom_ids()) or not public.can_write_child(host_child) then raise exception 'FAIL: temporary host access missing'; end if;
   if not exists(select 1 from public.get_my_operational_classrooms() where id=host_id and temporary and cardinality(member_room_ids)=2) then
     raise exception 'FAIL: room switcher does not mark temporary combined access'; end if;
+  if (select count(*) from public.get_mobile_today_pickups(source_id))<>3
+    or (select count(*) from public.get_mobile_today_pickups(host_id))<>3 then
+    raise exception 'FAIL: both educators must see the complete operating-group pickup list'; end if;
+  if not exists(select 1 from public.get_mobile_today_pickups(source_id) pickup where pickup.child_id=host_child and pickup.room_name='Rollback combined host') then
+    raise exception 'FAIL: partner child lost the permanent-room label on the pickup list'; end if;
   begin perform public.pause_room_combination_today(combination_id,true); raise exception 'FAIL: educator paused center schedule';
   exception when others then if sqlerrm like 'FAIL:%' then raise; end if; end;
   perform pg_temp.impersonate('authenticated',owner_id);
@@ -103,6 +108,11 @@ begin
   if not exists(select 1 from public.get_mobile_room_ratios() where id=source_id and present_count=3 and staff_count=1) then raise exception 'FAIL: pause did not restore home counts'; end if;
   perform pg_temp.impersonate('authenticated',educator_id);
   if host_id in(select public.my_classroom_ids()) or public.can_write_child(host_child) then raise exception 'FAIL: temporary access survived pause'; end if;
+  if (select count(*) from public.get_mobile_today_pickups(source_id))<>3 then
+    raise exception 'FAIL: paused pickup list did not return to the home room'; end if;
+  begin perform public.get_mobile_today_pickups(host_id);
+    raise exception 'FAIL: paused partner pickup access survived';
+  exception when others then if sqlerrm like 'FAIL:%' then raise; end if; end;
   perform pg_temp.impersonate('authenticated',owner_id);
   perform public.pause_room_combination_today(combination_id,false);
   perform pg_temp.impersonate('postgres',owner_id);
@@ -121,4 +131,4 @@ begin
     raise exception 'FAIL: legacy plan activated without saving'; end if;
 end; $$;
 rollback;
-select 'PASS: combined counts/strict ratio, capacity and check-in guards, temporary access, pause/resume, time boundaries and legacy safety; rolled back' as result;
+select 'PASS: combined counts/strict ratio, shared pickup roster, capacity and check-in guards, temporary access, pause/resume, time boundaries and legacy safety; rolled back' as result;

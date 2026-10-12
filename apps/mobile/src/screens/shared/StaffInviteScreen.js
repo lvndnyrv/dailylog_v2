@@ -171,6 +171,7 @@ export default function StaffInviteScreen({ navigation }) {
       full_name: fullName.trim(),
       role: invite.role,
       job_title: invite.job_title,
+      require_background_check: invite.require_background_check,
     });
     await fetchProfile(activeUser.id);
   }
@@ -308,13 +309,31 @@ export default function StaffInviteScreen({ navigation }) {
 
           <View style={styles.getStartedCard}>
             <Text style={styles.getStartedTitle}>Get started</Text>
-            <NumberedStep number="1" active text="Meet your classroom & roster." />
-            <NumberedStep number="2" text="Clock in when you arrive." />
-            <NumberedStep number="3" text="Start logging your first day." />
+            {summary.require_background_check ? (
+              <>
+                <NumberedStep number="1" active text="Open Manage → Credentials and submit your background check." />
+                <NumberedStep number="2" text="Your director reviews and clears the document." />
+                <NumberedStep number="3" text="Meet your classroom while working with cleared staff." />
+              </>
+            ) : (
+              <>
+                <NumberedStep number="1" active text="Meet your classroom & roster." />
+                <NumberedStep number="2" text="Clock in when you arrive." />
+                <NumberedStep number="3" text="Start logging your first day." />
+              </>
+            )}
           </View>
+          {summary.require_background_check ? (
+            <View style={styles.clearanceNotice}>
+              <Ionicons name="shield-checkmark-outline" size={21} color={colors.amber} />
+              <Text style={styles.clearanceNoticeText}>
+                You can enter the app now, but you will not count toward staffing ratios until your background check is approved.
+              </Text>
+            </View>
+          ) : null}
         </View>
         <Button
-          label={summary.role === 'educator' ? 'Go to my classroom' : 'Go to my dashboard'}
+          label={summary.require_background_check ? 'Continue to DailyLog' : summary.role === 'educator' ? 'Go to my classroom' : 'Go to my dashboard'}
           onPress={openClassroom}
           style={styles.bottomButton}
         />
@@ -1026,6 +1045,22 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 13,
     lineHeight: 20,
+    fontFamily: fonts.regular,
+    color: colors.textSecondary,
+  },
+  clearanceNotice: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.sm,
+    padding: spacing.md,
+    borderRadius: radius.lg,
+    backgroundColor: colors.amberLight,
+  },
+  clearanceNoticeText: {
+    flex: 1,
+    fontSize: 12,
+    lineHeight: 18,
     fontFamily: fonts.regular,
     color: colors.textSecondary,
   },

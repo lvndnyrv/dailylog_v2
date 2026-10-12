@@ -107,10 +107,14 @@ export async function createBroadcastAction(
   if (!title || !body) return { error: "Title and message are required." };
   const announcementId = str(formData, "announcement_id");
   const audienceType = str(formData, "audience_type") === "staff" ? "staff" : "families";
+  const urgent = formData.get("urgent") === "on";
   const delivery = str(formData, "delivery") || "now";
   const scheduledForValue = str(formData, "scheduled_for");
   let scheduledFor: string | null = null;
   let publishedAt: string | null = new Date().toISOString();
+  if (urgent && delivery === "schedule") {
+    return { error: "Urgent alerts are sent immediately and cannot be scheduled." };
+  }
   if (delivery === "schedule") {
     const scheduled = new Date(scheduledForValue);
     if (!scheduledForValue || Number.isNaN(scheduled.getTime())) {
@@ -122,7 +126,9 @@ export async function createBroadcastAction(
     scheduledFor = scheduled.toISOString();
     publishedAt = null;
   }
-  const rsvpEnabled = audienceType === "families" && formData.get("rsvp_enabled") === "on";
+  const rsvpEnabled = !urgent
+    && audienceType === "families"
+    && formData.get("rsvp_enabled") === "on";
   const eventAtValue = str(formData, "event_at");
   const eventEndsAtValue = str(formData, "event_ends_at");
   const eventLocation = str(formData, "event_location");
@@ -153,7 +159,8 @@ export async function createBroadcastAction(
       title,
       body,
       classroom_id: audienceType === "families" ? str(formData, "classroom_id") || null : null,
-      pinned: formData.get("pinned") === "on",
+      pinned: urgent || formData.get("pinned") === "on",
+      priority: urgent ? "urgent" : "normal",
       rsvp_enabled: rsvpEnabled,
       event_at: eventAt,
       event_ends_at: eventEndsAt,

@@ -99,6 +99,7 @@ begin
   perform pg_temp.impersonate('authenticated', v_owner);
   update public.staff_time_off_requests
      set status = 'approved',
+         decision_notes = 'Coverage verified for the requested dates.',
          reviewed_by = v_owner,
          reviewed_at = now()
    where id = v_request
@@ -109,6 +110,15 @@ begin
   end if;
 
   perform pg_temp.impersonate('authenticated', v_educator);
+  if not exists (
+    select 1
+      from jsonb_array_elements(public.get_mobile_time_off_status() -> 'requests') request
+     where request ->> 'id' = v_request::text
+       and request ->> 'decisionNotes' = 'Coverage verified for the requested dates.'
+       and request ->> 'reviewerName' is not null
+  ) then
+    raise exception 'FAIL: educator could not see the director decision context';
+  end if;
   if not exists (
     select 1
       from public.notifications notification

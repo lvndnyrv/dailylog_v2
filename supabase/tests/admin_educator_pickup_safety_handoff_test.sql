@@ -34,6 +34,14 @@ declare
 begin
   perform pg_temp.impersonate('postgres');
   select daycare_id into v_daycare from public.profiles where id = v_owner;
+  if not exists (
+    select 1 from pg_publication_tables publication
+     where publication.pubname = 'supabase_realtime'
+       and publication.schemaname = 'public'
+       and publication.tablename = 'pickup_security_events'
+  ) then
+    raise exception 'FAIL: pickup safety events are not realtime-enabled';
+  end if;
   insert into public.center_roles (daycare_id, name, base_role, permissions)
   values (
     v_daycare,

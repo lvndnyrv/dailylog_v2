@@ -121,8 +121,30 @@ begin
        and member.profile_id = v_invitee
        and member.job_title = 'Lead educator'
        and member.status = 'active'
+       and member.background_check_required
   ) then
-    raise exception 'FAIL: active employment record was not created';
+    raise exception 'FAIL: active employment and clearance requirement were not created';
+  end if;
+  if not exists (
+    select 1
+      from public.staff_credentials credential
+      join public.staff_members member on member.id = credential.staff_member_id
+     where member.daycare_id = v_daycare
+       and member.profile_id = v_invitee
+       and credential.archived_at is null
+       and credential.required
+       and lower(credential.name) ~ '(background|criminal record|vulnerable sector)'
+  ) then
+    raise exception 'FAIL: required background credential was not created';
+  end if;
+  if exists (
+    select 1
+      from public.staff_members member
+     where member.daycare_id = v_daycare
+       and member.profile_id = v_invitee
+       and public.staff_is_ratio_eligible(member.id)
+  ) then
+    raise exception 'FAIL: uncleared invited educator counted toward ratio';
   end if;
   if not exists (
     select 1 from public.educator_classrooms assignment
@@ -141,7 +163,16 @@ begin
   ) then
     raise exception 'FAIL: invite consumption or terms audit was not recorded';
   end if;
-  raise notice 'PASS: acceptance atomically creates profile, role, room, employment and audit records';
+  if not exists (
+    select 1 from public.audit_log audit
+     where audit.daycare_id = v_daycare
+       and audit.actor_id = v_invitee
+       and audit.action = 'staff_invite_accepted'
+       and audit.entity_type = 'staff_invite'
+  ) then
+    raise exception 'FAIL: staff invite acceptance was not written to the audit trail';
+  end if;
+  raise notice 'PASS: acceptance atomically creates profile, role, room, employment, clearance and audit records';
 
   v_failed := false;
   perform pg_temp.impersonate('authenticated', v_invitee);

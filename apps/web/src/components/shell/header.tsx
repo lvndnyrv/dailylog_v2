@@ -63,18 +63,18 @@ export function SectionHeader({
   }, []);
 
   return (
-    <div className="flex items-center gap-3.5 bg-card px-7 pb-4 pt-5 print:hidden">
-      <span className="min-w-0">
+    <div className="flex flex-wrap items-center gap-3.5 bg-card px-4 pb-4 pt-5 print:hidden md:px-7">
+      <span className="min-w-0 w-full md:w-auto">
         <span className="block text-[22px] font-extrabold text-ink">{title}</span>
         {subtitle && (
           <span className="mt-0.5 block text-[12.5px] text-muted">{subtitle}</span>
         )}
       </span>
-      <span className="flex-1" />
+      <span className="hidden flex-1 md:block" />
 
       {showUtilities && showSearch && (
         onSearchChange ? (
-          <label className="flex w-[250px] items-center gap-2 rounded-full border-[1.5px] border-[#D6E1F0] bg-canvas px-3.5 py-[9px]">
+          <label className="flex w-full items-center gap-2 rounded-full border-[1.5px] border-[#D6E1F0] bg-canvas px-3.5 py-[9px] md:w-[250px]">
             <input
               type="search"
               placeholder={searchPlaceholder}
@@ -89,7 +89,7 @@ export function SectionHeader({
         )
       )}
 
-      <div className="relative flex items-center gap-2" ref={ref}>
+      <div className="relative flex w-full flex-wrap items-center gap-2 md:w-auto" ref={ref}>
         {showUtilities && (
           <button
             ref={bellRef}

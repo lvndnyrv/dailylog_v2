@@ -309,6 +309,11 @@ export default function ParentHomeScreen({ navigation, route }) {
     }
   }, [route.params?.logDate]);
 
+  useEffect(() => {
+    if (!route.params?.linkedAt) return;
+    refreshLog().catch(() => {});
+  }, [refreshLog, route.params?.linkedAt]);
+
   const fetchIncidents = useCallback(async () => {
     if (!selectedChild?.id) { setPendingIncidents([]); return; }
     const { data, error } = await supabase

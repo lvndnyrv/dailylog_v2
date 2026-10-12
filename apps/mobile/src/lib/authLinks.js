@@ -1,5 +1,7 @@
 import { supabase } from './supabase';
 
+const authUrlAttempts = new Map();
+
 function parseLink(url) {
   try {
     const parsed = new URL(url);
@@ -218,7 +220,7 @@ export function extractStaffInviteCode(url) {
  *
  * Returns true if a session was established.
  */
-export async function handleAuthUrl(url) {
+async function completeAuthUrl(url) {
   if (!url || typeof url !== 'string') return false;
 
   try {
@@ -262,4 +264,21 @@ export async function handleAuthUrl(url) {
     console.warn('Auth link handling error:', err.message);
   }
   return false;
+}
+
+export async function handleAuthUrl(url) {
+  if (!url || typeof url !== 'string') return false;
+
+  const existing = authUrlAttempts.get(url);
+  if (existing) return existing;
+
+  const attempt = completeAuthUrl(url);
+  authUrlAttempts.set(url, attempt);
+  const succeeded = await attempt;
+  if (!succeeded) authUrlAttempts.delete(url);
+  if (authUrlAttempts.size > 16) {
+    const oldest = authUrlAttempts.keys().next().value;
+    if (oldest && oldest !== url) authUrlAttempts.delete(oldest);
+  }
+  return succeeded;
 }

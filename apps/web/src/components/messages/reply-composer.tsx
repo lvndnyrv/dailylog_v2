@@ -32,6 +32,7 @@ export function ReplyComposer({
           name="body"
           placeholder={`Reply to ${familyLabel}…`}
           autoComplete="off"
+          maxLength={4000}
           className="flex-1 rounded-[13px] border-[1.5px] border-[#D6E1F0] bg-card px-3.5 py-2.5 text-[13px] text-ink outline-none placeholder:text-faint focus:border-primary"
         />
         <button

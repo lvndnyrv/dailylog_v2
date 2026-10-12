@@ -35,6 +35,7 @@ export function BroadcastModal({
     toLocalDateTime(broadcast?.scheduled_for) || defaultScheduleTime(),
   );
   const [rsvpEnabled, setRsvpEnabled] = useState(broadcast?.rsvp_enabled ?? false);
+  const [urgent, setUrgent] = useState(broadcast?.priority === "urgent");
   const [eventAt, setEventAt] = useState(toLocalDateTime(broadcast?.event_at));
   const [eventEndsAt, setEventEndsAt] = useState(toLocalDateTime(broadcast?.event_ends_at));
 
@@ -61,7 +62,7 @@ export function BroadcastModal({
       {state.ok ? (
         <>
           <Notice tone="success">
-            <b>{delivery === "schedule" ? "Scheduled." : "Sent."}</b>{" "}
+            <b>{urgent ? "Urgent alert sent." : delivery === "schedule" ? "Scheduled." : "Sent."}</b>{" "}
             {delivery === "schedule"
               ? `${audienceType === "staff" ? "Staff" : "Families"} will not see it until the selected delivery time.`
               : audienceType === "staff"
@@ -76,6 +77,7 @@ export function BroadcastModal({
         <form action={action} className="flex flex-col gap-4">
           {broadcast && <input type="hidden" name="announcement_id" value={broadcast.id} />}
           <input type="hidden" name="audience_type" value={audienceType} />
+          <input type="hidden" name="urgent" value={urgent ? "on" : ""} />
           <input type="hidden" name="delivery" value={delivery} />
           <input
             type="hidden"
@@ -144,6 +146,33 @@ export function BroadcastModal({
             </fieldset>
           )}
 
+          {!broadcast && (
+            <label className={`flex cursor-pointer items-start gap-3 rounded-[15px] border-[1.5px] p-3.5 ${
+              urgent ? "border-danger bg-[#FFF3F3]" : "border-[#D6E1F0] bg-card"
+            }`}>
+              <input
+                type="checkbox"
+                checked={urgent}
+                onChange={(event) => {
+                  const checked = event.target.checked;
+                  setUrgent(checked);
+                  if (checked) {
+                    setDelivery("now");
+                    setRsvpEnabled(false);
+                  }
+                }}
+                className="mt-0.5 size-4 accent-[var(--danger)]"
+              />
+              <span className="flex flex-col gap-0.5">
+                <span className="text-[13px] font-extrabold text-ink">Urgent alert</span>
+                <span className="text-[11.5px] leading-relaxed text-muted">
+                  Sends immediately. Family alerts also notify active center staff, stay pinned,
+                  and email unread families after 15 minutes.
+                </span>
+              </span>
+            </label>
+          )}
+
           <Field
             label="Title"
             name="title"
@@ -169,7 +198,7 @@ export function BroadcastModal({
           </label>
 
           <div className="flex items-center gap-5">
-            {audienceType === "families" && <label className="flex items-center gap-2 text-[12.5px] font-semibold text-body">
+            {audienceType === "families" && !urgent && <label className="flex items-center gap-2 text-[12.5px] font-semibold text-body">
               <input
                 type="checkbox"
                 name="pinned"
@@ -178,7 +207,7 @@ export function BroadcastModal({
               />
               Pin to the top
             </label>}
-            {audienceType === "families" && (
+            {audienceType === "families" && !urgent && (
               <label className="flex items-center gap-2 text-[12.5px] font-semibold text-body">
                 <input
                   type="checkbox"
@@ -249,7 +278,9 @@ export function BroadcastModal({
             <legend className="text-[13px] font-bold text-ink">Delivery</legend>
             <div className="flex flex-wrap gap-1.5">
               <button type="button" className={chip(delivery === "now")} onClick={() => setDelivery("now")}>Send now</button>
-              <button type="button" className={chip(delivery === "schedule")} onClick={() => setDelivery("schedule")}>Schedule…</button>
+              {!urgent && (
+                <button type="button" className={chip(delivery === "schedule")} onClick={() => setDelivery("schedule")}>Schedule…</button>
+              )}
             </div>
             {delivery === "schedule" && (
               <label className="mt-1 flex flex-col gap-[7px] text-[13px] font-bold text-ink">
@@ -263,8 +294,10 @@ export function BroadcastModal({
                 />
               </label>
             )}
-            <p className="text-[11px] leading-relaxed text-faint">
-              Quiet hours and each recipient&apos;s delivery preferences are respected by the notification worker.
+            <p className={`text-[11px] leading-relaxed ${urgent ? "font-semibold text-danger" : "text-faint"}`}>
+              {urgent
+                ? "Urgent delivery begins immediately; it is intentionally unavailable for scheduled messages."
+                : "Quiet hours and each recipient&apos;s delivery preferences are respected by the notification worker."}
             </p>
           </fieldset>
 
@@ -279,11 +312,15 @@ export function BroadcastModal({
                 ? broadcast ? "Saving…" : "Sending…"
                 : delivery === "schedule"
                   ? broadcast ? "Save schedule" : "Schedule broadcast"
-                  : "Send broadcast"}
+                  : urgent ? "Send urgent alert" : "Send broadcast"}
             </Button>
           </div>
           <p className="text-center text-[11px] text-faint">
-            {audienceType === "staff"
+            {urgent && audienceType === "families"
+              ? "Selected families and active center staff receive a high-priority push notification."
+              : urgent
+                ? "Active center staff receive a high-priority push notification."
+                : audienceType === "staff"
               ? "Active staff members receive this in Announcements and as a push notification."
               : "Families with announcement alerts enabled also receive a push notification."}
           </p>

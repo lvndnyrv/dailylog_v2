@@ -62,6 +62,9 @@ begin
   if coalesce((v_result ->> 'sent')::integer, 0) <> 2 then
     raise exception 'FAIL: two private staff messages were not sent';
   end if;
+  -- Delivery rows belong to each recipient and are intentionally hidden from
+  -- the sender by RLS. Inspect them as the rollback-only test harness role.
+  perform pg_temp.impersonate('postgres');
   if (select count(*) from public.messages message where message.sender_id = v_owner and message.body = v_body) <> 2 then
     raise exception 'FAIL: bulk messages were not persisted independently';
   end if;
@@ -76,6 +79,7 @@ begin
     raise exception 'FAIL: bulk actions were not audited';
   end if;
 
+  perform pg_temp.impersonate('authenticated', v_owner);
   begin
     perform public.send_bulk_staff_message(array[v_owner], 'Invalid self message');
     raise exception 'FAIL: owner sent a bulk message to their own account';

@@ -204,7 +204,7 @@ function setupFor(child: RosterChild) {
   return childSetupChecklist({
     ...child,
     guardianCount: child.guardians.filter((g) => g.parent).length,
-    pendingInviteCount: 0,
+    pendingInviteCount: child.pending_invite_count,
   });
 }
 

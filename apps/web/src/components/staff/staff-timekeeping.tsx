@@ -11,10 +11,17 @@ import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
 import { Avatar } from "@/components/ui/avatar";
 import { Modal } from "@/components/ui/modal";
-import { addDateDays, dateInTimeZone, monthRange } from "@/lib/center-date";
+import {
+  addDateDays,
+  dateInTimeZone,
+  dateTimeLocalInTimeZone,
+  monthRange,
+  zonedLocalToIso,
+} from "@/lib/center-date";
 import {
   approveTimeEntriesAction,
   fixTimeEntryAction,
+  requestTimeEntryCorrectionAction,
   reviewTimeOffAction,
 } from "@/lib/staff/actions";
 
@@ -61,11 +68,6 @@ function timeLabel(value: string, timeZone: string): string {
     minute: "2-digit",
     timeZone,
   }).format(new Date(value));
-}
-
-function toLocalInput(value: Date): string {
-  const offset = value.getTimezoneOffset() * 60000;
-  return new Date(value.getTime() - offset).toISOString().slice(0, 16);
 }
 
 function requestDays(request: StaffTimeOffRequestRow): number {
@@ -392,6 +394,18 @@ export function StaffTimekeeping({
             setActionError(null);
           }}
           onApprove={() => approve(selectedSheet.reviewableIds, true)}
+          onRequestCorrection={(entryId, note) => {
+            setActionError(null);
+            startTransition(async () => {
+              const result = await requestTimeEntryCorrectionAction({ entryId, note });
+              if (result.error) {
+                setActionError(result.error);
+                return;
+              }
+              setSelectedSheet(null);
+              router.refresh();
+            });
+          }}
           onFixed={() => {
             setSelectedSheet(null);
             router.refresh();
@@ -494,6 +508,7 @@ function TimesheetDetailModal({
   error,
   onClose,
   onApprove,
+  onRequestCorrection,
   onFixed,
 }: {
   sheet: Sheet;
@@ -502,6 +517,7 @@ function TimesheetDetailModal({
   error: string | null;
   onClose: () => void;
   onApprove: () => void;
+  onRequestCorrection: (entryId: string, note: string) => void;
   onFixed: () => void;
 }) {
   return (
@@ -534,7 +550,16 @@ function TimesheetDetailModal({
                 {entry.clocked_out_at ? hours(minutesBetween(entry.clocked_in_at, entry.clocked_out_at, entry.break_minutes)) : "—"}
               </span>
             </div>
-            {entry.status === "open" && <OpenEntryFix entry={entry} onFixed={onFixed} />}
+            {entry.status === "open" && (
+              <OpenEntryFix entry={entry} timeZone={timeZone} onFixed={onFixed} />
+            )}
+            {["submitted", "rejected"].includes(entry.status) && (
+              <TimeEntryReview
+                entry={entry}
+                busy={busy}
+                onRequestCorrection={onRequestCorrection}
+              />
+            )}
           </div>
         ))}
         {sheet.entries.length === 0 && (
@@ -558,8 +583,67 @@ function TimesheetDetailModal({
   );
 }
 
-function OpenEntryFix({ entry, onFixed }: { entry: StaffTimeEntryRow; onFixed: () => void }) {
-  const [clockOut, setClockOut] = useState(toLocalInput(new Date()));
+function TimeEntryReview({
+  entry,
+  busy,
+  onRequestCorrection,
+}: {
+  entry: StaffTimeEntryRow;
+  busy: boolean;
+  onRequestCorrection: (entryId: string, note: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [note, setNote] = useState(entry.status === "rejected" ? entry.notes ?? "" : "");
+  return (
+    <div className="mt-2.5 rounded-xl border border-[#EFD9B5] bg-warning-bg p-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="flex-1 text-[11.5px] font-semibold text-warning-text">
+          {entry.status === "rejected" ? `Correction requested${entry.notes ? ` · ${entry.notes}` : ""}` : "Ready for review"}
+        </span>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => setEditing((value) => !value)}
+          className="text-[11.5px] font-bold text-danger disabled:opacity-60"
+        >
+          Request correction
+        </button>
+      </div>
+      {editing && (
+        <div className="mt-2 flex items-end gap-2">
+          <label className="flex-1 text-[10.5px] font-bold text-ink">
+            NOTE TO EDUCATOR
+            <textarea
+              value={note}
+              onChange={(event) => setNote(event.target.value)}
+              placeholder="What should be corrected?"
+              className="mt-1 min-h-16 w-full resize-none rounded-lg border border-[#D6E1F0] bg-card px-2.5 py-2 text-[12px] font-normal outline-none focus:border-primary"
+            />
+          </label>
+          <button
+            type="button"
+            disabled={busy || note.trim().length < 3}
+            onClick={() => onRequestCorrection(entry.id, note)}
+            className="rounded-btn bg-danger px-3 py-2 text-[11.5px] font-bold text-white disabled:opacity-50"
+          >
+            Send back
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function OpenEntryFix({
+  entry,
+  timeZone,
+  onFixed,
+}: {
+  entry: StaffTimeEntryRow;
+  timeZone: string;
+  onFixed: () => void;
+}) {
+  const [clockOut, setClockOut] = useState(dateTimeLocalInTimeZone(new Date(), timeZone));
   const [breakMinutes, setBreakMinutes] = useState(entry.break_minutes || 30);
   const [notes, setNotes] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -584,9 +668,10 @@ function OpenEntryFix({ entry, onFixed }: { entry: StaffTimeEntryRow; onFixed: (
         onClick={() => {
           setError(null);
           startTransition(async () => {
+            const [date, time] = clockOut.split("T");
             const result = await fixTimeEntryAction({
               entryId: entry.id,
-              clockedOutAt: new Date(clockOut).toISOString(),
+              clockedOutAt: zonedLocalToIso(date, time, timeZone),
               breakMinutes,
               notes,
             });

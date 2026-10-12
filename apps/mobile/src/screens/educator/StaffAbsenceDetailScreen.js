@@ -36,6 +36,7 @@ export default function StaffAbsenceDetailScreen({ navigation, route }) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
+  const [policy, setPolicy] = useState(null);
 
   const load = useCallback(async ({ quiet = false } = {}) => {
     if (!reportId) {
@@ -55,12 +56,30 @@ export default function StaffAbsenceDetailScreen({ navigation, route }) {
       setError(loadError?.message || 'This absence report could not be found.');
     } else {
       setReport(data);
+      const policyResult = await supabase.rpc('get_child_absence_policy', {
+        p_child_id: data.child_id,
+      });
+      setPolicy(policyResult.error ? null : policyResult.data || null);
     }
     setLoading(false);
     setRefreshing(false);
   }, [reportId]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { load(); }, [load, route.params?.linkedAt]);
+
+  useEffect(() => {
+    if (!reportId) return undefined;
+    const channel = supabase
+      .channel(`staff-absence-detail:${reportId}`)
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'parent_absence_reports',
+        filter: `id=eq.${reportId}`,
+      }, () => load({ quiet: true }))
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [load, reportId]);
 
   const effectiveStart = report?.starts_on || startsOn;
   const effectiveEnd = report?.ends_on || endsOn || effectiveStart;
@@ -166,6 +185,23 @@ export default function StaffAbsenceDetailScreen({ navigation, route }) {
                 </Text>
               </View>
 
+              {report?.reason === 'sick' && !cancelled ? (
+                <View style={styles.policyCard}>
+                  <View style={styles.policyIcon}>
+                    <Ionicons name="thermometer-outline" size={21} color={colors.amber} />
+                  </View>
+                  <View style={styles.detailCopy}>
+                    <Text style={styles.policyTitle}>Return-to-care policy</Text>
+                    <Text style={styles.policyText}>
+                      {policy?.sickReturnHours != null
+                        ? `${child?.first_name || 'This child'} needs ${policy.sickReturnHours} fever- and symptom-free hours before returning, without fever-reducing medication.`
+                        : 'Confirm the center illness policy before the child returns.'}
+                    </Text>
+                    <Text style={styles.policyNote}>This family report records attendance; it is not a medical clearance.</Text>
+                  </View>
+                </View>
+              ) : null}
+
               {includesToday && !cancelled ? (
                 <TouchableOpacity
                   style={styles.primaryButton}
@@ -247,6 +283,11 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg, backgroundColor: colors.successLight, padding: spacing.lg,
   },
   noticeText: { flex: 1, color: colors.textSecondary, fontFamily: fonts.regular, fontSize: 12.5, lineHeight: 18 },
+  policyCard: { marginTop: spacing.md, flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md, borderRadius: radius.lg, borderWidth: 1, borderColor: '#EFD9B5', backgroundColor: colors.amberLight, padding: spacing.lg },
+  policyIcon: { width: 40, height: 40, borderRadius: 13, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface },
+  policyTitle: { color: colors.textPrimary, fontFamily: fonts.bold, fontSize: 14 },
+  policyText: { marginTop: 3, color: colors.textSecondary, fontFamily: fonts.regular, fontSize: 12.5, lineHeight: 18 },
+  policyNote: { marginTop: 5, color: colors.textFaint, fontFamily: fonts.regular, fontSize: 10.5, lineHeight: 15 },
   primaryButton: {
     minHeight: 54, marginTop: spacing.xl, borderRadius: radius.lg,
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm,

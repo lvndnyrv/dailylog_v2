@@ -13,6 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { format } from 'date-fns';
 
+import { Button } from '../../components/ui';
 import { exportIncidentPdf } from '../../lib/export';
 import { supabase } from '../../lib/supabase';
 import { colors, fonts, radius, spacing } from '../../theme';
@@ -67,6 +68,8 @@ export default function IncidentRecordScreen({ navigation, route }) {
   const [acknowledgment, setAcknowledgment] = useState(null);
   const [photoUrls, setPhotoUrls] = useState([]);
   const [loading, setLoading] = useState(!route.params?.incident);
+  const [canApprove, setCanApprove] = useState(false);
+  const [signing, setSigning] = useState(false);
   const [error, setError] = useState('');
 
   const load = useCallback(async () => {
@@ -77,7 +80,7 @@ export default function IncidentRecordScreen({ navigation, route }) {
     }
     setLoading(true);
     setError('');
-    const [{ data, error: reportError }, { data: receipt }] = await Promise.all([
+    const [{ data, error: reportError }, { data: receipt }, { data: approvePermission }] = await Promise.all([
       supabase
         .from('incident_reports')
         .select(`*,
@@ -93,6 +96,7 @@ export default function IncidentRecordScreen({ navigation, route }) {
         .select('id, signed_name, statement_text, acknowledged_at')
         .eq('incident_id', incidentId)
         .maybeSingle(),
+      supabase.rpc('has_permission', { p_area: 'incidents', p_action: 'approve' }),
     ]);
     if (reportError || !data) {
       setError(reportError?.message || 'This incident record is unavailable.');
@@ -101,6 +105,7 @@ export default function IncidentRecordScreen({ navigation, route }) {
     }
     setIncident(data);
     setAcknowledgment(receipt || null);
+    setCanApprove(Boolean(approvePermission));
     const paths = data.photo_paths || [];
     const urls = await Promise.all(paths.map(async (path) => {
       const { data: signed } = await supabase.storage.from('incident-photos').createSignedUrl(path, 3600);
@@ -134,6 +139,31 @@ export default function IncidentRecordScreen({ navigation, route }) {
     } catch (exportError) {
       Alert.alert('Could not export report', exportError.message);
     }
+  }
+
+  function confirmSignOff() {
+    Alert.alert(
+      'Sign off this incident?',
+      'This locks the safety record and notifies the family. The report cannot be edited afterward.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Sign off & notify', onPress: signOff },
+      ],
+    );
+  }
+
+  async function signOff() {
+    setSigning(true);
+    const { error: signOffError } = await supabase.rpc('sign_off_incident_report', {
+      p_incident_id: incidentId,
+    });
+    setSigning(false);
+    if (signOffError) {
+      Alert.alert('Could not sign off', signOffError.message);
+      return;
+    }
+    await load();
+    Alert.alert('Report signed off', 'The safety record is locked and the family has been notified.');
   }
 
   if (loading && !incident) {
@@ -239,6 +269,18 @@ export default function IncidentRecordScreen({ navigation, route }) {
           />
         </View>
 
+        {incident.status === 'submitted' && canApprove ? (
+          <View style={styles.reviewActionCard}>
+            <View style={styles.reviewActionCopy}>
+              <Text style={styles.reviewActionTitle}>Director review required</Text>
+              <Text style={styles.reviewActionText}>
+                Confirm the report is complete before locking it and notifying the family.
+              </Text>
+            </View>
+            <Button label="Sign off & notify family" onPress={confirmSignOff} loading={signing} />
+          </View>
+        ) : null}
+
         {acknowledgment ? (
           <View style={styles.receiptCard}>
             <Ionicons name="lock-closed-outline" size={18} color={colors.success} />
@@ -286,6 +328,10 @@ const styles = StyleSheet.create({
   photo: { width: 132, height: 106, borderRadius: radius.md, backgroundColor: colors.bg },
   photoUnavailable: { paddingVertical: spacing.lg, color: colors.textFaint, fontSize: 12, fontFamily: fonts.regular },
   timelineCard: { marginTop: spacing.lg, padding: spacing.lg, borderWidth: 1.5, borderColor: colors.border, borderRadius: radius.xl, backgroundColor: colors.surface },
+  reviewActionCard: { marginTop: spacing.md, padding: spacing.lg, gap: spacing.md, borderWidth: 1.5, borderColor: '#EFD9B5', borderRadius: radius.xl, backgroundColor: colors.amberLight },
+  reviewActionCopy: { gap: 4 },
+  reviewActionTitle: { color: colors.textPrimary, fontSize: 14, fontFamily: fonts.bold },
+  reviewActionText: { color: colors.textMuted, fontSize: 12, lineHeight: 18, fontFamily: fonts.regular },
   sectionTitle: { marginBottom: spacing.md, color: colors.textPrimary, fontSize: 13.5, fontFamily: fonts.bold },
   timelineRow: { flexDirection: 'row' },
   timelineRail: { width: 24, alignItems: 'center' },

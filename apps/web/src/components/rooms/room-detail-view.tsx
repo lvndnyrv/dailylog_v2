@@ -3,6 +3,7 @@
 import type { Tables } from "@dailylog/db";
 import type {
   RoomCoverageAssignmentRow,
+  RoomDemandForecastRow,
   RoomLiveStatus,
   RoomTransition,
   RoomTransitionPlanRow,
@@ -14,6 +15,7 @@ import type {
 import { formatAge, isOverRatio } from "@dailylog/shared";
 import { AlertTriangle, ArrowLeft, CalendarClock } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Avatar } from "@/components/ui/avatar";
 import { AssignFloaterModal } from "./assign-floater-modal";
@@ -62,6 +64,8 @@ export function RoomDetailView({
   combinations,
   floaters,
   educators,
+  forecast,
+  nowIso,
   date,
   timeZone,
   alertAfterMinutes,
@@ -79,10 +83,13 @@ export function RoomDetailView({
   combinations: Tables<"room_combinations">[];
   floaters: { id: string; full_name: string; email: string }[];
   educators: { id: string; fullName: string; roomId: string | null; roomName: string | null }[];
+  forecast: RoomDemandForecastRow[];
+  nowIso: string;
   date: string;
   timeZone: string;
   alertAfterMinutes: number;
 }) {
+  const router = useRouter();
   const [modal, setModal] = useState<ModalState>("none");
   const liveRoom = rooms.find(item => item.id === room.operating?.host_room_id) ?? room;
   const liveRatio = liveRoom.operating?.live_ratio ?? liveRoom.ratio_children_per_educator;
@@ -113,10 +120,18 @@ export function RoomDetailView({
   const requiredEducators = liveRatio
     ? Math.ceil(present / liveRatio)
     : 0;
-  // The home-room shift forecast cannot predict shared coverage across a combination boundary.
-  const gapAt = room.operating?.combination_id
+  const now = new Date(nowIso).getTime();
+  const forecastGap = forecast
+    .filter((row) => new Date(row.ends_at).getTime() > now && row.required_staff > row.scheduled_staff)
+    .sort((left, right) => left.starts_at.localeCompare(right.starts_at))[0] ?? null;
+  // Keep the legacy live-count estimate only when the booking-aware forecast has
+  // no standalone interval (for example, before opening or after closing).
+  const fallbackGapAt = room.operating?.combination_id || forecast.length > 0
     ? null
     : findCoverageGap(roomShifts, assignments, away, requiredEducators, timeZone);
+  const designatedLead = educators.find((educator) => educator.id === room.lead_educator_id);
+  const leadHandoff = Boolean(room.opens_on && room.lead_educator_id && designatedLead?.roomId !== room.id);
+  const leadHandoffDue = Boolean(leadHandoff && room.opens_on! <= date);
 
   return (
     <>
@@ -155,6 +170,20 @@ export function RoomDetailView({
 
       <main className="grid flex-1 items-start gap-5 p-7 pt-[22px] xl:grid-cols-[minmax(0,1fr)_298px]">
         <div className="flex min-w-0 flex-col gap-4">
+          {leadHandoff && (
+            <section id="lead-handoff" className={`${card} border-[#EFCF94] bg-[#FFF9EF]`} aria-labelledby="lead-handoff-h">
+              <h2 id="lead-handoff-h" className={cardTitle}>{leadHandoffDue ? "Lead home-room transfer needs review" : "Opening-day lead plan"}</h2>
+              <p className="mt-1 text-[12px] leading-relaxed text-muted">
+                {designatedLead
+                  ? `${designatedLead.fullName} is designated as lead here but currently belongs to ${designatedLead.roomName ?? "the floater pool"}.`
+                  : "The designated lead is no longer on the active educator roster. Choose an active replacement."}
+                {leadHandoffDue ? " Review published shifts and regular schedules before changing home-room access." : ` This room opens ${formatDate(room.opens_on!)}. Keep current access until opening day.`}
+              </p>
+              <button type="button" onClick={() => setModal("edit")} className="mt-2 text-[12px] font-bold text-primary hover:underline">
+                {leadHandoffDue ? "Review lead and transfer" : "Review room settings"} →
+              </button>
+            </section>
+          )}
           <section className={`${card} ${over ? "border-[#EFC3C3] bg-danger-bg/35" : ""}`} aria-labelledby="ratio-h">
             <div className="flex items-center gap-3">
               <span className="min-w-0 flex-1">
@@ -178,10 +207,16 @@ export function RoomDetailView({
                 {liveRoom.educators.map((educator) => <span key={educator.id} className="rounded-full bg-tint px-2.5 py-1 text-ink">{educator.full_name}</span>)}
               </div>
             )}
-            {gapAt && !over ? (
+            {(forecastGap || fallbackGapAt) && !over ? (
               <button type="button" onClick={() => setModal("assign")} className="mt-3 flex w-full items-center gap-2 rounded-[12px] border border-[#EFCF94] bg-[#FFF8EA] px-3 py-2.5 text-left">
                 <AlertTriangle size={14} className="text-[#A86D13]" />
-                <span className="flex-1 text-[11.5px] text-ink">Using today&apos;s live attendance, scheduled coverage drops below {requiredEducators} educators at <b>{gapAt}</b>.</span>
+                <span className="flex-1 text-[11.5px] text-ink">
+                  {forecastGap ? (
+                    <>Today&apos;s booking forecast expects {forecastGap.expected_children} children and {forecastGap.scheduled_staff}/{forecastGap.required_staff} confirmed educators at <b>{shortTime(forecastGap.starts_at, timeZone)}</b>{forecastGap.unknown_bookings ? ` · ${forecastGap.unknown_bookings} bookings still unknown` : ""}{forecastGap.pending_staff ? ` · ${forecastGap.pending_staff} invitations pending` : ""}.</>
+                  ) : (
+                    <>Using today&apos;s live attendance, scheduled coverage drops below {requiredEducators} educators at <b>{fallbackGapAt}</b>.</>
+                  )}
+                </span>
                 <span className="font-bold text-primary">Assign cover</span>
               </button>
             ) : (
@@ -314,7 +349,7 @@ export function RoomDetailView({
         <AssignFloaterModal floaters={floaters} rooms={rooms} shifts={shifts} initialEducatorId={floaters[0]?.id ?? null} initialRoomId={room.id} date={date} timeZone={timeZone} onClose={() => setModal("none")} />
       )}
       {modal === "alert" && (
-        <OverRatioModal room={liveRoom} afterMinutes={alertAfterMinutes} onAssign={() => setModal("assign")} onCombine={() => window.location.assign("/rooms?modal=combine")} onClose={() => setModal("none")} />
+        <OverRatioModal room={liveRoom} afterMinutes={alertAfterMinutes} onAssign={() => setModal("assign")} onCombine={() => router.push("/rooms?modal=combine")} onClose={() => setModal("none")} />
       )}
       {typeof modal === "object" && modal.kind === "transition" && (
         <PlanTransitionModal transition={modal.transition} today={date} plan={transitionPlans.find((item) => item.child_id === modal.transition.child_id)} wait={transitionWaits.find((item) => item.child_id === modal.transition.child_id)} rooms={rooms} onClose={() => setModal("none")} />

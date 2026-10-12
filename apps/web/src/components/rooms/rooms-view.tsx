@@ -7,6 +7,7 @@ import type {
   RoomTransition,
   RoomTransitionPlanRow,
   RoomTransitionWaitRow,
+  PendingStaffInvite,
   StaffShiftRow,
   StaffTimeEntryRow,
   StaffTimeOffRequestRow,
@@ -25,7 +26,6 @@ import { RatioAlertsCard } from "./ratio-alerts-card";
 import { RatioRulesModal } from "./ratio-rules-modal";
 import { RoomFormModal } from "./room-form-modal";
 import { CombinationControls, LiveRoomsRefresh } from "./combination-controls";
-import { PlannedBreaks } from "./planned-breaks";
 import { CoverageForecast } from "./coverage-forecast";
 
 const card = "rounded-2xl border-[1.5px] border-[#D6E1F0] bg-card";
@@ -58,6 +58,7 @@ type ModalState =
 export function RoomsView({
   rooms,
   floaters,
+  pendingFloaterInvites,
   transitions,
   transitionPlans,
   transitionWaits,
@@ -68,6 +69,7 @@ export function RoomsView({
   timeOff,
   educators,
   date,
+  nowIso,
   timeZone,
   alertSettings,
   initialModal,
@@ -77,6 +79,7 @@ export function RoomsView({
 }: {
   rooms: RoomLiveStatus[];
   floaters: Floater[];
+  pendingFloaterInvites: PendingStaffInvite[];
   transitions: RoomTransition[];
   transitionPlans: RoomTransitionPlanRow[];
   transitionWaits: RoomTransitionWaitRow[];
@@ -87,6 +90,7 @@ export function RoomsView({
   timeOff: StaffTimeOffRequestRow[];
   educators: Educator[];
   date: string;
+  nowIso: string;
   timeZone: string;
   alertSettings: { afterMinutes: number; notifyFloaters: boolean; blockCheckins: boolean };
   initialModal?: string;
@@ -107,6 +111,12 @@ export function RoomsView({
     if (initialModal) router.replace("/rooms", { scroll: false });
   };
   const activeCombinationCount = combinations.filter((item) => item.enabled).length;
+  const leadHandoffs = rooms.flatMap((room) => {
+    if (!room.opens_on || !room.lead_educator_id) return [];
+    const lead = educators.find((educator) => educator.id === room.lead_educator_id);
+    if (lead?.roomId === room.id) return [];
+    return [{ room, lead, due: room.opens_on <= date }];
+  }).sort((left, right) => left.room.opens_on!.localeCompare(right.room.opens_on!));
 
   return (
     <div className="grid flex-1 items-start gap-5 p-7 pt-[22px] xl:grid-cols-[minmax(0,1fr)_298px]">
@@ -125,7 +135,6 @@ export function RoomsView({
           openingHours={openingHours}
         />
 
-        <PlannedBreaks shifts={shifts} date={date} timeZone={timeZone} />
         <CoverageForecast
           rooms={rooms}
           today={date}
@@ -137,8 +146,10 @@ export function RoomsView({
 
         <FloaterPool
           floaters={floaters}
+          pendingInvites={pendingFloaterInvites}
           shifts={shifts}
           date={date}
+          nowIso={nowIso}
           timeZone={timeZone}
           onAssign={(educatorId) =>
             setModal({ kind: "assign", educatorId, roomId: null })
@@ -155,6 +166,21 @@ export function RoomsView({
       </div>
 
       <aside className="flex flex-col gap-4">
+        {leadHandoffs.length > 0 && (
+          <section className={`${card} px-4 py-4`} aria-labelledby="lead-handoffs-h">
+            <h2 id="lead-handoffs-h" className="text-[14px] font-extrabold text-ink">Opening-day lead handoffs</h2>
+            <p className="mt-1 text-[11.5px] leading-relaxed text-muted">A lead designation does not move an educator. Review staffing and confirm each home-room transfer when the room opens.</p>
+            <div className="mt-3 divide-y divide-[#EDF3FB]">
+              {leadHandoffs.map(({ room, lead, due }) => (
+                <div key={room.id} className="py-2.5 first:pt-0 last:pb-0">
+                  <span className="block text-[12.5px] font-bold text-ink">{room.name} · {lead?.fullName ?? "Lead unavailable"}</span>
+                  <span className="block text-[11px] text-muted">{due ? "Ready for review" : `Opens ${formatDate(room.opens_on!)}`} · {lead ? `currently ${lead.roomName ?? "a floater"}` : "choose an active lead"}</span>
+                  <Link href={`/rooms/${room.id}#lead-handoff`} className="mt-1 inline-block text-[11.5px] font-bold text-primary hover:underline">{due ? "Review transfer" : "View opening plan"} →</Link>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
         <RatioRulesCard rooms={rooms} onEdit={() => setModal("rules")} />
         <RatioAlertsCard initial={alertSettings} />
         <section className={`${card} px-4 py-4`} aria-labelledby="combine-h">
@@ -438,14 +464,18 @@ function TimelineBar({
 
 function FloaterPool({
   floaters,
+  pendingInvites,
   shifts,
   date,
+  nowIso,
   timeZone,
   onAssign,
 }: {
   floaters: Floater[];
+  pendingInvites: PendingStaffInvite[];
   shifts: StaffShiftRow[];
   date: string;
+  nowIso: string;
   timeZone: string;
   onAssign: (id: string) => void;
 }) {
@@ -455,7 +485,7 @@ function FloaterPool({
         <h2 id="floaters-h" className="text-[15px] font-extrabold text-ink">Floater pool</h2>
         <span className="text-[11px] text-faint">not assigned to a home room — cover breaks, gaps and sick days</span>
       </div>
-      {floaters.length === 0 ? (
+      {floaters.length === 0 && pendingInvites.length === 0 ? (
         <p className="text-[12px] text-faint">No unassigned educators are available today.</p>
       ) : (
         <div className="divide-y divide-[#EDF3FB]">
@@ -475,6 +505,23 @@ function FloaterPool({
                 <button type="button" onClick={() => onAssign(floater.id)} className="rounded-full bg-primary px-4 py-2 text-[11.5px] font-bold text-white hover:bg-primary-hover">
                   Send to a room
                 </button>
+              </div>
+            );
+          })}
+          {pendingInvites.map((invite) => {
+            const expired = invite.expires_at ? new Date(invite.expires_at).getTime() <= new Date(nowIso).getTime() : false;
+            return (
+              <div key={invite.id} className="flex items-center gap-3 py-2.5 first:pt-0 last:pb-0">
+                <span className="grid size-[34px] shrink-0 place-items-center rounded-full border border-dashed border-[#8EA9CC] bg-[#F7FAFE] text-[10px] font-bold text-muted">
+                  {(invite.full_name ?? invite.email).split(/\s|@/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("")}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[13px] font-bold text-ink">{invite.full_name ?? invite.email}</span>
+                  <span className="block text-[11px] text-muted">{expired ? "Invite expired — resend before scheduling" : "Invited · account not connected yet"}</span>
+                </span>
+                <Link href="/staff?tab=roster" className="rounded-full border-[1.5px] border-[#D6E1F0] px-4 py-2 text-[11.5px] font-bold text-primary hover:bg-canvas">
+                  {expired ? "Review invite" : "View invite"}
+                </Link>
               </div>
             );
           })}

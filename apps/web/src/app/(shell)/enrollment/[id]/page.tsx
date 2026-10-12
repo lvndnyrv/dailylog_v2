@@ -9,6 +9,7 @@ import {
 } from "@dailylog/db/queries";
 import { notFound } from "next/navigation";
 import { EnrollmentApplicationView } from "@/components/enrollment/enrollment-application-view";
+import { dateInTimeZone } from "@/lib/center-date";
 import { getServerSupabase } from "@/lib/supabase/server";
 
 export default async function EnrollmentApplicationPage({
@@ -45,6 +46,7 @@ export default async function EnrollmentApplicationPage({
         }))}
       offerWindowHours={settings?.offer_window_hours ?? 48}
       timeZone={daycare?.timezone ?? "America/Toronto"}
+      centerToday={dateInTimeZone(new Date(), daycare?.timezone ?? "America/Toronto")}
     />
   );
 }

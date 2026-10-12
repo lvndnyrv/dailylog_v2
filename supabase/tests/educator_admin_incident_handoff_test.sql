@@ -26,6 +26,7 @@ declare
   v_classroom uuid;
   v_count int;
   v_hub jsonb;
+  v_denied boolean;
 begin
   perform pg_temp.impersonate('postgres');
   update public.children
@@ -58,6 +59,14 @@ begin
   if v_count <> 1 then
     raise exception 'FAIL: educator submission did not create one director alert';
   end if;
+  if not exists (
+    select 1 from public.notification_outbox
+     where dedupe_key = 'incident:' || v_incident || ':director'
+       and payload->>'screen' = 'IncidentHub'
+       and payload->>'incidentId' = v_incident::text
+  ) then
+    raise exception 'FAIL: director incident alert does not deep-link to its record';
+  end if;
   if exists (
     select 1 from public.notification_outbox
      where dedupe_key = 'incident:' || v_incident || ':parent'
@@ -65,10 +74,19 @@ begin
     raise exception 'FAIL: routine incident reached the parent before sign-off';
   end if;
 
+  perform pg_temp.impersonate('authenticated', v_educator);
+  v_denied := false;
+  begin
+    perform public.sign_off_incident_report(v_incident);
+  exception when others then
+    v_denied := true;
+  end;
+  if not v_denied then
+    raise exception 'FAIL: educator could sign off an incident without approval permission';
+  end if;
+
   perform pg_temp.impersonate('authenticated', v_director);
-  update public.incident_reports
-     set status = 'signed_off', signed_off_by = v_director, signed_off_at = now()
-   where id = v_incident and status = 'submitted';
+  perform public.sign_off_incident_report(v_incident);
 
   perform pg_temp.impersonate('postgres');
   select count(*) into v_count
@@ -77,6 +95,27 @@ begin
      and recipient_id = v_parent;
   if v_count <> 1 then
     raise exception 'FAIL: director sign-off did not create one parent alert';
+  end if;
+  if not exists (
+    select 1 from public.notification_outbox
+     where dedupe_key = 'incident:' || v_incident || ':parent'
+       and payload->>'screen' = 'IncidentDetail'
+       and payload->>'incidentId' = v_incident::text
+  ) then
+    raise exception 'FAIL: parent incident alert does not deep-link to its record';
+  end if;
+
+  perform pg_temp.impersonate('authenticated', v_director);
+  v_denied := false;
+  begin
+    update public.incident_reports
+       set description = 'Changed after sign-off'
+     where id = v_incident;
+  exception when others then
+    v_denied := true;
+  end;
+  if not v_denied then
+    raise exception 'FAIL: signed incident safety record remained editable';
   end if;
 
   perform pg_temp.impersonate('authenticated', v_parent);
@@ -91,6 +130,15 @@ begin
   perform public.acknowledge_parent_incident(v_incident, 'Lucia Castillo');
 
   perform pg_temp.impersonate('postgres');
+  if not exists (
+    select 1 from public.notifications
+     where profile_id = v_educator
+       and payload->>'type' = 'incident_acknowledged'
+       and payload->>'incidentId' = v_incident::text
+       and payload->>'screen' = 'IncidentHub'
+  ) then
+    raise exception 'FAIL: reporting educator was not notified of family acknowledgment';
+  end if;
   update public.children set archived_at = now() where id = v_child;
 
   perform pg_temp.impersonate('authenticated', v_educator);

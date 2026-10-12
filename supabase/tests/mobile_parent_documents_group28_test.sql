@@ -38,6 +38,20 @@ begin
      set archived_at = null,
          enrolled_on = least(coalesce(enrolled_on, current_date), current_date)
    where id = v_child;
+
+  -- Keep this rollback-safe test independent of the long-lived demo state. The
+  -- same seeded request may already be under review or accepted after a manual
+  -- product walkthrough, but this test owns the upload/review lifecycle below.
+  delete from public.parent_document_submissions
+   where request_id = v_request;
+  update public.parent_document_requests
+     set status = 'requested',
+         submitted_at = null,
+         completed_at = null,
+         rejection_reason = null,
+         latest_document_id = null
+   where id = v_request;
+
   if not exists (
     select 1 from storage.buckets bucket
     where bucket.id = 'documents' and bucket.file_size_limit = 10485760

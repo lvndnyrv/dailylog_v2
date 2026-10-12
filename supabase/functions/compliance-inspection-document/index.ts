@@ -5,6 +5,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 Deno.serve(async (request) => {
   const headers = {
     "Cache-Control": "private, no-store",
+    "Content-Security-Policy": "sandbox",
     "Referrer-Policy": "no-referrer",
     "X-Content-Type-Options": "nosniff",
   };

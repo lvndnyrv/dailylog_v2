@@ -4,12 +4,21 @@
     "slug": "dailylog",
     "scheme": "dailylog",
     "version": "1.0.0",
+    "runtimeVersion": {
+      "policy": "fingerprint"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/6d59f1c4-557a-4e88-85f7-93039c7c6ec2",
+      "checkAutomatically": "ON_LOAD",
+      "fallbackToCacheTimeout": 0
+    },
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.elvindanyarov.dailylog",
+      "buildNumber": "1",
       "infoPlist": {
         "NSUserNotificationsUsageDescription": "DailyLog sends you notifications when your child's daily log is ready to view.",
         "NSPhotoLibraryUsageDescription": "DailyLog needs access to your photos to attach them to daily logs.",
@@ -19,6 +28,7 @@
     },
     "android": {
       "package": "com.elvindanyarov.dailylog",
+      "versionCode": 1,
       "adaptiveIcon": {
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
@@ -29,6 +39,11 @@
         "RECEIVE_BOOT_COMPLETED",
         "VIBRATE",
         "POST_NOTIFICATIONS"
+      ],
+      "blockedPermissions": [
+        "android.permission.READ_CALENDAR",
+        "android.permission.WRITE_CALENDAR",
+        "android.permission.RECORD_AUDIO"
       ]
     },
     "web": {
@@ -47,23 +62,33 @@
         "expo-image-picker",
         {
           "photosPermission": "DailyLog needs access to your photos to attach them to daily logs.",
-          "cameraPermission": "DailyLog needs camera access to take photos for daily logs."
+          "cameraPermission": "DailyLog needs camera access to take photos for daily logs.",
+          "microphonePermission": false
         }
       ],
       [
         "expo-camera",
         {
           "cameraPermission": "DailyLog uses the camera to scan short-lived family pickup passes at the door.",
+          "microphonePermission": false,
           "recordAudioAndroid": false
         }
       ],
       "@react-native-community/datetimepicker",
-      "expo-secure-store",
+      [
+        "expo-secure-store",
+        {
+          "faceIDPermission": "DailyLog uses Face ID only when you enable app lock in Settings."
+        }
+      ],
       "expo-sharing",
       [
         "expo-calendar",
         {
-          "calendarPermission": "DailyLog can add center closures to your calendar when you choose Add to my calendar."
+          "calendarPermission": "DailyLog can add center closures and booked tours to your calendar when you choose Add to calendar.",
+          "writeOnlyCalendarPermission": "DailyLog can add center closures and booked tours to your calendar when you choose Add to calendar.",
+          "remindersPermission": false,
+          "writeOnlyAccess": true
         }
       ],
       "expo-font",
@@ -84,7 +109,7 @@
     "extra": {
       "storeUrls": {
         "ios": "YOUR_IOS_APP_STORE_URL",
-        "android": "YOUR_ANDROID_PLAY_STORE_URL"
+        "android": "https://play.google.com/store/apps/details?id=com.elvindanyarov.dailylog"
       },
       "eas": {
         "projectId": "6d59f1c4-557a-4e88-85f7-93039c7c6ec2"

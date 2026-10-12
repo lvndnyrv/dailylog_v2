@@ -14,6 +14,8 @@ import {
 import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import { getServerSupabase } from "@/lib/supabase/server";
+import { addDateDays, zonedLocalToIso } from "@/lib/center-date";
+import { validateUpload } from "@/lib/uploads";
 
 export interface StaffActionState {
   error?: string;
@@ -181,7 +183,7 @@ export async function bulkAssignStaffRoomAction(
     const { supabase } = await requireStaffPermission("edit");
     const { data, error } = await supabase.rpc("bulk_assign_staff_room", {
       p_staff_member_ids: staffIds,
-      p_classroom_id: classroomId || null,
+      p_classroom_id: classroomId || undefined,
     });
     if (error) throw error;
     const result = data as { updated?: number } | null;
@@ -247,13 +249,25 @@ export async function grantDelegationAction(
     return { error: "Select at least one area." };
   }
 
-  const endsAt = new Date(`${endsOn}T23:59:59.999Z`);
+  const supabase = await getServerSupabase();
+  const profile = await getMyProfile(supabase);
+  if (!profile?.daycare_id) return { error: "No center on your profile." };
+  const { data: daycare, error: daycareError } = await supabase
+    .from("daycares")
+    .select("timezone")
+    .eq("id", profile.daycare_id)
+    .single();
+  if (daycareError) return { error: daycareError.message };
+  const endsAt = new Date(
+    new Date(
+      zonedLocalToIso(addDateDays(endsOn, 1), "00:00", daycare?.timezone ?? "America/Toronto"),
+    ).getTime() - 1,
+  );
   if (Number.isNaN(endsAt.getTime()) || endsAt <= new Date()) {
     return { error: "The expiry must be in the future." };
   }
 
   try {
-    const supabase = await getServerSupabase();
     await grantStaffDelegation(supabase, {
       delegateProfileId,
       accessLevel: accessLevel as "specific_areas" | "full_admin",
@@ -402,10 +416,11 @@ export async function reviewCredentialSubmissionAction(
 
 export async function deactivateStaffAction(formData: FormData): Promise<void> {
   const supabase = await getServerSupabase();
-  await updateStaffMember(supabase, str(formData, "staff_id"), {
-    status: "inactive",
-    ended_on: new Date().toISOString().slice(0, 10),
+  const { error } = await supabase.rpc("admin_set_staff_active", {
+    p_staff_member_id: str(formData, "staff_id"),
+    p_active: false,
   });
+  if (error) throw error;
   revalidatePath("/staff");
 }
 
@@ -429,9 +444,8 @@ export async function uploadStaffDocumentAction(
   if (title.length < 2) return { error: "Add a document title." };
   if (!(file instanceof File) || file.size === 0) return { error: "Choose a file to upload." };
   if (file.size > 10 * 1024 * 1024) return { error: "Documents must be 10 MB or smaller." };
-  if (file.type !== "application/pdf" && !file.type.startsWith("image/")) {
-    return { error: "Upload a PDF or image document." };
-  }
+  const validatedFile = await validateUpload(file, "document");
+  if (!validatedFile) return { error: "Upload a valid PDF, JPG, or PNG document." };
 
   try {
     const supabase = await getServerSupabase();
@@ -449,10 +463,9 @@ export async function uploadStaffDocumentAction(
     if (!member.profile_id) throw new Error("This staff record is not linked to an account.");
     const subjectProfileId = member.profile_id;
 
-    const extension = file.name.split(".").pop()?.toLowerCase().replace(/[^a-z0-9]/g, "") || "pdf";
-    const path = `staff-private/${subjectProfileId}/${category}-${crypto.randomUUID()}.${extension}`;
+    const path = `staff-private/${subjectProfileId}/${category}-${crypto.randomUUID()}.${validatedFile.extension}`;
     const { error: uploadError } = await supabase.storage.from("documents").upload(path, file, {
-      contentType: file.type,
+      contentType: validatedFile.mimeType,
       upsert: false,
     });
     if (uploadError) throw uploadError;
@@ -474,7 +487,7 @@ export async function uploadStaffDocumentAction(
       title: title.slice(0, 160),
       category,
       storage_path: path,
-      mime_type: file.type,
+      mime_type: validatedFile.mimeType,
       size_bytes: file.size,
       uploaded_by: profile.id,
     });
@@ -524,6 +537,30 @@ export async function approveTimeEntriesAction(
     return { ok: true };
   } catch (error) {
     return { error: error instanceof Error ? error.message : "Could not approve timesheets." };
+  }
+}
+
+export async function requestTimeEntryCorrectionAction(input: {
+  entryId: string;
+  note: string;
+}): Promise<TimekeepingActionState> {
+  try {
+    if (!UUID.test(input.entryId)) return { error: "Invalid time entry." };
+    const note = input.note.trim();
+    if (note.length < 3 || note.length > 1000) {
+      return { error: "Explain the correction needed in 3–1000 characters." };
+    }
+    const { supabase } = await requireStaffPermission("approve");
+    const { error } = await supabase.rpc("approve_time_entry", {
+      p_entry_id: input.entryId,
+      p_approved: false,
+      p_notes: note,
+    });
+    if (error) throw error;
+    revalidatePath("/staff");
+    return { ok: true };
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : "Could not request a correction." };
   }
 }
 

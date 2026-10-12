@@ -170,7 +170,7 @@ export function EnrollmentBoard({
       )}
 
       {modal === "new" && <NewInquiryModal classrooms={rooms} onClose={closeModal} />}
-      {modal === "tourSlots" && <TourSlotsModal slots={tourSlots} classrooms={rooms} educators={educators} timeZone={timeZone} onClose={closeModal} />}
+      {modal === "tourSlots" && <TourSlotsModal slots={tourSlots} classrooms={rooms} educators={educators} timeZone={timeZone} centerToday={centerToday} onClose={closeModal} />}
       {modal === "rules" && <WaitlistRulesModal settings={settings} onClose={closeModal} />}
       {modal === "refresh" && <WaitlistCheckinModal families={waitlist} settings={settings} onClose={closeModal} />}
       {modal === "alumni" && <AlumniModal alumni={alumni} rooms={rooms} onClose={closeModal} />}
@@ -181,7 +181,7 @@ export function EnrollmentBoard({
       {typeof modal === "object" && modal.kind === "familyForm" && <FamilyApplicationPreviewModal enrollment={modal.enrollment} onClose={closeModal} />}
       {typeof modal === "object" && modal.kind === "lifecycle" && <EnrollmentLifecycleModal enrollment={modal.enrollment} educators={educators} centerToday={centerToday} onClose={closeModal} />}
       {typeof modal === "object" && modal.kind === "documents" && <RequestDocumentsModal enrollment={modal.enrollment} onClose={closeModal} />}
-      {typeof modal === "object" && modal.kind === "offer" && <SendOfferModal enrollment={modal.enrollment} rooms={rooms} defaultWindow={settings.offer_window_hours} onClose={closeModal} />}
+      {typeof modal === "object" && modal.kind === "offer" && <SendOfferModal enrollment={modal.enrollment} rooms={rooms} defaultWindow={settings.offer_window_hours} centerToday={centerToday} onClose={closeModal} />}
       {typeof modal === "object" && modal.kind === "vacancyOffer" && <RoomVacancyReviewModal review={modal.review} defaultWindow={settings.offer_window_hours} onClose={closeModal} />}
       {typeof modal === "object" && modal.kind === "nudge" && <OfferNudgeModal enrollment={modal.enrollment} onClose={closeModal} />}
       {typeof modal === "object" && modal.kind === "withdrawOffer" && <WithdrawOfferModal enrollment={modal.enrollment} nextFamily={nextWaitlisted(waitlist, modal.enrollment)} reviewNext={settings.auto_offer} onClose={closeModal} />}

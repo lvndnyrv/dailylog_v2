@@ -84,7 +84,7 @@ begin
   if not exists(select 1 from public.notification_outbox where recipient_id=owner_id and kind='coverage_review' and payload->>'assignmentId'=ids[1]::text) then raise exception 'FAIL: permitted admin was not queued a review alert'; end if;
   perform set_config('request.jwt.claims',json_build_object('sub',people[1],'role','authenticated')::text,true);
   set local role authenticated;
-  if not exists(select 1 from public.get_my_room_coverage() where id=ids[1] and review_issue like 'Source room can no longer%') then
+  if not exists(select 1 from public.get_my_room_coverage() where id=cover and review_issue like 'Source room can no longer%') then
     raise exception 'FAIL: educator destination did not explain the stale commitment: %',
       (select coalesce(jsonb_agg(to_jsonb(coverage)), '[]'::jsonb) from public.get_my_room_coverage() coverage);
   end if;

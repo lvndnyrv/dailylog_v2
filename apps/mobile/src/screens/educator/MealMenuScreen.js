@@ -14,6 +14,7 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { isAdminRole } from '@dailylog/shared';
 import {
   addDays,
   addWeeks,
@@ -58,7 +59,7 @@ function draftForScope(rows, classroomId) {
   });
 }
 
-function ScopePicker({ visible, classrooms, value, onChoose, onClose }) {
+function ScopePicker({ visible, classrooms, value, onChoose, onClose, allowAllRooms }) {
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <View style={styles.modalOverlay}>
@@ -79,21 +80,23 @@ function ScopePicker({ visible, classrooms, value, onChoose, onClose }) {
               <Ionicons name="close" size={18} color={colors.textMuted} />
             </TouchableOpacity>
           </View>
-          <TouchableOpacity
-            onPress={() => onChoose(null)}
-            style={[styles.scopeRow, value == null && styles.scopeRowSelected]}
-            accessibilityRole="radio"
-            accessibilityState={{ selected: value == null }}
-          >
-            <View style={styles.scopeIcon}>
-              <Ionicons name="business-outline" size={19} color={colors.primary} />
-            </View>
-            <View style={styles.scopeCopy}>
-              <Text style={styles.scopeRowTitle}>All rooms</Text>
-              <Text style={styles.scopeRowSubtitle}>The center-wide default menu</Text>
-            </View>
-            {value == null && <Ionicons name="checkmark-circle" size={22} color={colors.primary} />}
-          </TouchableOpacity>
+          {allowAllRooms && (
+            <TouchableOpacity
+              onPress={() => onChoose(null)}
+              style={[styles.scopeRow, value == null && styles.scopeRowSelected]}
+              accessibilityRole="radio"
+              accessibilityState={{ selected: value == null }}
+            >
+              <View style={styles.scopeIcon}>
+                <Ionicons name="business-outline" size={19} color={colors.primary} />
+              </View>
+              <View style={styles.scopeCopy}>
+                <Text style={styles.scopeRowTitle}>All rooms</Text>
+                <Text style={styles.scopeRowSubtitle}>The center-wide default menu</Text>
+              </View>
+              {value == null && <Ionicons name="checkmark-circle" size={22} color={colors.primary} />}
+            </TouchableOpacity>
+          )}
           {classrooms.map(room => (
             <TouchableOpacity
               key={room.id}
@@ -305,6 +308,11 @@ export default function MealMenuScreen({ navigation }) {
   const [saving, setSaving] = useState(false);
   const [scopeOpen, setScopeOpen] = useState(false);
   const [editing, setEditing] = useState(null);
+  const canManageAllRooms = isAdminRole(profile?.role);
+
+  useEffect(() => {
+    if (!canManageAllRooms && activeClassroom && !scope) setScope(activeClassroom);
+  }, [activeClassroom, canManageAllRooms, scope]);
 
   const weekStart = useMemo(
     () => startOfWeek(selectedDate, { weekStartsOn: 1 }),
@@ -426,9 +434,16 @@ export default function MealMenuScreen({ navigation }) {
       return;
     }
 
-    const otherDates = weekRows.filter(row => row.menu_date !== selectedDateKey);
-    setWeekRows([...otherDates, ...(data || [])]);
-    setDrafts(draftForScope(data || [], scope?.id || null));
+    const otherRows = weekRows.filter(row =>
+      row.menu_date !== selectedDateKey
+      || row.classroom_id !== (scope?.id || null)
+    );
+    const nextRows = [...otherRows, ...(data || [])];
+    setWeekRows(nextRows);
+    setDrafts(draftForScope(
+      nextRows.filter(row => row.menu_date === selectedDateKey),
+      scope?.id || null
+    ));
     showToast(`Menu saved for ${format(selectedDate, 'EEEE')}`, 'success');
   }
 
@@ -633,6 +648,7 @@ export default function MealMenuScreen({ navigation }) {
         visible={scopeOpen}
         classrooms={classrooms}
         value={scope}
+        allowAllRooms={canManageAllRooms}
         onChoose={chooseScope}
         onClose={() => setScopeOpen(false)}
       />

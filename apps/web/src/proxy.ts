@@ -14,6 +14,22 @@ const PUBLIC_PATHS = [
   "/signed-out",
   "/inquire",
   "/inspection",
+  "/privacy",
+  "/account-deletion",
+  "/support",
+  "/auth/callback",
+];
+
+const SENSITIVE_PUBLIC_PATHS = [
+  "/sign-in",
+  "/forgot",
+  "/reset",
+  "/invite",
+  "/start",
+  "/inquire",
+  "/inspection",
+  "/account-deletion",
+  "/auth/callback",
 ];
 
 export async function proxy(request: NextRequest) {
@@ -50,11 +66,15 @@ export async function proxy(request: NextRequest) {
   const isPublic = PUBLIC_PATHS.some(
     (p) => pathname === p || pathname.startsWith(`${p}/`),
   );
+  const isSensitivePublic = SENSITIVE_PUBLIC_PATHS.some(
+    (p) => pathname === p || pathname.startsWith(`${p}/`),
+  );
 
   if (!user && !isPublic && pathname !== "/") {
     const signIn = request.nextUrl.clone();
     signIn.pathname = "/sign-in";
     signIn.search = "";
+    signIn.searchParams.set("next", `${pathname}${request.nextUrl.search}`);
     return NextResponse.redirect(signIn);
   }
 
@@ -63,6 +83,11 @@ export async function proxy(request: NextRequest) {
     home.pathname = "/";
     home.search = "";
     return NextResponse.redirect(home);
+  }
+
+  if (user || !isPublic || isSensitivePublic) {
+    response.headers.set("Cache-Control", "private, no-store");
+    response.headers.append("Vary", "Cookie");
   }
 
   return response;

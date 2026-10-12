@@ -1,6 +1,7 @@
 import {
   getMyDaycare,
   listFloaters,
+  listPendingStaffInvites,
   listRoomCombinations,
   listRoomCoverageAssignments,
   listRoomsLive,
@@ -29,7 +30,8 @@ export default async function RoomsPage({
   const supabase = await getServerSupabase();
   const daycare = await getMyDaycare(supabase);
   const timeZone = daycare?.timezone ?? "America/Toronto";
-  const today = dateInTimeZone(new Date(), timeZone);
+  const now = new Date();
+  const today = dateInTimeZone(now, timeZone);
   const rangeStart = `${addDateDays(today, -1)}T00:00:00Z`;
   const rangeEnd = `${addDateDays(today, 2)}T00:00:00Z`;
 
@@ -45,6 +47,7 @@ export default async function RoomsPage({
     timeEntries,
     timeOff,
     staff,
+    pendingInvites,
   ] = await Promise.all([
     listRoomsLive(supabase),
     listFloaters(supabase),
@@ -57,6 +60,7 @@ export default async function RoomsPage({
     listStaffTimeEntries(supabase, rangeStart, rangeEnd),
     listStaffTimeOffRequests(supabase, today, today),
     listStaff(supabase),
+    listPendingStaffInvites(supabase),
   ]);
 
   return (
@@ -69,13 +73,13 @@ export default async function RoomsPage({
           <>
             <Link
               href="/rooms?modal=rules"
-              className="rounded-full border-[1.5px] border-[#D6E1F0] bg-card px-[18px] py-2.5 text-[13px] font-bold text-ink hover:bg-canvas"
+              className="whitespace-nowrap rounded-full border-[1.5px] border-[#D6E1F0] bg-card px-[18px] py-2.5 text-[13px] font-bold text-ink hover:bg-canvas"
             >
               Edit ratio rules
             </Link>
             <Link
               href="/rooms?modal=add"
-              className="rounded-full bg-primary px-[20px] py-2.5 text-[13px] font-bold text-white hover:bg-primary-hover"
+              className="whitespace-nowrap rounded-full bg-primary px-[20px] py-2.5 text-[13px] font-bold text-white hover:bg-primary-hover"
             >
               + Add a room
             </Link>
@@ -86,6 +90,9 @@ export default async function RoomsPage({
         key={params.modal ?? "overview"}
         rooms={rooms}
         floaters={floaters}
+        pendingFloaterInvites={pendingInvites.filter(
+          (invite) => invite.role === "educator" && invite.classroom === null,
+        )}
         transitions={transitions}
         transitionPlans={transitionPlans}
         transitionWaits={transitionWaits}
@@ -105,6 +112,7 @@ export default async function RoomsPage({
             roomName: member.profile!.classroom?.name ?? null,
           }))}
         date={today}
+        nowIso={now.toISOString()}
         timeZone={timeZone}
         openingHours={{ start: daycare?.opens_at ?? "07:00", end: daycare?.closes_at ?? "18:00" }}
         alertSettings={{

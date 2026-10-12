@@ -28,7 +28,18 @@ export function localDateKey(value) {
   return format(value instanceof Date ? value : new Date(value), 'yyyy-MM-dd');
 }
 
-export function useStaffTime() {
+function dateForWeek(value) {
+  if (!value) return new Date();
+  if (value instanceof Date) return value;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(String(value))) {
+    const [year, month, day] = String(value).split('-').map(Number);
+    return new Date(year, month - 1, day, 12);
+  }
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+}
+
+export function useStaffTime({ weekDate } = {}) {
   const { profile } = useAuth();
   const channelSuffix = useRef(Math.random().toString(36).slice(2)).current;
   const [staffMember, setStaffMember] = useState(null);
@@ -43,8 +54,8 @@ export function useStaffTime() {
   const [todayKey, setTodayKey] = useState(() => localDateKey(new Date()));
 
   const weekStart = useMemo(
-    () => startOfWeek(new Date(), { weekStartsOn: 1 }),
-    [todayKey],
+    () => startOfWeek(dateForWeek(weekDate || todayKey), { weekStartsOn: 1 }),
+    [todayKey, weekDate],
   );
   const weekEnd = useMemo(() => addDays(weekStart, 7), [weekStart]);
 
@@ -244,6 +255,19 @@ export function useStaffTime() {
     [load],
   );
 
+  const resubmitTimeEntry = useCallback(
+    ({ entryId, clockedInAt, clockedOutAt, breakMinutes }) => runMutation(
+      'resubmit_time_entry_correction',
+      {
+        p_entry_id: entryId,
+        p_clocked_in_at: clockedInAt,
+        p_clocked_out_at: clockedOutAt,
+        p_break_minutes: Number(breakMinutes),
+      },
+    ),
+    [load],
+  );
+
   return {
     staffMember,
     regularSchedule,
@@ -265,5 +289,6 @@ export function useStaffTime() {
     requestTimeOff,
     rerequestTimeOff,
     withdrawTimeOff,
+    resubmitTimeEntry,
   };
 }

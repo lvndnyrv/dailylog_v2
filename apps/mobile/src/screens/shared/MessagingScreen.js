@@ -629,11 +629,10 @@ export default function MessagingScreen({ route, navigation }) {
           </TouchableOpacity>
           <View style={styles.headerAvatar}>
             <Text style={styles.headerAvatarText}>{headerInitial}</Text>
-            {!isStaff && <View style={styles.onlineDot} />}
           </View>
           <View style={styles.headerCopy}>
             <Text style={styles.headerTitle} numberOfLines={1}>{headerTitle}</Text>
-            <Text style={[styles.headerSubtitle, !isStaff && styles.headerSubtitleOnline]} numberOfLines={1}>
+            <Text style={styles.headerSubtitle} numberOfLines={1}>
               {headerSubtitle}
             </Text>
           </View>
@@ -646,9 +645,7 @@ export default function MessagingScreen({ route, navigation }) {
               <Text style={styles.profileButtonText}>Profile</Text>
             </TouchableOpacity>
           ) : (
-            <TouchableOpacity style={styles.headerIconButton} accessibilityRole="button" accessibilityLabel="Conversation options">
-              <Ionicons name="ellipsis-vertical" size={19} color={colors.textMuted} />
-            </TouchableOpacity>
+            <View style={styles.headerIconButton} />
           )}
         </View>
 
@@ -825,21 +822,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   headerAvatarText: { fontSize: 14, fontFamily: fonts.bold, color: colors.primary },
-  onlineDot: {
-    position: 'absolute',
-    right: 0,
-    bottom: 0,
-    width: 11,
-    height: 11,
-    borderRadius: 6,
-    backgroundColor: colors.success,
-    borderWidth: 2.5,
-    borderColor: colors.bg,
-  },
   headerCopy: { flex: 1, minWidth: 0 },
   headerTitle: { fontSize: 15, fontFamily: fonts.bold, color: colors.textPrimary },
   headerSubtitle: { marginTop: 2, fontSize: 12, fontFamily: fonts.regular, color: colors.textMuted },
-  headerSubtitleOnline: { color: colors.success },
   profileButton: {
     borderRadius: radius.full,
     backgroundColor: colors.primaryLight,

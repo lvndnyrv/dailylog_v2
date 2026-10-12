@@ -6,6 +6,13 @@ export async function GET(
 ) {
   const { id } = await params;
   const client = await getServerSupabase();
+  const { data: allowed, error: accessError } = await client.rpc("can_access_compliance");
+  if (accessError || !allowed) {
+    return new Response("Document not found", {
+      status: 404,
+      headers: { "Cache-Control": "private, no-store" },
+    });
+  }
   const { data: document, error } = await client
     .from("compliance_documents")
     .select("storage_path")

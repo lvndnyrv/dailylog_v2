@@ -313,7 +313,7 @@ begin
       '[{"description":"x","quantity":1,"unit_amount_cents":100}]'::jsonb);
     raise exception 'FAIL educator: created an invoice';
   exception when others then
-    if sqlerrm not like '%Only admins%' then raise; end if;
+    if sqlerrm not like '%Only admin%' then raise; end if;
     raise notice 'PASS: educator blocked from creating invoices';
   end;
 
@@ -321,7 +321,7 @@ begin
     perform admin_set_user_role(v_parent, 'admin');
     raise exception 'FAIL educator: changed a role';
   exception when others then
-    if sqlerrm not like '%Only admins%' then raise; end if;
+    if sqlerrm not like '%Only admin%' then raise; end if;
     raise notice 'PASS: educator blocked from role changes';
   end;
 

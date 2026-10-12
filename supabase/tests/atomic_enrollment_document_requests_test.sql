@@ -84,16 +84,17 @@ begin
   raise notice 'PASS: repeating the same batch is idempotent';
 
   insert into public.children (
-    daycare_id, first_name, last_name, date_of_birth, classroom_id
+    daycare_id, first_name, last_name, date_of_birth, classroom_id, enrolled_on
   ) values (
-    center, 'Enrolled', 'Child', public.center_today() - interval '4 years', room_id
+    center, 'Enrolled', 'Child', public.center_today() - interval '4 years',
+    room_id, public.center_today()
   ) returning id into enrolled_child_id;
   insert into public.enrollments (
     daycare_id, child_id, child_first_name, child_last_name, child_date_of_birth,
-    guardian_name, guardian_email, classroom_id, stage, documents_status
+    guardian_name, guardian_email, classroom_id, desired_start_date, stage, documents_status
   ) values (
     center, enrolled_child_id, 'Enrolled', 'Child', public.center_today() - interval '4 years',
-    'Parker Parent', 'atomic-docs-parent@dailylog.invalid', room_id,
+    'Parker Parent', 'atomic-docs-parent@dailylog.invalid', room_id, public.center_today(),
     'enrolled', '{}'::jsonb
   ) returning id into enrolled_application_id;
 

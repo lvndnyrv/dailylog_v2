@@ -5,6 +5,7 @@ import {
   CalendarClock,
   CircleDollarSign,
   ClipboardList,
+  Megaphone,
   ReceiptText,
   MessageCircle,
   ShieldAlert,
@@ -53,6 +54,28 @@ export function notificationPresentation(
   };
 
   switch (notification.kind) {
+    case "announcement":
+      return {
+        icon: Megaphone,
+        iconClassName: "bg-tint text-primary",
+        accentClassName: "bg-primary",
+        category: "alerts",
+        source: overrides.source ?? "Broadcasts",
+        href: overrides.href ?? "/messages",
+        actionLabel: overrides.actionLabel ?? "View broadcast",
+        urgent: payloadString(payload, "priority") === "urgent",
+      };
+    case "attendance":
+      return {
+        icon: CalendarClock,
+        iconClassName: "bg-warning-bg text-warning-text",
+        accentClassName: "bg-warning",
+        category: "alerts",
+        source: overrides.source ?? "Attendance",
+        href: overrides.href ?? "/attendance",
+        actionLabel: overrides.actionLabel ?? "Review attendance",
+        urgent: false,
+      };
     case "parent_messages": {
       const childId = payloadString(payload, "childId");
       return {
@@ -90,6 +113,7 @@ export function notificationPresentation(
         actionLabel: overrides.actionLabel ?? "Assign floater",
         urgent: true,
       };
+    case "incident":
     case "incident_report":
       return {
         icon: ClipboardList,
@@ -101,6 +125,21 @@ export function notificationPresentation(
         actionLabel: overrides.actionLabel ?? "Review",
         urgent: true,
       };
+    case "pickup_review": {
+      const childId = payloadString(payload, "childId");
+      return {
+        icon: UsersRound,
+        iconClassName: "bg-warning-bg text-warning-text",
+        accentClassName: "bg-warning",
+        category: "alerts",
+        source: overrides.source ?? "Authorized pickups",
+        href: overrides.href ?? (childId
+          ? `/children/${encodeURIComponent(childId)}#authorized-pickups`
+          : "/children"),
+        actionLabel: overrides.actionLabel ?? "Review pickup person",
+        urgent: false,
+      };
+    }
     case "pickup_security": {
       const childId = payloadString(payload, "childId");
       return {
@@ -135,6 +174,17 @@ export function notificationPresentation(
         urgent: false,
       };
     }
+    case "parent_data_request":
+      return {
+        icon: ShieldAlert,
+        iconClassName: "bg-warning-bg text-warning-text",
+        accentClassName: "bg-warning",
+        category: "alerts",
+        source: overrides.source ?? "Privacy requests",
+        href: overrides.href ?? "/settings#privacy-data-requests",
+        actionLabel: overrides.actionLabel ?? "Review request",
+        urgent: false,
+      };
     case "time_off_request":
       return {
         icon: CalendarClock,

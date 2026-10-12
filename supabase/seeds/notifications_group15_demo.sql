@@ -76,9 +76,9 @@ insert into notifications (
     '10000000-0000-4000-a000-000000000001',
     '00000000-0000-4000-a000-000000000001',
     'waitlist_enrollment',
-    'Laurent family completed their application',
-    'Chloé · Preschool · requested start date Aug 1.',
-    '{"category":"enrollment","source":"Enrollment","href":"/enrollment/41000000-0000-4000-a000-000000000009","action_label":"Review application","severity":"info"}',
+    'Laurent family updated their application',
+    'Chloé · Preschool · application is 55% complete.',
+    '{"category":"enrollment","source":"Enrollment","href":"/enrollment/41000000-0000-4000-a000-000000000003","action_label":"Review application","severity":"info"}',
     null,
     now() - interval '3 hours'
   ),

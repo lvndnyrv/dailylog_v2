@@ -34,8 +34,15 @@ begin
   if not exists (select 1 from public._room_staff_presence(v_center) where profile_id = v_profile and effective_classroom_id = v_room) then
     raise exception 'FAIL: eligible home-room educator is missing';
   end if;
-  insert into public.room_coverage_assignments (daycare_id, classroom_id, staff_member_id, starts_at, ends_at)
-  values (v_center, v_target, v_staff, now() - interval '5 minutes', now() + interval '55 minutes') returning id into v_cover;
+  -- Coverage invitations no longer grant room access or live ratio credit until
+  -- the educator accepts them. Seed an accepted assignment for this presence
+  -- assertion; the dedicated handoff test covers the pending state.
+  insert into public.room_coverage_assignments (
+    daycare_id, classroom_id, staff_member_id, starts_at, ends_at, status
+  ) values (
+    v_center, v_target, v_staff,
+    now() - interval '5 minutes', now() + interval '55 minutes', 'accepted'
+  ) returning id into v_cover;
   if not exists (select 1 from public._room_staff_presence(v_center) where profile_id = v_profile and effective_classroom_id = v_target)
     or exists (select 1 from public._room_staff_presence(v_center) where profile_id = v_profile and effective_classroom_id = v_room) then
     raise exception 'FAIL: coverage must move the count, not double-count the educator';

@@ -64,20 +64,11 @@ export async function listRecentIncidents(client: Client, limit = 10): Promise<I
 export async function signOffIncident(
   client: Client,
   incidentId: string,
-  adminId: string,
+  _adminId?: string,
 ): Promise<void> {
-  const { data, error } = await client
-    .from('incident_reports')
-    .update({
-      status: 'signed_off',
-      signed_off_by: adminId,
-      signed_off_at: new Date().toISOString(),
-      parent_notified_at: new Date().toISOString(),
-    })
-    .eq('id', incidentId)
-    .eq('status', 'submitted')
-    .select('id')
-    .maybeSingle();
+  const { data, error } = await client.rpc('sign_off_incident_report', {
+    p_incident_id: incidentId,
+  });
   if (error) throw error;
-  if (!data) throw new Error('This incident was already reviewed or is no longer available.');
+  if (!data) throw new Error('The incident could not be signed off.');
 }

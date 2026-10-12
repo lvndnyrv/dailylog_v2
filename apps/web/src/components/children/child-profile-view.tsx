@@ -476,7 +476,7 @@ export function ChildProfileView({
           )}
 
           {/* Authorized pickups */}
-          <section className={card} aria-labelledby="pickups-h">
+          <section id="authorized-pickups" className={`${card} scroll-mt-28`} aria-labelledby="pickups-h">
             <div className="mb-3 flex items-center gap-2">
               <h2 id="pickups-h" className={cardTitle}>
                 Authorized pickups
@@ -682,7 +682,7 @@ export function ChildProfileView({
               <ScheduleSummary value={child.setup_state} />
             </div>
             <p className="mt-2.5 text-[11.5px] text-faint">
-              This recurring booking drives attendance expectations and billing.
+              This enrollment schedule summarizes the family&apos;s accepted care plan. Attendance staffing uses the recurring schedule maintained in Rooms &amp; ratios; tuition follows the accepted enrollment agreement.
             </p>
           </section>
 

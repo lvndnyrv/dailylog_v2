@@ -18,7 +18,10 @@ do $$
 declare
   v_parent constant uuid := '00000000-0000-4000-a000-000000000023';
   v_owner constant uuid := '00000000-0000-4000-a000-000000000001';
+  v_restricted constant uuid := '00000000-0000-4000-a000-000000000008';
   v_child constant uuid := '30000000-0000-4000-a000-000000000013';
+  v_daycare uuid;
+  v_restricted_role uuid;
   v_pickup uuid;
   v_rejected uuid;
   v_result jsonb;
@@ -26,6 +29,21 @@ declare
   v_failed boolean;
 begin
   perform pg_temp.impersonate('postgres');
+  select daycare_id into v_daycare from public.profiles where id = v_owner;
+  insert into public.center_roles (daycare_id, name, base_role, permissions)
+  values (
+    v_daycare,
+    'Rollback-only pickup viewer',
+    'admin',
+    '{"children":{"view":true,"edit":false,"approve":false}}'
+  ) returning id into v_restricted_role;
+  perform pg_temp.impersonate('authenticated', v_owner);
+  update public.profiles
+     set role = 'admin', center_role_id = v_restricted_role, archived_at = null
+   where id = v_restricted;
+  update public.staff_delegations
+     set revoked_at = now()
+   where delegate_profile_id = v_restricted and revoked_at is null;
   update public.children
      set archived_at = null,
          enrolled_on = least(coalesce(enrolled_on, current_date), current_date)
@@ -64,6 +82,24 @@ begin
        and notification.payload->>'pickupId' = v_pickup::text
        and notification.profile_id = v_owner
   ) then raise exception 'FAIL: owner was not notified about the review'; end if;
+  if exists (
+    select 1 from public.notifications notification
+     where notification.kind = 'pickup_review'
+       and notification.payload->>'pickupId' = v_pickup::text
+       and notification.profile_id = v_restricted
+  ) or exists (
+    select 1 from public.notification_outbox queued
+     where queued.kind = 'pickup_review'
+       and queued.payload->>'pickupId' = v_pickup::text
+       and queued.recipient_id = v_restricted
+  ) then raise exception 'FAIL: restricted administrator received an unusable pickup-review alert'; end if;
+  if not exists (
+    select 1 from public.audit_log audit
+     where audit.entity_type = 'child_pickups'
+       and audit.entity_id = v_pickup
+       and audit.action = 'insert'
+       and audit.actor_id = v_parent
+  ) then raise exception 'FAIL: parent pickup request was not audited'; end if;
   raise notice 'PASS: parent additions are pending and notify the center';
 
   perform pg_temp.impersonate('authenticated', v_parent);
@@ -83,6 +119,14 @@ begin
   if public.review_parent_authorized_pickup(v_pickup, 'approved', null) <> 'approved' then
     raise exception 'FAIL: center approval did not return approved';
   end if;
+  if not exists (
+    select 1 from public.audit_log audit
+     where audit.entity_type = 'child_pickups'
+       and audit.entity_id = v_pickup
+       and audit.action = 'update'
+       and audit.actor_id = v_owner
+       and audit.after->>'approval_status' = 'approved'
+  ) then raise exception 'FAIL: center pickup decision was not audited'; end if;
   perform pg_temp.impersonate('authenticated', v_parent);
   select to_jsonb(pass) into v_result
     from public.create_mobile_pickup_pass(v_child, null, v_pickup, null) pass;

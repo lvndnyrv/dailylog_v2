@@ -38,6 +38,13 @@ function csv(rows: string[][]): string {
     .join("\n");
 }
 
+function exportFailure(): Response {
+  return new Response("Report export is temporarily unavailable", {
+    status: 500,
+    headers: { "Cache-Control": "private, no-store" },
+  });
+}
+
 function emergencyContactSummary(value: unknown): string {
   if (!Array.isArray(value)) return "";
   return value
@@ -115,7 +122,7 @@ export async function GET(
       .gte("date", from)
       .lte("date", to)
       .order("date");
-    if (error) return new Response(error.message, { status: 500 });
+    if (error) return exportFailure();
     type AttendanceSummaryRow = {
       date: string;
       status: string;
@@ -158,7 +165,7 @@ export async function GET(
       .order("date");
     if (childId) query = query.eq("child_id", childId);
     const { data, error } = await query;
-    if (error) return new Response(error.message, { status: 500 });
+    if (error) return exportFailure();
 
     type Row = {
       date: string;
@@ -352,7 +359,7 @@ export async function GET(
       .lt("starts_at", `${addDateDays(to, 1)}T00:00:00`)
       .or(`ends_at.is.null,ends_at.gte.${from}T00:00:00`)
       .order("starts_at");
-    if (error) return new Response(error.message, { status: 500 });
+    if (error) return exportFailure();
     type RatioRow = {
       starts_at: string;
       ends_at: string | null;
@@ -394,7 +401,7 @@ export async function GET(
       .lt("occurred_at", `${addDateDays(to, 1)}T00:00:00`)
       .neq("status", "draft")
       .order("occurred_at");
-    if (error) return new Response(error.message, { status: 500 });
+    if (error) return exportFailure();
     type IncidentRow = {
       occurred_at: string;
       severity: string;
@@ -437,7 +444,7 @@ export async function GET(
       .gte("created_at", `${from}T00:00:00`)
       .lt("created_at", `${addDateDays(to, 1)}T00:00:00`)
       .order("created_at");
-    if (error) return new Response(error.message, { status: 500 });
+    if (error) return exportFailure();
     type EnrollmentRow = {
       created_at: string;
       guardian_name: string | null;
@@ -482,13 +489,16 @@ export async function GET(
       row_count: Math.max(0, rows.length - 1),
       parameters: Object.fromEntries(url.searchParams.entries()),
     });
-    if (error) return new Response(`Unable to audit export: ${error.message}`, { status: 500 });
+    if (error) return exportFailure();
   }
 
   return new Response(csv(rows), {
     headers: {
       "Content-Type": "text/csv; charset=utf-8",
       "Content-Disposition": `attachment; filename="${name}"`,
+      "Cache-Control": "private, no-store",
+      "Referrer-Policy": "no-referrer",
+      "X-Content-Type-Options": "nosniff",
     },
   });
 }

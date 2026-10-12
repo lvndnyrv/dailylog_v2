@@ -33,13 +33,24 @@ function str(formData: FormData, key: string): string {
 function readPermissions(formData: FormData): RolePermissions {
   const perms: RolePermissions = {};
   for (const key of PERMISSION_AREA_KEYS) {
-    perms[key] = {
-      view: formData.get(`perm_${key}_view`) === "1",
-      edit: formData.get(`perm_${key}_edit`) === "1",
-      approve: formData.get(`perm_${key}_approve`) === "1",
-    };
+    const edit = formData.get(`perm_${key}_edit`) === "1";
+    const approve = formData.get(`perm_${key}_approve`) === "1";
+    perms[key] = { view: formData.get(`perm_${key}_view`) === "1" || edit || approve, edit, approve };
   }
   return perms;
+}
+
+function normalizePermissions(value: unknown): RolePermissions {
+  const source = value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, Partial<Record<"view" | "edit" | "approve", unknown>>>
+    : {};
+  const permissions: RolePermissions = {};
+  for (const key of PERMISSION_AREA_KEYS) {
+    const edit = source[key]?.edit === true;
+    const approve = source[key]?.approve === true;
+    permissions[key] = { view: source[key]?.view === true || edit || approve, edit, approve };
+  }
+  return permissions;
 }
 
 export async function saveRoleAction(
@@ -107,9 +118,9 @@ export async function duplicateRoleAction(
   const name = str(formData, "name");
   let permissions: RolePermissions;
   try {
-    permissions = JSON.parse(str(formData, "permissions") || "{}");
+    permissions = normalizePermissions(JSON.parse(str(formData, "permissions") || "{}"));
   } catch {
-    permissions = {};
+    permissions = normalizePermissions({});
   }
 
   try {

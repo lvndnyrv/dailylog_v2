@@ -87,6 +87,38 @@ begin
     center, future_child_id, 'Future Pickup', 'Parent', '7319', 'approved'
   );
 
+  failed := false;
+  begin
+    insert into public.enrollments (
+      daycare_id, classroom_id, child_first_name, child_last_name,
+      child_date_of_birth, stage, desired_start_date, offer_status
+    ) values (
+      center, room_id, 'Missing', 'Child', starts_on - 1200,
+      'enrolled', starts_on, 'accepted'
+    );
+  exception when others then
+    failed := true;
+  end;
+  if not failed then
+    raise exception 'FAIL: an enrolled pipeline row was saved without a linked child';
+  end if;
+
+  failed := false;
+  begin
+    insert into public.enrollments (
+      daycare_id, child_id, classroom_id, child_first_name, child_last_name,
+      child_date_of_birth, stage, desired_start_date, offer_status
+    ) values (
+      center, future_child_id, room_id, 'Future', 'Mismatch', starts_on - 1200,
+      'enrolled', starts_on + 1, 'accepted'
+    );
+  exception when others then
+    failed := true;
+  end;
+  if not failed then
+    raise exception 'FAIL: enrollment and child first-day mismatch was accepted';
+  end if;
+
   insert into public.enrollments (
     daycare_id, child_id, classroom_id, child_first_name, child_last_name,
     child_date_of_birth, guardian_name, guardian_email, stage,
@@ -204,4 +236,4 @@ end;
 $$;
 
 rollback;
-select 'PASS: first-day handoff preserves admin/parent preparation, delays educator roster access, blocks early attendance, validates room educators and stores cubby/welcome setup; rolled back' result;
+select 'PASS: first-day handoff enforces a linked child and matching first day, preserves admin/parent preparation, delays educator roster access, blocks early attendance, validates room educators and stores cubby/welcome setup; rolled back' result;

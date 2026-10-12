@@ -22,7 +22,9 @@ declare
   v_owner uuid := '00000000-0000-4000-a000-000000000001';
   v_educator uuid := '00000000-0000-4000-a000-000000000003';
   v_restricted uuid := '00000000-0000-4000-a000-000000000008';
+  v_ratio_educator uuid := '00000000-0000-4000-a000-000000000004';
   v_credential uuid := '62400000-0000-4000-a000-000000000005';
+  v_clearance uuid := '046bed16-9575-4d7f-bb0a-1dcabd8e09b7';
   v_daycare uuid;
   v_staff_member uuid;
   v_role uuid;
@@ -32,6 +34,9 @@ declare
   v_hub jsonb;
   v_path text;
   v_second_path text;
+  v_ratio_member uuid;
+  v_clearance_document uuid;
+  v_clearance_submission uuid;
 begin
   perform pg_temp.impersonate('postgres');
   select member.daycare_id, member.id,
@@ -180,7 +185,55 @@ begin
   ) then
     raise exception 'FAIL: approval did not queue the educator decision push';
   end if;
+
+  -- A clearance decision is operational, not merely documentary. The same
+  -- approval must immediately flow into both live-ratio and forecast gates.
+  select member.id into v_ratio_member
+    from public.staff_members member
+   where member.profile_id = v_ratio_educator
+     and member.daycare_id = v_daycare
+     and member.status = 'active'
+     and member.archived_at is null;
+  if v_ratio_member is null then raise exception 'Missing ratio educator fixture'; end if;
+
+  update public.staff_credentials
+     set completed_on = null, expires_on = null, document_id = null
+   where id = v_clearance
+     and staff_member_id = v_ratio_member;
+  if public.staff_is_ratio_eligible(v_ratio_member)
+     or public._forecast_staff_eligible(v_ratio_member, v_today) then
+    raise exception 'FAIL: missing required clearance still counts for live or forecast ratios';
+  end if;
+
+  insert into public.documents (
+    daycare_id, profile_id, title, category, storage_path, mime_type,
+    size_bytes, expires_on, uploaded_by
+  ) values (
+    v_daycare, v_ratio_educator, 'Rollback-only background clearance',
+    'staff_credential_renewal', 'test/' || gen_random_uuid()::text,
+    'application/pdf', 512, v_today + 730, v_ratio_educator
+  ) returning id into v_clearance_document;
+  insert into public.staff_credential_submissions (
+    daycare_id, staff_member_id, credential_id, document_id, submitted_by,
+    issuer, completed_on, expires_on, credential_number
+  ) values (
+    v_daycare, v_ratio_member, v_clearance, v_clearance_document,
+    v_ratio_educator, 'Ontario Background Screening', v_today,
+    v_today + 730, 'CLEARANCE-HANDOFF-001'
+  ) returning id into v_clearance_submission;
+
+  perform pg_temp.impersonate('authenticated', v_owner);
+  perform public.review_staff_credential_submission(
+    v_clearance_submission,
+    'approved',
+    'Original clearance verified.'
+  );
+  perform pg_temp.impersonate('postgres');
+  if not public.staff_is_ratio_eligible(v_ratio_member)
+     or not public._forecast_staff_eligible(v_ratio_member, v_today) then
+    raise exception 'FAIL: approved clearance did not restore live and forecast ratio eligibility';
+  end if;
 end $$;
 
 rollback;
-select 'PASS: educator renewal, permission-aware admin alert, correction, resubmission, approval and educator decision notification' as result;
+select 'PASS: educator renewal, permission-aware review, correction, approval, decision delivery and ratio eligibility handoff' as result;

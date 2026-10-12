@@ -67,6 +67,23 @@ function scheduleSummary(regularSchedule) {
   };
 }
 
+function shiftMinutes(shift) {
+  const started = new Date(shift.starts_at);
+  const ended = new Date(shift.ends_at);
+  const elapsed = Math.floor((ended.getTime() - started.getTime()) / 60000);
+  return Math.max(0, elapsed - Number(shift.unpaid_break_minutes || 0));
+}
+
+function shiftDateLabel(value) {
+  const date = new Date(value);
+  const today = localDateKey(new Date());
+  const tomorrow = localDateKey(new Date(Date.now() + 86400000));
+  const key = localDateKey(date);
+  if (key === today) return 'Today';
+  if (key === tomorrow) return 'Tomorrow';
+  return format(date, 'EEE, MMM d');
+}
+
 export default function MyTimeScreen({ navigation }) {
   const { active } = useClassroom();
   const {
@@ -101,6 +118,10 @@ export default function MyTimeScreen({ navigation }) {
   const pendingRequests = useMemo(
     () => requests.filter(request => request.status === 'pending').length,
     [requests],
+  );
+  const publishedWeekMinutes = useMemo(
+    () => shifts.reduce((total, shift) => total + shiftMinutes(shift), 0),
+    [shifts],
   );
   const roomName = openEntry?.classroom?.name || active?.name || 'Assigned room';
 
@@ -183,6 +204,71 @@ export default function MyTimeScreen({ navigation }) {
                 <Text style={styles.summaryValue}>{schedule.days}</Text>
                 <Text style={styles.summaryLabel}>{schedule.time}</Text>
               </View>
+            </View>
+
+            <View style={styles.scheduleCard}>
+              <View style={styles.scheduleHeader}>
+                <View>
+                  <Text style={styles.scheduleTitle}>This week’s schedule</Text>
+                  <Text style={styles.scheduleHint}>
+                    {shifts.length
+                      ? `${shifts.length} published ${shifts.length === 1 ? 'shift' : 'shifts'} · ${formatMinutes(publishedWeekMinutes)}`
+                      : 'No published shifts this week'}
+                  </Text>
+                </View>
+                <Ionicons name="calendar-outline" size={20} color={colors.primary} />
+              </View>
+
+              {shifts.length > 0 ? shifts.map((shift, index) => {
+                const startsAt = new Date(shift.starts_at);
+                const endsAt = new Date(shift.ends_at);
+                const isOverride = !shift.regular_schedule_id;
+                return (
+                  <View
+                    key={shift.id}
+                    style={[
+                      styles.shiftRow,
+                      index === shifts.length - 1 && styles.shiftRowLast,
+                    ]}
+                  >
+                    <View style={[styles.shiftDate, isOverride && styles.shiftDateOverride]}>
+                      <Text style={[styles.shiftDateText, isOverride && styles.shiftDateTextOverride]}>
+                        {format(startsAt, 'EEE')}
+                      </Text>
+                      <Text style={[styles.shiftDayText, isOverride && styles.shiftDateTextOverride]}>
+                        {format(startsAt, 'd')}
+                      </Text>
+                    </View>
+                    <View style={styles.shiftCopy}>
+                      <View style={styles.shiftTitleRow}>
+                        <Text style={styles.shiftTitle}>{shiftDateLabel(startsAt)}</Text>
+                        {isOverride && (
+                          <View style={styles.overrideBadge}>
+                            <Text style={styles.overrideBadgeText}>Updated</Text>
+                          </View>
+                        )}
+                      </View>
+                      <Text style={styles.shiftTime}>
+                        {format(startsAt, 'h:mm a')}–{format(endsAt, 'h:mm a')}
+                        {' · '}{formatMinutes(shiftMinutes(shift))}
+                      </Text>
+                      <Text style={styles.shiftMeta}>
+                        {shift.classroom?.name || 'Room assignment pending'}
+                        {Number(shift.unpaid_break_minutes || 0) > 0
+                          ? ` · ${shift.unpaid_break_minutes}m unpaid break`
+                          : ''}
+                      </Text>
+                    </View>
+                  </View>
+                );
+              }) : (
+                <View style={styles.emptySchedule}>
+                  <Ionicons name="calendar-clear-outline" size={22} color={colors.textFaint} />
+                  <Text style={styles.emptyScheduleText}>
+                    Your administrator has not published a shift for this week.
+                  </Text>
+                </View>
+              )}
             </View>
 
             <TouchableOpacity
@@ -302,6 +388,78 @@ const styles = StyleSheet.create({
     fontFamily: fonts.regular,
     fontSize: 11.5,
     marginTop: spacing.xs,
+  },
+  scheduleCard: {
+    overflow: 'hidden',
+    backgroundColor: colors.surface,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+  },
+  scheduleHeader: {
+    minHeight: 70,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    backgroundColor: colors.primarySoft,
+  },
+  scheduleTitle: { color: colors.textPrimary, fontFamily: fonts.bold, fontSize: 15 },
+  scheduleHint: {
+    color: colors.textMuted,
+    fontFamily: fonts.regular,
+    fontSize: 11.5,
+    marginTop: 3,
+  },
+  shiftRow: {
+    minHeight: 82,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    marginHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.borderSoft,
+  },
+  shiftRowLast: { borderBottomWidth: 0 },
+  shiftDate: {
+    width: 44,
+    height: 52,
+    borderRadius: radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.primaryLight,
+  },
+  shiftDateOverride: { backgroundColor: colors.amberLight },
+  shiftDateText: { color: colors.primary, fontFamily: fonts.bold, fontSize: 10.5 },
+  shiftDayText: { color: colors.primary, fontFamily: fonts.black, fontSize: 17, marginTop: 1 },
+  shiftDateTextOverride: { color: colors.amber },
+  shiftCopy: { flex: 1, minWidth: 0 },
+  shiftTitleRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  shiftTitle: { color: colors.textPrimary, fontFamily: fonts.bold, fontSize: 14 },
+  overrideBadge: {
+    borderRadius: radius.full,
+    backgroundColor: colors.amberLight,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+  },
+  overrideBadgeText: { color: colors.amber, fontFamily: fonts.bold, fontSize: 9.5 },
+  shiftTime: { color: colors.textSecondary, fontFamily: fonts.regular, fontSize: 12.5, marginTop: 3 },
+  shiftMeta: { color: colors.textFaint, fontFamily: fonts.regular, fontSize: 11.5, marginTop: 2 },
+  emptySchedule: {
+    minHeight: 92,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    padding: spacing.lg,
+  },
+  emptyScheduleText: {
+    flex: 1,
+    color: colors.textMuted,
+    fontFamily: fonts.regular,
+    fontSize: 12.5,
+    lineHeight: 18,
   },
   timeOffButton: {
     minHeight: 54,

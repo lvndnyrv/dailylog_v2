@@ -16,6 +16,7 @@ import { ChildAvatar } from '../../components/ChildAvatar';
 import { ClassroomSwitcher } from '../../components/ClassroomSwitcher';
 import { DatePickerField } from '../../components/DatePickerField';
 import { Ionicons } from '@expo/vector-icons';
+import { showToast } from '../../components/Toast';
 
 
 // ─── ADD CHILD BOTTOM SHEET ───────────────────────────────────────────────────
@@ -142,60 +143,53 @@ function childProfileIsIncomplete(child, parentLinks) {
 }
 
 // ─── INVITE PARENT FORM ───────────────────────────────────────────────────────
-function InviteParentForm({ classroomId, children }) {
+function InviteParentForm({ daycareId, children }) {
   const [email, setEmail]     = useState('');
   const [childId, setChildId] = useState(children[0]?.id || '');
+  const [relationship, setRelationship] = useState('Parent');
+  const [errors, setErrors] = useState({});
   const [sending, setSending] = useState(false);
 
   async function handleInvite() {
-    if (!email.trim()) {
-      Alert.alert('Required', "Please enter the parent's email address.");
-      return;
-    }
-    if (!childId) {
-      Alert.alert('Required', 'Please select a child to link this parent to.');
-      return;
-    }
+    const normalizedEmail = email.trim().toLowerCase();
+    const normalizedRelationship = relationship.trim();
+    const nextErrors = {};
+    if (!childId) nextErrors.child = 'Choose a child.';
+    if (!normalizedEmail) nextErrors.email = 'Email is required.';
+    else if (!/\S+@\S+\.\S+/.test(normalizedEmail)) nextErrors.email = 'Enter a valid email address.';
+    if (!normalizedRelationship) nextErrors.relationship = 'Relationship is required.';
+    setErrors(nextErrors);
+    if (Object.keys(nextErrors).length) return;
     setSending(true);
-
-    const { data: existing } = await supabase
-      .from('profiles')
-      .select('id, full_name')
-      .eq('email', email.trim().toLowerCase())
-      .single();
-
-    if (existing) {
-      const { error } = await supabase
-        .from('parent_children')
-        .upsert(
-          { parent_id: existing.id, child_id: childId },
-          // DO NOTHING (not DO UPDATE): Phase 2 restricts UPDATE on
-          // parent_children to consent_given_at only.
-          { onConflict: 'parent_id,child_id', ignoreDuplicates: true }
-        );
+    const { data: code, error } = await supabase.rpc('create_parent_invite', {
+      p_child_id: childId,
+      p_email: normalizedEmail,
+      p_relationship: normalizedRelationship,
+    });
+    if (error) {
       setSending(false);
-      if (error) { Alert.alert('Error', error.message); return; }
-      const child = children.find(c => c.id === childId);
-      Alert.alert('Linked ✓', `${existing.full_name} has been linked to ${child?.first_name}.`);
-      setEmail('');
-    } else {
-      const { error } = await supabase.auth.signInWithOtp({
-        email: email.trim().toLowerCase(),
-        options: {
-          data: { pending_child_id: childId, role: 'parent' },
-          shouldCreateUser: true,
-          emailRedirectTo: 'dailylog://auth',
-        },
-      });
-      setSending(false);
-      if (error) { Alert.alert('Error', error.message); return; }
-      const child = children.find(c => c.id === childId);
-      Alert.alert(
-        'Invite sent ✓',
-        `An invitation email has been sent to ${email.trim()}.\n\nOnce they sign up, link them to ${child?.first_name} from this screen.`
-      );
-      setEmail('');
+      setErrors({ form: error.message });
+      return;
     }
+    const { error: emailError } = await supabase.rpc('enqueue_email_notification', {
+      p_daycare_id: daycareId,
+      p_recipient_email: normalizedEmail,
+      p_kind: 'parent_invite',
+      p_title: "You're invited to your child's DailyLog",
+      p_body: `Create or sign in to your DailyLog parent account, then enter this one-time code: ${code}`,
+      p_payload: { type: 'parent_invite', inviteCode: code, childId },
+      p_dedupe_key: `parent-invite:${code}`,
+    });
+    setSending(false);
+    setEmail('');
+    setRelationship('Parent');
+    setErrors({});
+    Alert.alert(
+      emailError ? 'Invite created' : 'Invite sent',
+      emailError
+        ? `The email could not be queued. Share this 7-day code securely:\n\n${code}`
+        : `${normalizedEmail} will receive a single-use code.\n\nCode: ${code}`,
+    );
   }
 
   return (
@@ -207,8 +201,8 @@ function InviteParentForm({ classroomId, children }) {
         {children.map(c => (
           <TouchableOpacity
             key={c.id}
-            onPress={() => setChildId(c.id)}
-            style={[styles.childPickerBtn, c.id === childId && styles.childPickerBtnSelected]}
+            onPress={() => { setChildId(c.id); if (errors.child) setErrors(current => ({ ...current, child: null })); }}
+            style={[styles.childPickerBtn, c.id === childId && styles.childPickerBtnSelected, errors.child && !childId && styles.childPickerBtnError]}
           >
             <Text style={[styles.childPickerText, c.id === childId && { color: colors.primary, fontWeight: '600' }]}>
               {c.first_name}
@@ -216,6 +210,7 @@ function InviteParentForm({ classroomId, children }) {
           </TouchableOpacity>
         ))}
       </View>
+      {errors.child ? <Text style={styles.formError}>{errors.child}</Text> : null}
 
       {/* Child invite code — parents can self-link with this */}
       {childId && (() => {
@@ -232,19 +227,32 @@ function InviteParentForm({ classroomId, children }) {
       })()}
 
       <Input
-        label="Or invite by email"
+        label="Family email *"
         value={email}
-        onChangeText={setEmail}
+        onChangeText={value => { setEmail(value); if (errors.email || errors.form) setErrors(current => ({ ...current, email: null, form: null })); }}
         placeholder="parent@email.com"
         keyboardType="email-address"
+        autoCapitalize="none"
+        autoCorrect={false}
+        error={errors.email}
       />
-      <Button label="Send invite" onPress={handleInvite} loading={sending} />
+      <Input
+        label="Relationship *"
+        value={relationship}
+        onChangeText={value => { setRelationship(value); if (errors.relationship || errors.form) setErrors(current => ({ ...current, relationship: null, form: null })); }}
+        placeholder="Parent, guardian, grandmother…"
+        autoCapitalize="words"
+        error={errors.relationship}
+      />
+      {errors.form ? <Text style={styles.formError}>{errors.form}</Text> : null}
+      <Button label="Send 7-day invite" onPress={handleInvite} loading={sending} />
+      <Text style={styles.secureInviteHint}>Email-bound · single-use · accepting it records the family link</Text>
     </View>
   );
 }
 
 // ─── MAIN SCREEN ──────────────────────────────────────────────────────────────
-export default function ManageScreen({ navigation }) {
+export default function ManageScreen({ navigation, route }) {
   const { profile }                   = useAuth();
   const { active: activeClassroom, classrooms } = useClassroom();
   const [children, setChildren]       = useState([]);
@@ -278,7 +286,7 @@ export default function ManageScreen({ navigation }) {
     if (kids?.length) {
       const { data: links } = await supabase
         .from('parent_children')
-        .select('parent:profiles(id, full_name, email, phone), child:children(id, first_name)')
+        .select('is_primary, relationship, pickup_authorized, parent:profiles(id, full_name, email, phone), child:children(id, first_name)')
         .in('child_id', kids.map(k => k.id));
       setParents(links || []);
     } else {
@@ -316,11 +324,20 @@ export default function ManageScreen({ navigation }) {
     );
   }
 
-  async function unlinkParent(parentId, childId) {
-    Alert.alert("Unlink parent", "Remove this parent's access to this child?", [
+  async function unlinkParent(parentId, childId, isPrimary) {
+    const child = children.find(item => item.id === childId);
+    Alert.alert("Unlink family member", `${isPrimary ? 'This is the primary guardian. A remaining guardian will be promoted automatically.\n\n' : ''}Remove access to ${child?.first_name || 'this child'}?`, [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Unlink', style: 'destructive', onPress: async () => {
-        await supabase.from('parent_children').delete().eq('parent_id', parentId).eq('child_id', childId);
+        const { error } = await supabase.rpc('admin_unlink_parent_child', {
+          p_child_id: childId,
+          p_parent_id: parentId,
+        });
+        if (error) {
+          Alert.alert('Could not unlink family member', error.message);
+          return;
+        }
+        showToast('Family access removed', 'success');
         load();
       }},
     ]);
@@ -336,7 +353,24 @@ export default function ManageScreen({ navigation }) {
       extraScrollHeight={20}
       keyboardShouldPersistTaps="handled"
     >
-      <Text style={styles.pageTitle}>Classroom</Text>
+      {route?.name === 'AdminRoom' ? (
+        <View style={styles.drillInHeader}>
+          <TouchableOpacity
+            style={styles.drillInBack}
+            onPress={() => navigation.goBack()}
+            accessibilityRole="button"
+            accessibilityLabel="Back to classrooms"
+          >
+            <Ionicons name="chevron-back" size={20} color={colors.textPrimary} />
+          </TouchableOpacity>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.pageTitle}>{route.params?.roomName || 'Classroom'}</Text>
+            <Text style={styles.drillInSubtitle}>Room roster, families and daily tools</Text>
+          </View>
+        </View>
+      ) : (
+        <Text style={styles.pageTitle}>Classroom</Text>
+      )}
 
       <ClassroomSwitcher />
 
@@ -389,6 +423,23 @@ export default function ManageScreen({ navigation }) {
         <View style={{ flex: 1 }}>
           <Text style={styles.announcementsBtnTitle}>Classroom consents</Text>
           <Text style={styles.announcementsBtnSub}>See photo, trip, water and sunscreen permissions</Text>
+        </View>
+        <Ionicons name="chevron-forward" size={19} color={colors.primary} />
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        style={styles.announcementsBtn}
+        onPress={() => navigation.navigate('CenterClosures')}
+        activeOpacity={0.7}
+        accessibilityRole="button"
+        accessibilityLabel="Open center closures and calendar"
+      >
+        <View style={styles.shortcutIcon}>
+          <Ionicons name="calendar-outline" size={20} color={colors.amber} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.announcementsBtnTitle}>Center calendar</Text>
+          <Text style={styles.announcementsBtnSub}>Closed days and family reminders published by administrators</Text>
         </View>
         <Ionicons name="chevron-forward" size={19} color={colors.primary} />
       </TouchableOpacity>
@@ -609,7 +660,7 @@ export default function ManageScreen({ navigation }) {
                       )}
                     </View>
                     <TouchableOpacity
-                      onPress={() => unlinkParent(link.parent?.id, link.child?.id)}
+                      onPress={() => unlinkParent(link.parent?.id, link.child?.id, link.is_primary)}
                       style={styles.removeBtn}
                     >
                       <Text style={styles.removeBtnText}>Unlink</Text>
@@ -620,7 +671,7 @@ export default function ManageScreen({ navigation }) {
             </View>
           )}
           {children.length > 0
-            ? <InviteParentForm classroomId={profile.classroom_id} children={children} />
+            ? <InviteParentForm daycareId={profile.daycare_id} children={children} />
             : <Text style={styles.emptyNote}>Add children first before inviting parents.</Text>
           }
         </>
@@ -652,6 +703,29 @@ const styles = StyleSheet.create({
     lineHeight: 29,
     fontFamily: fonts.black,
     color: colors.textPrimary,
+  },
+  drillInHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    marginBottom: spacing.xs,
+  },
+  drillInBack: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  drillInSubtitle: {
+    fontSize: 12.5,
+    lineHeight: 18,
+    fontFamily: fonts.regular,
+    color: colors.textSecondary,
+    marginTop: 1,
   },
 
   teamMessagesBtn: {
@@ -865,7 +939,10 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
   },
   childPickerBtnSelected: { borderColor: colors.primary, backgroundColor: colors.primaryLight },
+  childPickerBtnError: { borderColor: colors.danger },
   childPickerText: { fontSize: 14, color: colors.textSecondary },
+  formError: { color: colors.danger, fontFamily: fonts.regular, fontSize: 12, marginTop: -spacing.sm, marginBottom: spacing.md },
+  secureInviteHint: { color: colors.textMuted, fontFamily: fonts.regular, fontSize: 11.5, lineHeight: 16, textAlign: 'center', marginTop: spacing.sm },
   emptyNote: { fontSize: 14, color: colors.textMuted, textAlign: 'center', padding: spacing.xl },
 
   // Classroom settings card

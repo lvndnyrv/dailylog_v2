@@ -4,6 +4,7 @@ import {
   listFloaters,
   listRoomCombinations,
   listRoomCoverageAssignments,
+  listRoomDemandForecast,
   listRoomsLive,
   listRoomTransitionPlans,
   listRoomTransitionWaitRequests,
@@ -29,7 +30,8 @@ export default async function RoomDetailPage({
   const supabase = await getServerSupabase();
   const daycare = await getMyDaycare(supabase);
   const timeZone = daycare?.timezone ?? "America/Toronto";
-  const today = dateInTimeZone(new Date(), timeZone);
+  const now = new Date();
+  const today = dateInTimeZone(now, timeZone);
   const rangeStart = `${addDateDays(today, -1)}T00:00:00Z`;
   const rangeEnd = `${addDateDays(today, 2)}T00:00:00Z`;
 
@@ -46,6 +48,7 @@ export default async function RoomDetailPage({
     combinations,
     floaters,
     staff,
+    forecast,
   ] = await Promise.all([
     listRoomsLive(supabase),
     getRoomRoster(supabase, id, today),
@@ -59,6 +62,7 @@ export default async function RoomDetailPage({
     listRoomCombinations(supabase),
     listFloaters(supabase),
     listStaff(supabase),
+    listRoomDemandForecast(supabase, today),
   ]);
   const room = rooms.find((r) => r.id === id);
   if (!room) notFound();
@@ -85,6 +89,8 @@ export default async function RoomDetailPage({
         roomId: member.profile!.classroom?.id ?? null,
         roomName: member.profile!.classroom?.name ?? null,
       }))}
+      forecast={forecast.filter((item) => item.room_id === (room.operating?.host_room_id ?? id))}
+      nowIso={now.toISOString()}
       date={today}
       timeZone={timeZone}
       alertAfterMinutes={daycare?.ratio_alert_after_minutes ?? 10}

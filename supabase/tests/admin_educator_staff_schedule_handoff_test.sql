@@ -25,6 +25,9 @@ declare
   v_daycare uuid := '10000000-0000-4000-a000-000000000001';
   v_generated integer;
   v_count integer;
+  v_timezone text;
+  v_override_id uuid := gen_random_uuid();
+  v_override_start timestamptz;
 begin
   perform pg_temp.impersonate('authenticated', v_owner);
   v_generated := public.save_staff_regular_schedule(
@@ -49,6 +52,67 @@ begin
 
   if v_generated < 1 then
     raise exception 'FAIL: regular schedule did not publish any upcoming shifts';
+  end if;
+
+  select timezone into v_timezone from public.daycares where id = v_daycare;
+  select shift.starts_at into v_override_start
+    from public.staff_shifts shift
+   where shift.staff_member_id = v_member
+     and shift.regular_schedule_id is not null
+     and extract(isodow from shift.starts_at at time zone v_timezone) = 1
+   order by shift.starts_at
+   limit 1;
+  if v_override_start is null then
+    raise exception 'FAIL: expected a generated Monday shift for override coverage';
+  end if;
+
+  delete from public.staff_shifts where staff_member_id = v_member and starts_at = v_override_start;
+  insert into public.staff_shifts (
+    id, daycare_id, staff_member_id, starts_at, ends_at, unpaid_break_minutes,
+    status, notes, created_by, published_at
+  ) values (
+    v_override_id, v_daycare, v_member, v_override_start + interval '1 hour',
+    v_override_start + interval '9 hours', 45, 'published',
+    'One-week coverage override', v_owner, now()
+  );
+
+  perform public.save_staff_regular_schedule(
+    v_member,
+    jsonb_build_array(
+      jsonb_build_object(
+        'weekday', 1,
+        'starts_local', '07:30',
+        'ends_local', '15:30',
+        'unpaid_break_minutes', 30,
+        'classroom_id', null
+      ),
+      jsonb_build_object(
+        'weekday', 3,
+        'starts_local', '08:00',
+        'ends_local', '16:00',
+        'unpaid_break_minutes', 30,
+        'classroom_id', null
+      )
+    )
+  );
+
+  if not exists (
+    select 1 from public.staff_shifts shift
+     where shift.id = v_override_id
+       and shift.regular_schedule_id is null
+       and shift.notes = 'One-week coverage override'
+  ) then
+    raise exception 'FAIL: republishing a regular schedule removed the manual override';
+  end if;
+  if exists (
+    select 1 from public.staff_shifts shift
+     where shift.staff_member_id = v_member
+       and shift.id <> v_override_id
+       and shift.status <> 'cancelled'
+       and shift.starts_at < v_override_start + interval '9 hours'
+       and shift.ends_at > v_override_start + interval '1 hour'
+  ) then
+    raise exception 'FAIL: republishing duplicated a shift over the manual override';
   end if;
 
   insert into public.staff_shifts (

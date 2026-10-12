@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
+import { Menu, X } from "lucide-react";
 import { NAV_ITEMS } from "./nav-config";
 import { AccountMenu } from "./account-menu";
 import { Avatar } from "@/components/ui/avatar";
@@ -48,10 +49,19 @@ export function Sidebar({
 }) {
   const pathname = usePathname();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
   const brandName = compactCenterName(daycareName);
 
   return (
-    <aside className="sticky top-0 z-30 flex h-dvh w-[214px] flex-none self-start flex-col border-r-[1.5px] border-hairline bg-card px-3 pb-4 pt-[18px] print:hidden">
+    <>
+    <div className="sticky top-0 z-50 flex h-14 flex-none items-center gap-3 border-b border-hairline bg-card px-4 print:hidden md:hidden">
+      <button type="button" onClick={() => setMobileOpen((open) => !open)} aria-label={mobileOpen ? "Close navigation" : "Open navigation"} aria-expanded={mobileOpen} aria-controls="admin-sidebar" className="grid size-9 place-items-center rounded-lg text-ink hover:bg-canvas">
+        {mobileOpen ? <X size={20} aria-hidden /> : <Menu size={20} aria-hidden />}
+      </button>
+      <span className="truncate text-[14px] font-extrabold text-ink">{brandName} <span className="text-[10px] font-semibold text-faint">ADMIN</span></span>
+    </div>
+    {mobileOpen && <button type="button" aria-label="Close navigation" onClick={() => setMobileOpen(false)} className="fixed inset-x-0 bottom-0 top-14 z-30 bg-[#17335B]/35 print:hidden md:hidden" />}
+    <aside id="admin-sidebar" className={`fixed bottom-0 left-0 top-14 z-40 flex w-[214px] flex-none flex-col border-r-[1.5px] border-hairline bg-card px-3 pb-4 pt-[18px] transition-transform print:hidden md:sticky md:top-0 md:h-dvh md:translate-x-0 md:self-start ${mobileOpen ? "translate-x-0" : "-translate-x-full"}`}>
       <div className="mb-4 flex flex-none items-center gap-2.5 px-2.5">
         <span className="grid size-[34px] flex-none place-items-center rounded-full bg-warning-bg">
           <span
@@ -78,6 +88,7 @@ export function Sidebar({
             <Link
               key={href}
               href={href}
+              onClick={() => setMobileOpen(false)}
               aria-current={active ? "page" : undefined}
               className={`flex items-center gap-2.5 rounded-[11px] px-3 py-[9px] text-[13px] ${
                 active
@@ -137,5 +148,6 @@ export function Sidebar({
         />
       )}
     </aside>
+    </>
   );
 }

@@ -37,7 +37,8 @@ begin
   -- Keep the fixture independent from prior manual/E2E alumni actions against
   -- the shared seed child. The transaction rollback restores the live row.
   update public.children
-     set archived_at = null
+     set archived_at = null,
+         enrolled_on = coalesce(enrolled_on, current_date)
    where id = v_child;
 
   update public.enrollments
@@ -47,6 +48,8 @@ begin
          offer_status = 'accepted',
          deposit_status = 'paid',
          child_id = v_child,
+         classroom_id = (select child.classroom_id from public.children child where child.id = v_child),
+         desired_start_date = (select child.enrolled_on from public.children child where child.id = v_child),
          parent_account_linked_at = null,
          application_data = '{}'::jsonb,
          onboarding_steps = '{}'::jsonb

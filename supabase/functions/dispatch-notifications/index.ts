@@ -14,7 +14,11 @@ type OutboxRow = {
 type ExpoTicket = { status?: string; details?: { error?: string } };
 type TranslationCopy = { title: string; body: string };
 
-const jsonHeaders = { 'content-type': 'application/json' };
+const jsonHeaders = {
+  'content-type': 'application/json',
+  'cache-control': 'private, no-store',
+  'x-content-type-options': 'nosniff',
+};
 
 class PermanentDeliveryError extends Error {
   constructor(message: string) {
@@ -37,6 +41,17 @@ function requiredEnv(name: string): string {
   const value = Deno.env.get(name);
   if (!value) throw new Error(`Missing ${name}`);
   return value;
+}
+
+function secretsMatch(provided: string | null, expected: string): boolean {
+  const left = new TextEncoder().encode(provided ?? '');
+  const right = new TextEncoder().encode(expected);
+  let difference = left.length ^ right.length;
+  const length = Math.max(left.length, right.length);
+  for (let index = 0; index < length; index += 1) {
+    difference |= (left[index] ?? 0) ^ (right[index] ?? 0);
+  }
+  return difference === 0;
 }
 
 function nonEmptyString(value: unknown): string | null {
@@ -247,7 +262,9 @@ async function localizeAnnouncementDelivery(
     if (!translated) return row;
     return {
       ...row,
-      title: `📢 ${translated.title}`,
+      title: row.payload?.priority === 'urgent'
+        ? `🚨 URGENT: ${translated.title}`
+        : `📢 ${translated.title}`,
       body: translated.body,
       payload: { ...row.payload, languageCode, translated: true },
     };
@@ -285,7 +302,9 @@ async function deliverPush(
     // it inside payload, which left notification taps with no route even
     // though the push itself arrived successfully.
     data: { kind: row.kind, ...row.payload },
-    priority: row.payload?.priority === 'high' ? 'high' : 'default',
+    priority: row.payload?.priority === 'high' || row.payload?.priority === 'urgent'
+      ? 'high'
+      : 'default',
     channelId: typeof row.payload?.channelId === 'string' ? row.payload.channelId : 'default',
   }));
   const response = await fetch('https://exp.host/--/api/v2/push/send', {
@@ -298,6 +317,7 @@ async function deliverPush(
         : {}),
     },
     body: JSON.stringify(messages),
+    signal: AbortSignal.timeout(12_000),
   });
   const result = await response.json();
   if (!response.ok) throw new Error(`Expo push HTTP ${response.status}: ${JSON.stringify(result)}`);
@@ -360,9 +380,10 @@ async function deliverEmail(
       data: row.payload,
       idempotencyKey: row.id,
     }),
+    signal: AbortSignal.timeout(12_000),
   });
   const text = await response.text();
-  if (!response.ok) throw new Error(`Email webhook HTTP ${response.status}: ${text}`);
+  if (!response.ok) throw new Error(`Email webhook HTTP ${response.status}: ${text.slice(0, 500)}`);
   return { response: { status: response.status, body: text.slice(0, 2000) }, permanent: false };
 }
 
@@ -373,7 +394,8 @@ Deno.serve(async (request) => {
 
   try {
     const secret = requiredEnv('NOTIFICATION_WORKER_SECRET');
-    if (request.headers.get('x-worker-secret') !== secret) {
+    if (secret.length < 32) throw new Error('Notification worker secret is too short');
+    if (!secretsMatch(request.headers.get('x-worker-secret'), secret)) {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: jsonHeaders });
     }
 
@@ -425,7 +447,10 @@ Deno.serve(async (request) => {
       headers: jsonHeaders,
     });
   } catch (error) {
-    const message = errorMessage(error);
-    return new Response(JSON.stringify({ error: message }), { status: 500, headers: jsonHeaders });
+    console.error(`Notification worker failed: ${errorMessage(error)}`);
+    return new Response(
+      JSON.stringify({ error: 'Notification delivery is temporarily unavailable' }),
+      { status: 500, headers: jsonHeaders },
+    );
   }
 });

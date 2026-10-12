@@ -136,7 +136,20 @@ begin
 
   perform pg_temp.impersonate('authenticated', owner_id);
   generated := public.process_due_enrollment_invoices(center);
-  if generated <> 2 then raise exception 'FAIL: generated % first invoices, expected 2', generated; end if;
+  -- The linked development project may contain other legitimate due schedules
+  -- (for example, seeded enrolled families waiting for the hourly worker).
+  -- Assert this fixture's invoices directly instead of treating the worker's
+  -- center-wide return count as if the database were otherwise empty.
+  if generated < 2 then
+    raise exception 'FAIL: generated only % invoices, expected at least the 2 fixture invoices', generated;
+  end if;
+  select count(*) into row_count
+    from public.invoices invoice
+   where invoice.enrollment_billing_schedule_id in (partial_schedule_id, prepaid_schedule_id)
+     and invoice.service_period_start = public.center_today();
+  if row_count <> 2 then
+    raise exception 'FAIL: generated % of 2 fixture first invoices', row_count;
+  end if;
 
   select invoice.id into partial_invoice_id
     from public.invoices invoice
@@ -179,10 +192,11 @@ begin
   ) then raise exception 'FAIL: remaining deposit credit did not carry forward'; end if;
 
   generated := public.process_due_enrollment_invoices(center);
-  if generated <> 0 then raise exception 'FAIL: retry generated % duplicate invoices', generated; end if;
   select count(*) into row_count from public.invoices
    where enrollment_billing_schedule_id in (partial_schedule_id, prepaid_schedule_id);
-  if row_count <> 2 then raise exception 'FAIL: retry left % invoices, expected 2', row_count; end if;
+  if row_count <> 2 then
+    raise exception 'FAIL: retry left % fixture invoices, expected 2 (worker created % other due invoices)', row_count, generated;
+  end if;
 
   perform pg_temp.impersonate('postgres', owner_id);
   select count(*) into notice_count from public.notifications notice

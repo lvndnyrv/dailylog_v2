@@ -340,6 +340,7 @@ export default function BulkLogScreen({ navigation }) {
   const [selectedMealMenuItem, setSelectedMealMenuItem] = useState(null);
   const [mealMenuLoading, setMealMenuLoading] = useState(false);
   const [manualMeal, setManualMeal] = useState(false);
+  const [mealAlternatives, setMealAlternatives] = useState({});
   const [napAction, setNapAction] = useState('start');
   const [diaperType, setDiaperType] = useState('diaper');
   const [diaperResult, setDiaperResult] = useState('wet');
@@ -422,6 +423,15 @@ export default function BulkLogScreen({ navigation }) {
     () => children.filter(child => selectedChildren.has(child.id)),
     [children, selectedChildren]
   );
+  const selectedMealConflicts = useMemo(() => {
+    if (!selectedMealMenuItem) return [];
+    return selectedList
+      .map(child => ({
+        child,
+        allergies: allergyConflicts(child, selectedMealMenuItem.allergens),
+      }))
+      .filter(item => item.allergies.length);
+  }, [selectedList, selectedMealMenuItem]);
 
   const filteredChildren = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -479,6 +489,7 @@ export default function BulkLogScreen({ navigation }) {
     setSelectedMealMenuItem(null);
     setMealMenuLoading(type.id === 'meal');
     setManualMeal(false);
+    setMealAlternatives({});
     setNapAction('start');
     setDiaperType('diaper');
     setDiaperResult('wet');
@@ -558,6 +569,7 @@ export default function BulkLogScreen({ navigation }) {
     setSelectedMealMenuItem(item);
     setMealName(item.food_description);
     setManualMeal(false);
+    setMealAlternatives({});
   }
 
   function setChildMealAmount(childId, amount) {
@@ -613,81 +625,30 @@ export default function BulkLogScreen({ navigation }) {
     ]);
   }
 
-  async function ensureDailyLogs() {
-    const childIds = selectedList.map(child => child.id);
-    const { error: upsertError } = await supabase
-      .from('daily_logs')
-      .upsert(
-        childIds.map(childId => ({
-          daycare_id: profile.daycare_id,
-          child_id: childId,
-          educator_id: profile.id,
-          log_date: today,
-        })),
-        { onConflict: 'child_id,log_date', ignoreDuplicates: true }
-      );
-    if (upsertError) throw upsertError;
-
-    const { data, error } = await supabase
-      .from('daily_logs')
-      .select('id, child_id, moods, notes')
-      .in('child_id', childIds)
-      .eq('log_date', today);
+  async function saveBulkDaily(kind, payload = {}) {
+    const { data, error } = await supabase.rpc('bulk_log_daily_updates', {
+      p_child_ids: selectedList.map(child => child.id),
+      p_kind: kind,
+      p_payload: payload,
+    });
     if (error) throw error;
-    if (data?.length !== childIds.length) {
-      throw new Error('Some daily logs could not be created. Please try again.');
-    }
-    return data;
+    return data || {};
   }
 
   async function saveAttendance() {
     const childIds = selectedList.map(child => child.id);
-    const timestamp = new Date().toISOString();
-
-    if (attendanceAction === 'check-in') {
-      const { error } = await supabase
-        .from('attendance_records')
-        .upsert(
-          childIds.map(childId => ({
-            daycare_id: profile.daycare_id,
-            child_id: childId,
-            date: today,
-            checked_in_at: timestamp,
-            checked_in_by: profile.id,
-            checked_out_at: null,
-            checked_out_by: null,
-            method: 'educator',
-            status: 'present',
-          })),
-          { onConflict: 'child_id,date' }
-        );
-      if (error) throw error;
-      return `Checked in ${childIds.length} ${childIds.length === 1 ? 'child' : 'children'} at ${format(new Date(), 'h:mm a')}.`;
-    }
-
-    const { data: records, error: recordsError } = await supabase
-      .from('attendance_records')
-      .select('id, child_id, checked_in_at, checked_out_at')
-      .in('child_id', childIds)
-      .eq('date', today);
-    if (recordsError) throw recordsError;
-
-    const active = (records || []).filter(record => record.checked_in_at && !record.checked_out_at);
-    if (!active.length) throw new Error('None of the selected children has an active check-in.');
-
-    const results = await Promise.all(
-      active.map(record =>
-        supabase
-          .from('attendance_records')
-          .update({ checked_out_at: timestamp, checked_out_by: profile.id })
-          .eq('id', record.id)
-      )
-    );
-    const failed = results.find(result => result.error);
-    if (failed?.error) throw failed.error;
-
-    const skipped = childIds.length - active.length;
-    return `Checked out ${active.length} ${active.length === 1 ? 'child' : 'children'}${skipped ? `; ${skipped} had no active check-in` : ''}.`;
+    const { data, error } = await supabase.rpc('bulk_set_mobile_attendance', {
+      p_child_ids: childIds,
+      p_action: attendanceAction,
+    });
+    if (error) throw error;
+    const affected = data?.affectedCount || 0;
+    const skipped = data?.skippedCount || 0;
+    const verb = attendanceAction === 'check-in' ? 'Checked in' : 'Checked out';
+    const suffix = attendanceAction === 'check-in'
+      ? ` at ${format(new Date(), 'h:mm a')}`
+      : '';
+    return `${verb} ${affected} ${affected === 1 ? 'child' : 'children'}${suffix}${skipped ? `; ${skipped} already had a completed status` : ''}.`;
   }
 
   async function saveMeal() {
@@ -696,135 +657,78 @@ export default function BulkLogScreen({ navigation }) {
     if (missingAmount) {
       throw new Error(`Choose how much ${missingAmount.first_name} ate before saving.`);
     }
-    const logs = await ensureDailyLogs();
-    const rows = logs.map(log => ({
-      daily_log_id: log.id,
-      time: selectedMealMenuItem?.meal_time || currentTime(),
-      food_type: mealName.trim(),
-      amount: mealAmounts[log.child_id],
-      meal_menu_item_id: selectedMealMenuItem?.id || null,
-    }));
-    const operation = selectedMealMenuItem?.id
-      ? supabase
-        .from('meal_entries')
-        .upsert(rows, { onConflict: 'daily_log_id,meal_menu_item_id' })
-      : supabase.from('meal_entries').insert(rows);
-    const { error } = await operation;
-    if (error) throw error;
+    const missingAlternative = selectedMealConflicts.find(({ child }) =>
+      !mealAlternatives[child.id]?.trim()
+    );
+    if (missingAlternative) {
+      throw new Error(`Record the safe alternative served to ${missingAlternative.child.first_name}.`);
+    }
+    let result;
+    if (selectedMealMenuItem) {
+      const { data, error } = await supabase.rpc('bulk_log_scheduled_meal', {
+        p_child_ids: selectedList.map(child => child.id),
+        p_menu_item_id: selectedMealMenuItem.id,
+        p_amounts: mealAmounts,
+        p_alternatives: mealAlternatives,
+        p_food_type: mealName.trim(),
+      });
+      if (error) throw error;
+      result = data || {};
+    } else {
+      result = await saveBulkDaily('meal', {
+        foodType: mealName.trim(),
+        amounts: mealAmounts,
+        mealMenuItemId: null,
+        time: currentTime(),
+      });
+    }
     const label = selectedMealMenuItem?.meal_label || 'Meal';
-    return `Logged ${label.toLowerCase()} for ${logs.length} ${logs.length === 1 ? 'child' : 'children'}.`;
+    return `Logged ${label.toLowerCase()} for ${result.selectedCount} ${result.selectedCount === 1 ? 'child' : 'children'}.`;
   }
 
   async function saveNap() {
-    const logs = await ensureDailyLogs();
-    if (napAction === 'start') {
-      const { error } = await supabase.from('sleep_entries').insert(
-        logs.map(log => ({ daily_log_id: log.id, start_time: currentTime() }))
-      );
-      if (error) throw error;
-      return `Started nap for ${logs.length} ${logs.length === 1 ? 'child' : 'children'}.`;
-    }
-
-    const { data: openNaps, error: loadError } = await supabase
-      .from('sleep_entries')
-      .select('id, daily_log_id, created_at')
-      .in('daily_log_id', logs.map(log => log.id))
-      .is('end_time', null)
-      .order('created_at', { ascending: false });
-    if (loadError) throw loadError;
-
-    const latestByLog = new Map();
-    (openNaps || []).forEach(entry => {
-      if (!latestByLog.has(entry.daily_log_id)) latestByLog.set(entry.daily_log_id, entry);
-    });
-    if (!latestByLog.size) throw new Error('None of the selected children has an active nap.');
-
-    const results = await Promise.all(
-      [...latestByLog.values()].map(entry =>
-        supabase
-          .from('sleep_entries')
-          .update({ end_time: currentTime() })
-          .eq('id', entry.id)
-      )
+    const result = await saveBulkDaily(
+      napAction === 'start' ? 'nap_start' : 'nap_end',
+      { time: currentTime() }
     );
-    const failed = results.find(result => result.error);
-    if (failed?.error) throw failed.error;
-
-    const skipped = logs.length - latestByLog.size;
-    return `Ended nap for ${latestByLog.size} ${latestByLog.size === 1 ? 'child' : 'children'}${skipped ? `; ${skipped} had no active nap` : ''}.`;
+    const affected = result.affectedCount || 0;
+    const skipped = result.skippedCount || 0;
+    const verb = napAction === 'start' ? 'Started' : 'Ended';
+    const reason = napAction === 'start' ? 'already had an active nap' : 'had no active nap';
+    return `${verb} nap for ${affected} ${affected === 1 ? 'child' : 'children'}${skipped ? `; ${skipped} ${reason}` : ''}.`;
   }
 
   async function saveDiaper() {
-    const logs = await ensureDailyLogs();
-    const { error } = await supabase.from('diaper_entries').insert(
-      logs.map(log => ({
-        daily_log_id: log.id,
-        time: currentTime(),
-        type: diaperType,
-        wet: diaperResult === 'wet',
-        bm: diaperResult === 'bm',
-      }))
-    );
-    if (error) throw error;
+    const result = await saveBulkDaily('diaper', {
+      time: currentTime(),
+      type: diaperType,
+      result: diaperResult,
+    });
     const resultLabel = diaperResult === 'bm' ? 'BM' : diaperResult;
-    return `Logged ${resultLabel} for ${logs.length} ${logs.length === 1 ? 'child' : 'children'}.`;
+    return `Logged ${resultLabel} for ${result.selectedCount} ${result.selectedCount === 1 ? 'child' : 'children'}.`;
   }
 
   async function saveActivity() {
     if (!activityNames.size) throw new Error('Select at least one activity before saving.');
-    const logs = await ensureDailyLogs();
-    const { data: existing, error: existingError } = await supabase
-      .from('activity_entries')
-      .select('daily_log_id, activity_name')
-      .in('daily_log_id', logs.map(log => log.id));
-    if (existingError) throw existingError;
-
-    const existingKeys = new Set(
-      (existing || []).map(entry => `${entry.daily_log_id}:${entry.activity_name}`)
-    );
-    const rows = [];
-    logs.forEach(log => {
-      activityNames.forEach(activity => {
-        if (!existingKeys.has(`${log.id}:${activity}`)) {
-          rows.push({ daily_log_id: log.id, activity_name: activity });
-        }
-      });
+    const result = await saveBulkDaily('activity', {
+      activities: [...activityNames],
     });
-
-    if (rows.length) {
-      const { error } = await supabase.from('activity_entries').insert(rows);
-      if (error) throw error;
-    }
-    return `Added ${activityNames.size} ${activityNames.size === 1 ? 'activity' : 'activities'} to ${logs.length} daily ${logs.length === 1 ? 'log' : 'logs'}.`;
+    return `Added ${activityNames.size} ${activityNames.size === 1 ? 'activity' : 'activities'} to ${result.selectedCount} daily ${result.selectedCount === 1 ? 'log' : 'logs'}.`;
   }
 
   async function saveMood() {
     if (!mood) throw new Error('Choose a mood before saving.');
-    const logs = await ensureDailyLogs();
-    const results = await Promise.all(
-      logs.map(log => {
-        const moods = [...new Set([...(log.moods || []), mood])];
-        return supabase.from('daily_logs').update({ moods }).eq('id', log.id);
-      })
-    );
-    const failed = results.find(result => result.error);
-    if (failed?.error) throw failed.error;
-    return `Added ${mood.toLowerCase()} to ${logs.length} daily ${logs.length === 1 ? 'log' : 'logs'}.`;
+    const result = await saveBulkDaily('mood', { mood });
+    const alreadySet = result.skippedCount || 0;
+    return `Added ${mood.toLowerCase()} to ${result.affectedCount} daily ${result.affectedCount === 1 ? 'log' : 'logs'}${alreadySet ? `; ${alreadySet} already had it` : ''}.`;
   }
 
   async function saveNote() {
     const cleanNote = note.trim();
     if (!cleanNote) throw new Error('Write a note before saving.');
-    const logs = await ensureDailyLogs();
-    const results = await Promise.all(
-      logs.map(log => {
-        const notes = log.notes?.trim() ? `${log.notes.trim()}\n${cleanNote}` : cleanNote;
-        return supabase.from('daily_logs').update({ notes }).eq('id', log.id);
-      })
-    );
-    const failed = results.find(result => result.error);
-    if (failed?.error) throw failed.error;
-    return `Shared the note in ${logs.length} daily ${logs.length === 1 ? 'log' : 'logs'}.`;
+    const result = await saveBulkDaily('note', { note: cleanNote });
+    const alreadySet = result.skippedCount || 0;
+    return `Shared the note in ${result.affectedCount} daily ${result.affectedCount === 1 ? 'log' : 'logs'}${alreadySet ? `; ${alreadySet} already included it` : ''}.`;
   }
 
   async function savePhoto() {
@@ -837,7 +741,8 @@ export default function BulkLogScreen({ navigation }) {
       const more = restricted.length > 3 ? ` and ${restricted.length - 3} more` : '';
       throw new Error(`Photo permission is declined or not answered for ${names}${more}. Remove them from this group photo before saving.`);
     }
-    const logs = await ensureDailyLogs();
+    const preparation = await saveBulkDaily('photo_prepare');
+    const logs = preparation.logs || [];
     const processed = await ImageManipulator.manipulateAsync(
       photoAsset.uri,
       [{ resize: { width: 1200 } }],
@@ -847,25 +752,34 @@ export default function BulkLogScreen({ navigation }) {
     const bytes = await response.arrayBuffer();
     const stamp = Date.now();
 
-    for (let index = 0; index < logs.length; index += 1) {
-      const log = logs[index];
-      const child = selectedList.find(item => item.id === log.child_id);
-      const path = `${child.id}/${log.id}/${stamp}_${index}.jpg`;
-      const { error: uploadError } = await supabase.storage
-        .from('daily-log-photos')
-        .upload(path, bytes, { contentType: 'image/jpeg', upsert: false });
-      if (uploadError) throw uploadError;
-
-      const { error: metadataError } = await supabase.from('photos').insert({
-        daily_log_id: log.id,
-        storage_path: path,
-        caption: photoCaption.trim() || null,
-        uploader_id: profile.id,
-      });
-      if (metadataError) {
-        await supabase.storage.from('daily-log-photos').remove([path]);
-        throw metadataError;
+    const uploadedPaths = [];
+    const items = [];
+    try {
+      for (let index = 0; index < logs.length; index += 1) {
+        const log = logs[index];
+        const path = `${log.childId}/${log.logId}/${stamp}_${index}.jpg`;
+        const { error: uploadError } = await supabase.storage
+          .from('daily-log-photos')
+          .upload(path, bytes, { contentType: 'image/jpeg', upsert: false });
+        if (uploadError) throw uploadError;
+        uploadedPaths.push(path);
+        items.push({
+          child_id: log.childId,
+          log_id: log.logId,
+          storage_path: path,
+        });
       }
+
+      const { error: metadataError } = await supabase.rpc('attach_bulk_daily_log_photos', {
+        p_items: items,
+        p_caption: photoCaption.trim() || null,
+      });
+      if (metadataError) throw metadataError;
+    } catch (photoError) {
+      if (uploadedPaths.length) {
+        await supabase.storage.from('daily-log-photos').remove(uploadedPaths);
+      }
+      throw photoError;
     }
     return `Added the photo to ${logs.length} daily ${logs.length === 1 ? 'feed' : 'feeds'}.`;
   }
@@ -1214,15 +1128,6 @@ export default function BulkLogScreen({ navigation }) {
         );
       }
 
-      const conflicts = selectedMealMenuItem
-        ? selectedList
-          .map(child => ({
-            child,
-            allergies: allergyConflicts(child, selectedMealMenuItem.allergens),
-          }))
-          .filter(item => item.allergies.length)
-        : [];
-
       return (
         <>
           {!!mealMenuItems.length && (
@@ -1297,13 +1202,26 @@ export default function BulkLogScreen({ navigation }) {
             </>
           )}
 
-          {conflicts.map(({ child, allergies }) => (
+          {selectedMealConflicts.map(({ child, allergies }) => (
             <View key={child.id} style={styles.mealAllergyBanner}>
-              <Ionicons name="warning-outline" size={17} color={colors.danger} />
-              <Text style={styles.mealAllergyText}>
-                <Text style={styles.mealAllergyName}>{child.first_name}</Text>
-                {' — '}{allergies.join(', ')} allergy. Confirm a safe alternative before serving.
-              </Text>
+              <View style={styles.mealAllergyHeading}>
+                <Ionicons name="warning-outline" size={17} color={colors.danger} />
+                <Text style={styles.mealAllergyText}>
+                  <Text style={styles.mealAllergyName}>{child.first_name}</Text>
+                  {' — '}{allergies.join(', ')} allergy
+                </Text>
+              </View>
+              <TextInput
+                value={mealAlternatives[child.id] || ''}
+                onChangeText={value => setMealAlternatives(previous => ({
+                  ...previous,
+                  [child.id]: value,
+                }))}
+                placeholder="Safe alternative served, e.g. oat milk"
+                placeholderTextColor={colors.textFaint}
+                style={styles.mealAlternativeInput}
+                accessibilityLabel={`Safe alternative served to ${child.first_name}`}
+              />
             </View>
           ))}
 
@@ -1501,11 +1419,14 @@ export default function BulkLogScreen({ navigation }) {
   function renderForm() {
     const allMealAmountsSet = selectedList.length > 0
       && selectedList.every(child => Boolean(mealAmounts[child.id]));
+    const allMealAlternativesSet = selectedMealConflicts.every(({ child }) =>
+      Boolean(mealAlternatives[child.id]?.trim())
+    );
     const formValid =
       selectedType.id === 'attendance' ||
       selectedType.id === 'nap' ||
       selectedType.id === 'diaper' ||
-      (selectedType.id === 'meal' && !!mealName.trim() && allMealAmountsSet) ||
+      (selectedType.id === 'meal' && !!mealName.trim() && allMealAmountsSet && allMealAlternativesSet) ||
       (selectedType.id === 'activity' && activityNames.size > 0) ||
       (selectedType.id === 'mood' && !!mood) ||
       (selectedType.id === 'note' && !!note.trim()) ||
@@ -2259,13 +2180,16 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
   },
   mealAllergyBanner: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
     gap: spacing.sm,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm + 2,
     borderRadius: radius.md,
     backgroundColor: colors.dangerLight,
+  },
+  mealAllergyHeading: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.sm,
   },
   mealAllergyText: {
     flex: 1,
@@ -2277,6 +2201,18 @@ const styles = StyleSheet.create({
   mealAllergyName: {
     fontFamily: fonts.bold,
     color: colors.danger,
+  },
+  mealAlternativeInput: {
+    minHeight: 44,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderWidth: 1.5,
+    borderColor: '#E8B9B9',
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
+    fontSize: 13,
+    fontFamily: fonts.regular,
+    color: colors.textPrimary,
   },
   mealChildrenCard: {
     overflow: 'hidden',

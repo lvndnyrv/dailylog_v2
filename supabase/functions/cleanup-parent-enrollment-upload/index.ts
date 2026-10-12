@@ -1,6 +1,10 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
-const jsonHeaders = { 'content-type': 'application/json' };
+const jsonHeaders = {
+  'content-type': 'application/json',
+  'cache-control': 'private, no-store',
+  'x-content-type-options': 'nosniff',
+};
 
 function requiredEnv(name: string): string {
   const value = Deno.env.get(name);
@@ -21,7 +25,11 @@ Deno.serve(async (request) => {
     const path = typeof body.path === 'string' ? body.path.trim() : '';
     const expectedPrefix = `enrollment-offers/${code}/`;
 
-    if (!code || code.length > 100 || !path.startsWith(expectedPrefix) || path.length > 500) {
+    if (
+      !/^[A-Z0-9-]{12,100}$/.test(code) ||
+      !path.startsWith(expectedPrefix) ||
+      path.length > 500
+    ) {
       return response({ error: 'Invalid enrollment upload cleanup request' }, 400);
     }
 
@@ -41,7 +49,9 @@ Deno.serve(async (request) => {
     if (error) throw error;
     return response({ deleted: data?.length === 1, path });
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Upload cleanup failed';
-    return response({ error: message }, 500);
+    console.error(
+      `Enrollment upload cleanup failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    return response({ error: 'Upload cleanup is temporarily unavailable' }, 500);
   }
 });

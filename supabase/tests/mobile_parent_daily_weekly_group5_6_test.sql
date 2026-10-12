@@ -68,11 +68,10 @@ begin
 
   for v_day in 0..4 loop
     insert into public.daily_logs (
-      daycare_id, child_id, educator_id, log_date, moods, notes,
-      sent_to_parents, sent_at
+      daycare_id, child_id, educator_id, log_date, moods, notes
     ) values (
       center, v_child_id, owner_id, v_week_start + v_day, array['happy'],
-      'Completed rollback family recap', true, now()
+      'Completed rollback family recap'
     ) returning id into log_id;
     for v_meal in 1..3 loop
       insert into public.meal_entries(daily_log_id, time, food_type, amount)
@@ -83,10 +82,11 @@ begin
         'all'
       );
     end loop;
+    perform public.publish_daily_log(log_id);
   end loop;
   insert into public.daily_logs (
-    daycare_id, child_id, educator_id, log_date, sent_to_parents, sent_at
-  ) values (center, v_other_child_id, owner_id, v_week_start, true, now());
+    daycare_id, child_id, educator_id, log_date
+  ) values (center, v_other_child_id, owner_id, v_week_start);
   insert into public.attendance_records (
     daycare_id, child_id, date, checked_in_at, method, status
   ) values (center, v_child_id, public.center_today(), now(), 'kiosk', 'present');

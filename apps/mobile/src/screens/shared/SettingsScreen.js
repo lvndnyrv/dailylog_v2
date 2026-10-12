@@ -9,7 +9,6 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as LocalAuthentication from 'expo-local-authentication';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -17,7 +16,11 @@ import { isAdminRole } from '@dailylog/shared';
 
 import { useAuth } from '../../hooks/useAuth';
 import { supabase } from '../../lib/supabase';
-import { BIOMETRIC_KEY, biometricsAvailable } from '../../components/BiometricGate';
+import {
+  biometricsAvailable,
+  getBiometricPreference,
+  setBiometricPreference,
+} from '../../components/BiometricGate';
 import { Button } from '../../components/ui';
 import { colors, fonts, radius, spacing } from '../../theme';
 
@@ -86,8 +89,8 @@ function BalanceBadge({ cents }) {
 }
 
 export default function SettingsScreen({ navigation }) {
-  const { profile, signOut, deleteAccount } = useAuth();
-  const [deleting, setDeleting] = useState(false);
+  const { profile, signOut, requestAccountDeletion } = useAuth();
+  const [requestingDeletion, setRequestingDeletion] = useState(false);
   const [bioSupported, setBioSupported] = useState(false);
   const [bioEnabled, setBioEnabled] = useState(false);
   const [centerName, setCenterName] = useState('');
@@ -96,9 +99,9 @@ export default function SettingsScreen({ navigation }) {
   useEffect(() => {
     (async () => {
       setBioSupported(await biometricsAvailable());
-      setBioEnabled((await AsyncStorage.getItem(BIOMETRIC_KEY)) === 'on');
+      setBioEnabled(await getBiometricPreference(profile?.id));
     })();
-  }, []);
+  }, [profile?.id]);
 
   useEffect(() => {
     let active = true;
@@ -148,7 +151,7 @@ export default function SettingsScreen({ navigation }) {
       if (!result.success) return;
     }
 
-    await AsyncStorage.setItem(BIOMETRIC_KEY, value ? 'on' : 'off');
+    await setBiometricPreference(profile.id, value);
     setBioEnabled(value);
   }
 
@@ -159,20 +162,32 @@ export default function SettingsScreen({ navigation }) {
     ]);
   }
 
-  function handleDeleteAccount() {
+  function handleAccountDeletionRequest() {
+    if (profile?.role === 'parent') {
+      navigation.navigate('ParentPrivacyData');
+      return;
+    }
+
     Alert.alert(
-      'Delete account',
-      'This permanently deletes your account and associated personal data. This cannot be undone.',
+      'Request account closure?',
+      'An administrator will verify your identity, remove active access, and review records that must be retained. Your account is not deleted immediately.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Delete permanently',
+          text: 'Send request',
           style: 'destructive',
           onPress: async () => {
-            setDeleting(true);
-            const { error } = await deleteAccount();
-            setDeleting(false);
-            if (error) Alert.alert('Deletion failed', error.message);
+            setRequestingDeletion(true);
+            const { error } = await requestAccountDeletion();
+            setRequestingDeletion(false);
+            if (error) {
+              Alert.alert('Request not sent', error.message);
+              return;
+            }
+            Alert.alert(
+              'Request received',
+              'Your account remains available while an administrator reviews access and record-retention requirements.',
+            );
           },
         },
       ]
@@ -278,6 +293,18 @@ export default function SettingsScreen({ navigation }) {
             icon="shield-checkmark-outline"
             label="Privacy policy"
             onPress={() => navigation.navigate('Privacy')}
+          />
+          {profile?.role === 'parent' && (
+            <MenuRow
+              icon="document-lock-outline"
+              label="Privacy & data requests"
+              onPress={() => navigation.navigate('ParentPrivacyData')}
+            />
+          )}
+          <MenuRow
+            icon="person-remove-outline"
+            label={profile?.role === 'parent' ? 'Request account deletion' : 'Request account closure'}
+            onPress={handleAccountDeletionRequest}
             isLast
           />
         </View>
@@ -288,18 +315,8 @@ export default function SettingsScreen({ navigation }) {
           variant="ghost"
           style={styles.signOutButton}
         />
-        <TouchableOpacity
-          onPress={handleDeleteAccount}
-          disabled={deleting}
-          style={styles.deleteButton}
-          accessibilityRole="button"
-        >
-          <Text style={styles.deleteButtonText}>
-            {deleting ? 'Deleting…' : 'Delete my account'}
-          </Text>
-        </TouchableOpacity>
         <Text style={styles.footerNote}>
-          Deleting your account permanently removes all your data.{'\n'}
+          {requestingDeletion ? 'Sending account request…' : 'Account closure is reviewed before access or retained records change.'}{'\n'}
           DailyLog v1.0.0{centerName ? ` · ${centerName}` : ''}
         </Text>
       </ScrollView>
@@ -423,17 +440,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
   },
   signOutButton: { marginTop: spacing.xs },
-  deleteButton: {
-    minHeight: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: spacing.xs,
-  },
-  deleteButtonText: {
-    color: colors.danger,
-    fontFamily: fonts.bold,
-    fontSize: 14.5,
-  },
   footerNote: {
     color: colors.textFaint,
     fontFamily: fonts.regular,

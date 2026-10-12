@@ -1,6 +1,6 @@
 # Group 7 — Rooms & ratios verification
 
-Updated: 2026-09-10. **Status: operational 7f, 7a/7c availability planning, dated demand forecasting, multi-person plans, coverage review and educator responses, the reviewed 7e vacancy-to-waitlist handoff, and scheduled release of expired enrollment offers are implemented; Group 7 is not fully complete.**
+Updated: 2026-10-11. **Status: operational 7f, 7a/7c availability planning, recurring and dated demand forecasting (including room detail), multi-person plans, coverage review and educator responses, the reviewed 7e vacancy-to-waitlist handoff, and scheduled release of expired enrollment offers are implemented; Group 7 is not fully complete.**
 
 Reference: `design/designs/DailyLog WEB - Admin.dc.html`, screens 7a–7f.
 Changes remain uncommitted on the existing branch. Earlier unrelated work was preserved.
@@ -240,12 +240,62 @@ Operational follow-up migrations also applied: `20260906000100_operational_room_
 - All four Parent Group 23 medication suites now build current, rollback-only authorizations and active-child context. Their dates use the center timezone rather than the database session date, so they remain valid across seed age and UTC midnight. They cover signed evidence immutability, renewal rules, five-right checks, witness enforcement, dose/route integrity, duplicate and daily-dose guards, atomic high-priority parent notification, automatic expiration, and the Alumni access boundary.
 - The complete 76-file linked rollback matrix returned clean. Because the run occurred on a closed center day, successful same-day transition branches were explicitly deferred in the five suites that require a live open weekday; those paths have prior recorded open-day passes, while this run verified their closed-day guards. Linked database lint and both app typechecks passed.
 
+### Room-detail demand forecast handoff — October 11
+
+- The room-detail coverage warning now reads the same booking-, absence-, break-, shared-room- and invitation-aware demand forecast used by the main Rooms planner. It shows the earliest remaining interval with a confirmed staffing gap, expected child count, required educators, unknown bookings and pending invitations.
+- The former live-attendance estimate remains only as a safe fallback when no standalone forecast interval exists. It no longer overrides a real planning interval or claim that today's current attendance predicts later demand.
+- Workspace typecheck and lint, the Next.js 16.4 production build, Expo dependency validation, and iOS and Android production bundle exports passed.
+
+### Pending floater invitation visibility — October 11
+
+- The Floater pool now distinguishes connected, assignable educators from unassigned educator invitations that do not have an account yet. Pending invite rows are intentionally not offered in coverage assignment controls.
+- Active invitations link administrators to the staff roster for lifecycle review; expired invitations are clearly labelled for resend/review instead of appearing available for scheduling.
+- Workspace typecheck and lint and the production web build passed.
+
+### Future-day break planning — October 11
+
+- Break planning now follows the selected Coverage forecast date instead of being limited to today's initial server payload. The forecast request loads that center-local day's published shifts with a UTC buffer, then filters them in the center timezone.
+- Saving or removing a planned break refreshes the selected day's forecast so staffing intervals and untimed-break warnings are recalculated without changing payroll minutes or clock-in records.
+- Browser verification opened October 12 directly, loaded its published shift, expanded the break planner and confirmed the existing 30-minute untimed-break warning and **Set break** control. No production break was changed. Workspace typecheck, lint and the production build passed.
+
+### Recurring attendance schedules — October 11
+
+- Added an administrator-only recurring schedule per child with selected weekdays, arrival/pickup times, a required start date and optional end date. Inputs are checked against the center's opening hours and every change is audited.
+- A dated booking remains the explicit override: Expected can add a normally unscheduled day, Not scheduled can remove a normally expected day, and Unknown removes the dated decision so the recurring pattern applies. These planning records do not check a child in or modify tuition.
+- The forecast now treats a recurring on-day as confirmed demand and omits the child on an off-day. A child with neither a dated decision nor an active recurring pattern remains conservatively unknown for the full opening day.
+- Applied `20261011000100_recurring_attendance_booking_patterns.sql` to the linked project and refreshed generated database types. The new rollback suite and the existing demand, availability and multi-segment coverage regressions passed; linked database lint found no schema errors.
+- Browser verification confirmed the recurring editor, weekday states, child/room labels, date and time controls, Cancel, and the separate selected-day override wording. No production child schedule was saved or removed. Web typecheck, lint and production build passed.
+
+### Background coverage invalidation lookback — October 11
+
+- The sequential audit confirmed this gap was already completed by `20260913000600_coverage_review_reconciliation.sql` and `20260913000700_educator_coverage_review_destination.sql`: the service worker detects changed closures/hours, eligibility or leave, schedule/break conflicts, overlapping commitments and source-room lending risk, then alerts the educator and permitted administrators without cancelling a human-owned commitment.
+- A proposed second worker was caught during the live device pass because its review state immediately appeared in the existing educator destination. The duplicate job/function/table were removed in `20261011000300_remove_duplicate_coverage_review_worker.sql` before keeping parallel notification behavior. The established assignment-based versioning and deduplication remain authoritative.
+- The existing multi-segment regression (including changed-input alerts and recovery) passed and linked database lint remained clean. Generated types, web typecheck/lint and the production dependency audit passed.
+
+### Educator device invitation/response pass — October 11
+
+- On the booted iPhone 17 Pro simulator, signed in as the seeded educator and navigated through Classroom → Room ratios using accessibility elements rather than cursor coordinates.
+- Created two temporary, valid Preschool invitations. The device showed the room, center-local date/time, timezone, notes and awaiting-response state. Accept refreshed the first card to **accepted**. Decline opened the explicit replacement warning, and confirmation refreshed the second card to **declined**.
+- The same pass visibly confirmed that an invitation carrying an active `review_issue` suppresses Accept/Decline and directs the educator to administrator review rather than allowing a stale commitment to be accepted.
+- All temporary assignments, associated notification/outbox and audit rows were removed. Maria's original Infant access and both original untimed-break states were restored and verified; no test invitation remains in the shared project.
+- The multi-segment regression, linked database lint, generated types, mobile/web typechecks, mobile Expo dependency validation and web lint passed after cleanup.
+
+### Explicit room-lead home transfer — October 12
+
+- Room 7d now shows the selected lead's current home room. For a room already open, the administrator can explicitly choose **Move home room here now** while saving the room. Lead responsibility alone still leaves room access and staffing unchanged.
+- The room save and permanent assignment are one database transaction. The transfer requires both room-edit and staff-edit permissions; it is rejected if the room opens in the future, the educator is clocked in elsewhere, or another room has their regular schedule or future published shift. A rejected transfer leaves no partially created room.
+- Applied `20261012000100_room_lead_home_transfer.sql` to the linked project. The rollback test covered conflicting schedules, published shifts, future openings, successful assignment/access change and educator denial. Database lint, web typecheck/lint and the production build passed. Browser verification showed the lead's current room, the optional transfer control for a floater, and its disabled state for a future-opening room; no room was saved during this visual check.
+
+### Opening-day lead handoff review — October 12
+
+- Rooms & ratios now lists future-opening and opening-due rooms whose designated lead still has another home room. Each row links to a room-detail review card with the educator's current room and the appropriate opening-day action.
+- The review deliberately does not move staff automatically. Once the room is open, the administrator can use the existing explicit, atomic home-room transfer after checking published shifts and regular schedules. Web typecheck, lint and production build passed.
+
 ## Still required before calling Group 7 complete
 
-1. **7a / 7c remaining integration:** connect the room-detail warning to the new dated forecast. Add recurring booking management and future-day break editing; the break editor currently covers today's published shifts. Invitations without accounts still need a separate pending-invite pool card. Background notifications for invalidated plans and a device-level coverage invitation/response pass remain outstanding.
-2. **7d remaining boundary:** a confirmed permanent/future home-room transfer for a newly designated lead is not implemented by the room form. Leadership and actual staffing are now intentionally separate; no licensing-rule authority/preset verification is claimed.
-3. **7e remaining handoffs:** the waiting queue recomputes when an admin opens the page but does not silently create/publish moves in the background. Completed moves, closed or automatically expired offers, and configured child departures feed an explicit reviewed waitlist offer; offers are never sent without admin confirmation. Effective transition rates now change future recurring invoices, but mid-period proration is not claimed. Background invalidation warnings remain beyond the conditional capacity preview.
-4. **Final UI/device pass:** all design variants with realistic busy-day fixtures, narrow layouts, permission-restricted administrators, and educator simulator navigation, including active shared-room workflows and return to home-room access.
+1. **7d remaining boundary:** future-opening room lead moves remain an explicit administrator decision; the opening-day review is visible but not an automatic transfer or notification. No licensing-rule authority/preset verification is claimed.
+2. **7e remaining handoffs:** the waiting queue recomputes when an admin opens the page but does not silently create/publish moves in the background. Completed moves, closed or automatically expired offers, and configured child departures feed an explicit reviewed waitlist offer; offers are never sent without admin confirmation. Effective transition rates now change future recurring invoices, but mid-period proration is not claimed. Background invalidation warnings remain beyond the conditional capacity preview.
+3. **Final UI/device pass:** all design variants with realistic busy-day fixtures, narrow layouts, permission-restricted administrators, and educator simulator navigation, including active shared-room workflows and return to home-room access.
 
 ## Faster database verification
 

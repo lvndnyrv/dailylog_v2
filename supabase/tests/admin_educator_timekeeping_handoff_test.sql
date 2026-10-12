@@ -24,6 +24,8 @@ declare
   v_unrelated uuid := '00000000-0000-4000-a000-000000000004';
   v_member uuid;
   v_entry uuid;
+  v_correction_entry uuid;
+  v_correction_start timestamptz := date_trunc('day', now()) - interval '90 days' + interval '9 hours';
 begin
   perform pg_temp.impersonate('postgres');
   select id into v_member
@@ -67,8 +69,53 @@ begin
        and notification.payload ->> 'screen' = 'WeeklyTimesheet'
        and notification.payload ->> 'entryId' = v_entry::text
        and notification.payload ->> 'status' = 'approved'
+       and notification.payload ->> 'clockedAt' is not null
   ) then
     raise exception 'FAIL: approval did not create a routed educator alert';
+  end if;
+  if not exists (
+    select 1 from public.notification_outbox delivery
+     where delivery.recipient_id = v_educator
+       and delivery.channel = 'push'
+       and delivery.kind = 'timesheet_review'
+       and delivery.payload ->> 'entryId' = v_entry::text
+       and delivery.payload ->> 'clockedAt' is not null
+       and delivery.dedupe_key = 'timesheet-review:' || v_entry::text || ':approved'
+  ) then
+    raise exception 'FAIL: approval did not enqueue a durable educator push';
+  end if;
+
+  perform pg_temp.impersonate('postgres');
+  insert into public.staff_time_entries (
+    daycare_id, staff_member_id, clocked_in_at, clocked_out_at,
+    break_minutes, source, status
+  )
+  select member.daycare_id, member.id, v_correction_start,
+         v_correction_start + interval '8 hours', 30, 'mobile', 'submitted'
+    from public.staff_members member
+   where member.id = v_member
+  returning id into v_correction_entry;
+
+  perform pg_temp.impersonate('authenticated', v_owner);
+  perform public.approve_time_entry(v_correction_entry, false, 'Clock-in should be 9:05.');
+
+  perform pg_temp.impersonate('authenticated', v_educator);
+  perform public.resubmit_time_entry_correction(
+    v_correction_entry,
+    v_correction_start + interval '5 minutes',
+    v_correction_start + interval '8 hours',
+    30
+  );
+  if not exists (
+    select 1 from public.staff_time_entries entry
+     where entry.id = v_correction_entry
+       and entry.status = 'submitted'
+       and entry.clocked_in_at = v_correction_start + interval '5 minutes'
+       and entry.approved_by is null
+       and entry.approved_at is null
+       and entry.notes = 'Clock-in should be 9:05.'
+  ) then
+    raise exception 'FAIL: educator correction did not return to admin review';
   end if;
 
   perform pg_temp.impersonate('authenticated', v_unrelated);

@@ -170,7 +170,7 @@ export default function ReportAbsenceScreen({ navigation, route }) {
         note,
         reportId: editingId,
       });
-      navigation.replace('AbsenceSubmitted', { child, result });
+      navigation.replace('AbsenceSubmitted', { child, result, policy: absences.policy });
     } catch (error) {
       Alert.alert('Could not report absence', error.message);
     } finally {
@@ -290,6 +290,23 @@ export default function ReportAbsenceScreen({ navigation, route }) {
           </View>
           {validation.reason ? <Text style={styles.validationText}>{validation.reason}</Text> : null}
 
+          {reason === 'sick' ? (
+            <View style={styles.sickPolicyCard}>
+              <View style={styles.sickPolicyIcon}>
+                <Ionicons name="thermometer-outline" size={21} color={colors.amber} />
+              </View>
+              <View style={styles.sickPolicyCopy}>
+                <Text style={styles.sickPolicyTitle}>Center illness return rule</Text>
+                <Text style={styles.sickPolicyText}>
+                  {absences.policy?.sickReturnHours != null
+                    ? `${child?.first_name || 'Your child'} must be fever- and symptom-free for ${absences.policy.sickReturnHours} hours before returning, without fever-reducing medication.`
+                    : 'Follow the center’s illness policy before returning. Contact the office if you are unsure when your child may come back.'}
+                </Text>
+                <Text style={styles.sickPolicyNote}>An absence report records attendance; it does not provide medical clearance.</Text>
+              </View>
+            </View>
+          ) : null}
+
           <Text style={styles.sectionTitle}>Note <Text style={styles.optional}>(optional)</Text></Text>
           <TextInput
             style={styles.noteInput}
@@ -374,6 +391,12 @@ const styles = StyleSheet.create({
   reasonChipActive: { borderColor: colors.primary, backgroundColor: colors.primarySoft },
   reasonText: { flex: 1, color: colors.textSecondary, fontSize: 13, fontFamily: fonts.bold },
   reasonTextActive: { color: colors.textPrimary },
+  sickPolicyCard: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md, marginTop: spacing.lg, padding: spacing.lg, borderRadius: radius.lg, borderWidth: 1, borderColor: '#EFD9B5', backgroundColor: colors.amberLight },
+  sickPolicyIcon: { width: 38, height: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface },
+  sickPolicyCopy: { flex: 1, minWidth: 0 },
+  sickPolicyTitle: { color: colors.textPrimary, fontFamily: fonts.bold, fontSize: 13.5 },
+  sickPolicyText: { marginTop: 3, color: colors.textSecondary, fontFamily: fonts.regular, fontSize: 12, lineHeight: 18 },
+  sickPolicyNote: { marginTop: 5, color: colors.textFaint, fontFamily: fonts.regular, fontSize: 10.5, lineHeight: 15 },
   fieldError: { borderColor: colors.danger },
   validationText: { marginTop: 6, color: colors.danger, fontSize: 12, fontFamily: fonts.bold },
   noteInput: { minHeight: 98, padding: spacing.md, borderWidth: 1.5, borderColor: colors.border, borderRadius: radius.lg, backgroundColor: colors.surface, color: colors.textPrimary, fontSize: 14, lineHeight: 20, fontFamily: fonts.regular },

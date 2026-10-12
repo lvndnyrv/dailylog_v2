@@ -54,9 +54,12 @@ export default function StaffConversationScreen({ navigation, route }) {
       return;
     }
     const summary = (summaries || []).find((item) => item.conversation_id === conversationId);
-    if (summary) {
-      setOther({ id: summary.other_profile_id, full_name: summary.other_full_name, role: summary.other_role });
+    if (!summary) {
+      setMessages([]);
+      setError('This private conversation is no longer available. The team member may no longer have center access.');
+      return;
     }
+    setOther({ id: summary.other_profile_id, full_name: summary.other_full_name, role: summary.other_role });
     setMessages(rows || []);
     setError(null);
     await supabase.rpc('mark_staff_conversation_read', { p_conversation_id: conversationId });
@@ -156,32 +159,34 @@ export default function StaffConversationScreen({ navigation, route }) {
           </ScrollView>
         )}
 
-        <View style={styles.composerWrap}>
-          {error && messages.length > 0 && <Text style={styles.inlineError}>{error}</Text>}
-          <View style={styles.composer}>
-            <TextInput
-              value={body}
-              onChangeText={setBody}
-              placeholder={`Message ${other.full_name}…`}
-              placeholderTextColor={colors.textFaint}
-              multiline
-              maxLength={4000}
-              style={styles.input}
-              accessibilityLabel={`Message ${other.full_name}`}
-            />
-            <TouchableOpacity
-              onPress={send}
-              disabled={!body.trim() || sending}
-              style={[styles.sendButton, (!body.trim() || sending) && styles.sendButtonDisabled]}
-              accessibilityRole="button"
-              accessibilityLabel="Send message"
-            >
-              {sending
-                ? <ActivityIndicator size="small" color={colors.white} />
-                : <Ionicons name="arrow-up" size={20} color={colors.white} />}
-            </TouchableOpacity>
+        {!(error && messages.length === 0) && (
+          <View style={styles.composerWrap}>
+            {error && messages.length > 0 && <Text style={styles.inlineError}>{error}</Text>}
+            <View style={styles.composer}>
+              <TextInput
+                value={body}
+                onChangeText={setBody}
+                placeholder={`Message ${other.full_name}…`}
+                placeholderTextColor={colors.textFaint}
+                multiline
+                maxLength={4000}
+                style={styles.input}
+                accessibilityLabel={`Message ${other.full_name}`}
+              />
+              <TouchableOpacity
+                onPress={send}
+                disabled={!body.trim() || sending}
+                style={[styles.sendButton, (!body.trim() || sending) && styles.sendButtonDisabled]}
+                accessibilityRole="button"
+                accessibilityLabel="Send message"
+              >
+                {sending
+                  ? <ActivityIndicator size="small" color={colors.white} />
+                  : <Ionicons name="arrow-up" size={20} color={colors.white} />}
+              </TouchableOpacity>
+            </View>
           </View>
-        </View>
+        )}
       </KeyboardAvoidingView>
     </SafeAreaView>
   );

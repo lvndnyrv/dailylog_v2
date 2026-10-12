@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Linking } from 'react-native';
-import * as Calendar from 'expo-calendar/legacy';
 
 import { supabase } from '../lib/supabase';
+import { presentCalendarEvent } from '../lib/calendar';
 import { useEnrollmentJourney } from './useEnrollmentJourney';
 
 function requireData(data, error, fallback) {
@@ -136,8 +136,7 @@ export function useParentInquiryJourney() {
 
   const addTourToCalendar = useCallback(async () => {
     if (!journey?.tour) throw new Error('No tour is booked.');
-    if (!(await Calendar.isAvailableAsync())) throw new Error('Calendar is unavailable on this device.');
-    return Calendar.createEventInCalendarAsync({
+    return presentCalendarEvent({
       title: `${journey.daycare?.name || 'Daycare'} tour`,
       startDate: new Date(journey.tour.starts_at),
       endDate: new Date(journey.tour.ends_at),

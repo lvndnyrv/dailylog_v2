@@ -17,6 +17,7 @@ function dateSummary(result) {
 export default function AbsenceSubmittedScreen({ navigation, route }) {
   const child = route.params?.child;
   const result = route.params?.result;
+  const policy = route.params?.policy;
   const updated = result?.action === 'updated';
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
@@ -42,6 +43,22 @@ export default function AbsenceSubmittedScreen({ navigation, route }) {
               <Text style={styles.confirmText}>Your center’s regular attendance and billing policy still applies.</Text>
             </View>
           </View>
+          {result?.reason === 'sick' ? (
+            <>
+              <View style={styles.divider} />
+              <View style={styles.confirmRow}>
+                <Ionicons name="thermometer-outline" size={20} color={colors.amber} />
+                <View style={styles.confirmCopy}>
+                  <Text style={styles.confirmTitle}>Return-to-care reminder</Text>
+                  <Text style={styles.confirmText}>
+                    {policy?.sickReturnHours != null
+                      ? `The center requires ${policy.sickReturnHours} fever- and symptom-free hours before return, without fever-reducing medication.`
+                      : 'Please follow the center’s illness policy before returning.'}
+                  </Text>
+                </View>
+              </View>
+            </>
+          ) : null}
         </View>
       </View>
       <View style={styles.footer}>

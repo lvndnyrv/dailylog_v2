@@ -1,4 +1,5 @@
 import { getMyProfile } from "@dailylog/db/queries";
+import { isAdminRole } from "@dailylog/shared";
 import { getServerSupabase } from "@/lib/supabase/server";
 
 export interface GlobalSearchResult {
@@ -24,13 +25,22 @@ function initials(value: string): string {
     .join("");
 }
 
+function json(body: unknown, status = 200): Response {
+  return Response.json(body, {
+    status,
+    headers: { "Cache-Control": "private, no-store" },
+  });
+}
+
 export async function GET(request: Request) {
   const query = safeTerm(new URL(request.url).searchParams.get("q") ?? "");
-  if (query.length < 2) return Response.json({ results: [] });
+  if (query.length < 2) return json({ results: [] });
 
   const supabase = await getServerSupabase();
   const profile = await getMyProfile(supabase);
-  if (!profile?.daycare_id) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  if (!profile?.daycare_id || profile.archived_at || !isAdminRole(profile.role)) {
+    return json({ error: "Unauthorized" }, 401);
+  }
 
   const pattern = `%${query}%`;
   const [childrenResponse, staffResponse, familyResponse, invoiceResponse] = await Promise.all([
@@ -64,7 +74,7 @@ export async function GET(request: Request) {
   const failed = [childrenResponse, staffResponse, familyResponse, invoiceResponse].find(
     (response) => response.error,
   );
-  if (failed?.error) return Response.json({ error: failed.error.message }, { status: 500 });
+  if (failed?.error) return json({ error: "Search is temporarily unavailable" }, 500);
 
   const results: GlobalSearchResult[] = [];
   for (const child of childrenResponse.data ?? []) {
@@ -148,5 +158,5 @@ export async function GET(request: Request) {
     );
   }
 
-  return Response.json({ results: results.slice(0, 18) });
+  return json({ results: results.slice(0, 18) });
 }

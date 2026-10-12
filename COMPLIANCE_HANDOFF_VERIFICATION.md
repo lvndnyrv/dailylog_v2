@@ -73,12 +73,14 @@ to roles, profiles, centers and notifications did not persist.
 
 ## Still open / deliberate boundaries
 
-1. **Native print-preview/PDF pagination remains pending.** The signed-in screen,
-   dialog, cancellation and compact-layout checks above passed. Print styles
-   were inspected (navigation/actions hidden, repeated table headings and
-   row-break rules), but the operating-system print preview and a produced PDF
-   were not exercised. This pass is not an exhaustive accessibility audit or a
-   claim of support for every phone-sized admin viewport.
+1. **Native inspection-pack output is now accepted on iOS.** The authenticated
+   mobile preview was exercised against linked-project data. The operating-system
+   print preview rendered a seven-page US Letter pack with repeated table
+   headings and intact record rows. Cancelling print returns cleanly to the app.
+   PDF generation produced a 73 KB document and opened the native share sheet
+   only after the explicit privacy warning; the sheet was dismissed without
+   transmitting the file. This pass is not an exhaustive accessibility audit or
+   a claim of support for every device or printer configuration.
 2. **Ratio history now starts at ledger activation.** Migration
    `20260831000500` stores immutable state-change intervals during configured
    center hours, with trigger capture plus a one-minute sweep for time-bound
@@ -102,10 +104,9 @@ to roles, profiles, centers and notifications did not persist.
 
 ## Resume here
 
-Next include native print/PDF output in final inspection-pack acceptance, then
-continue the broader
-educator/admin end-to-end audit. This pass does not declare the entire product
-ready for real-center deployment.
+Native print/PDF output is included in inspection-pack acceptance. Continue the
+broader educator/admin end-to-end audit next. This pass does not declare the
+entire product ready for real-center deployment.
 
 The linked CLI supports `supabase db query --linked --file <test.sql>`, so
 rollback-safe SQL integration tests can now run directly without Docker or the

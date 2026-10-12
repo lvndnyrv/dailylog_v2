@@ -41,3 +41,6 @@ verify_jwt = false
 
 [functions.compliance-inspection-document]
 verify_jwt = false # The per-inspection bearer token is checked on every request.
+
+[functions.cleanup-parent-enrollment-upload]
+verify_jwt = true # The caller must still present the active high-entropy enrollment code.

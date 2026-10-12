@@ -235,7 +235,7 @@ export default function AuthorizedPickupsScreen({ navigation, route }) {
 
   useFocusEffect(useCallback(() => {
     load();
-  }, [load]));
+  }, [load, route.params?.linkedAt]));
 
   useEffect(() => {
     if (!child?.id) return undefined;

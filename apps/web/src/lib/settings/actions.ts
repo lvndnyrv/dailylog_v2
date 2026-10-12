@@ -171,35 +171,24 @@ export async function deleteClosureAction(formData: FormData): Promise<void> {
 export async function updateParentDataRequestAction(formData: FormData): Promise<void> {
   const supabase = await getServerSupabase();
   const requestId = str(formData, "request_id");
+  const expectedStatus = str(formData, "expected_status");
   const nextStatus = str(formData, "status");
-  if (!requestId || !["processing", "completed"].includes(nextStatus)) {
+  const source = str(formData, "source") || "parent";
+  if (!requestId || !["requested", "processing"].includes(expectedStatus) || !["processing", "completed"].includes(nextStatus)) {
     throw new Error("Invalid privacy request update.");
   }
-
-  const { data: request, error: loadError } = await supabase
-    .from("parent_data_requests")
-    .select("id,status")
-    .eq("id", requestId)
-    .single();
-  if (loadError || !request) throw new Error(loadError?.message || "Privacy request not found.");
-
-  const allowed = request.status === "requested"
-    ? nextStatus === "processing"
-    : request.status === "processing" && nextStatus === "completed";
-  if (!allowed) throw new Error("This privacy request has already moved to another stage.");
-
-  const { data: updated, error: updateError } = await supabase
-    .from("parent_data_requests")
-    .update({
-      status: nextStatus,
-      completed_at: nextStatus === "completed" ? new Date().toISOString() : null,
-    })
-    .eq("id", requestId)
-    .eq("status", request.status)
-    .select("id")
-    .maybeSingle();
-  if (updateError || !updated) {
-    throw new Error(updateError?.message || "This privacy request changed. Refresh and try again.");
+  if (!["parent", "account"].includes(source)) throw new Error("Invalid privacy request source.");
+  const args = {
+    p_request_id: requestId,
+    p_expected_status: expectedStatus,
+    p_next_status: nextStatus,
+    p_notes: str(formData, "notes") || undefined,
+  };
+  const { error } = source === "account"
+    ? await supabase.rpc("transition_account_deletion_request", args)
+    : await supabase.rpc("transition_parent_data_request", args);
+  if (error) {
+    throw new Error(error.message || "This privacy request changed. Refresh and try again.");
   }
 
   revalidatePath("/settings");

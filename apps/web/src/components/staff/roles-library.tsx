@@ -55,10 +55,18 @@ export function RolesLibrary({ roles }: { roles: CenterRole[] }) {
 
   const toggle = (area: string, col: keyof AreaPermission) => {
     if (locked) return;
-    setDraft((d) => ({
-      ...d,
-      [area]: { ...(d[area] ?? emptyPermission()), [col]: !(d[area] ?? emptyPermission())[col] },
-    }));
+    setDraft((current) => {
+      const permission = { ...(current[area] ?? emptyPermission()) };
+      const nextValue = !permission[col];
+      permission[col] = nextValue;
+      if (col === "view" && !nextValue) {
+        permission.edit = false;
+        permission.approve = false;
+      } else if ((col === "edit" || col === "approve") && nextValue) {
+        permission.view = true;
+      }
+      return { ...current, [area]: permission };
+    });
   };
 
   return (

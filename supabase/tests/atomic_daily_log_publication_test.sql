@@ -26,6 +26,7 @@ declare
   child_id uuid;
   log_id uuid;
   future_log_id uuid;
+  meal_id uuid;
   first_sent_at timestamptz;
   result jsonb;
   row_count integer;
@@ -74,6 +75,9 @@ begin
     center, child_id, educator_id, public.center_today(), array['happy'],
     'Settled well and enjoyed outdoor play.'
   ) returning id into log_id;
+  insert into public.meal_entries (daily_log_id, time, food_type, amount)
+  values (log_id, '11:45', 'Lunch', 'all')
+  returning id into meal_id;
   insert into public.daily_logs (
     daycare_id, child_id, educator_id, log_date, notes
   ) values (
@@ -119,6 +123,75 @@ begin
   perform pg_temp.impersonate('authenticated', educator_id);
   failed := false;
   begin
+    update public.daily_logs set notes = 'Changed after publication' where id = log_id;
+  exception when sqlstate '55000' then failed := true;
+  end;
+  if not failed then raise exception 'FAIL: published report content remained editable'; end if;
+
+  failed := false;
+  begin
+    update public.daily_logs set sent_to_parents = false where id = log_id;
+  exception when sqlstate '55000' then failed := true;
+  end;
+  if not failed then raise exception 'FAIL: published report could be reopened'; end if;
+
+  failed := false;
+  begin
+    update public.meal_entries set amount = 'none' where id = meal_id;
+  exception when sqlstate '55000' then failed := true;
+  end;
+  if not failed then raise exception 'FAIL: published meal remained editable'; end if;
+
+  failed := false;
+  begin
+    delete from public.meal_entries where id = meal_id;
+  exception when sqlstate '55000' then failed := true;
+  end;
+  if not failed then raise exception 'FAIL: published meal remained deletable'; end if;
+
+  failed := false;
+  begin
+    insert into public.activity_entries (daily_log_id, activity_name)
+    values (log_id, 'Added after publication');
+  exception when sqlstate '55000' then failed := true;
+  end;
+  if not failed then raise exception 'FAIL: published report accepted a new entry'; end if;
+
+  failed := false;
+  begin
+    insert into public.daily_logs (
+      daycare_id, child_id, educator_id, log_date, notes, sent_to_parents, sent_at
+    ) values (
+      center, child_id, educator_id, public.center_today() - 1,
+      'Attempted direct final record', true, now()
+    );
+  exception when sqlstate '42501' then failed := true;
+  end;
+  if not failed then raise exception 'FAIL: a daily log could be inserted as already published'; end if;
+
+  perform pg_temp.impersonate('postgres', owner_id);
+  if not exists (
+    select 1 from public.audit_log audit
+     where audit.entity_type = 'daily_log'
+       and audit.entity_id = log_id
+       and audit.action = 'publish'
+       and audit.actor_id = educator_id
+       and audit.after->>'childId' = child_id::text
+       and audit.after->>'logDate' = public.center_today()::text
+  ) then raise exception 'FAIL: publication was not audited'; end if;
+
+  perform pg_temp.impersonate('authenticated', parent_id);
+  if not exists (
+    select 1 from public.daily_logs daily_log
+     join public.meal_entries meal on meal.daily_log_id = daily_log.id
+     where daily_log.id = log_id
+       and daily_log.sent_to_parents
+       and meal.id = meal_id
+  ) then raise exception 'FAIL: linked parent could not read the final report'; end if;
+
+  perform pg_temp.impersonate('authenticated', educator_id);
+  failed := false;
+  begin
     perform public.publish_daily_log(future_log_id);
   exception when others then failed := true;
   end;
@@ -135,4 +208,4 @@ end;
 $$;
 
 rollback;
-select 'PASS: daily-log finalization and family delivery commit together, retries deduplicate, and parent/future publication is denied; rolled back' result;
+select 'PASS: daily-log finalization and family delivery commit together, retries deduplicate, final content is immutable and audited, and parent/future publication is denied; rolled back' result;

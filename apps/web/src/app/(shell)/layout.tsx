@@ -34,8 +34,8 @@ export default async function ShellLayout({ children }: { children: React.ReactN
   if (!user) redirect("/sign-in");
 
   const profile = await getMyProfile(supabase);
-  if (!isAdminRole(profile?.role)) redirect("/use-the-app");
-  if (!profile) redirect("/sign-in");
+  if (!profile || profile.archived_at) redirect("/account-issue");
+  if (!isAdminRole(profile.role)) redirect("/use-the-app");
 
   const [daycare, locations, badges, notifications, notificationPreferences, deliverySettings, assurance] = await Promise.all([
     getMyDaycare(supabase),
@@ -65,7 +65,7 @@ export default async function ShellLayout({ children }: { children: React.ReactN
       initialPreferences={notificationPreferences}
       initialDeliverySettings={deliverySettings}
     >
-      <div className="flex min-h-dvh bg-canvas">
+      <div className="flex min-h-dvh flex-col bg-canvas md:flex-row">
         <Sidebar
           daycareName={locations.find((location) => location.is_active)?.group_name ?? daycare?.name ?? "Your center"}
           locations={locations}

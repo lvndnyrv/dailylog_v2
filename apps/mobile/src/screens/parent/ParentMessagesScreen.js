@@ -175,7 +175,6 @@ export default function ParentMessagesScreen() {
       >
         <View style={styles.threadAvatar}>
           <Text style={styles.threadAvatarText}>{item.initial.toUpperCase()}</Text>
-          {!!item.staffName && <View style={styles.onlineDot} />}
         </View>
         <View style={styles.threadBody}>
           <Text style={styles.threadTitle} numberOfLines={1}>{title}</Text>
@@ -405,17 +404,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   threadAvatarText: { fontSize: 15, fontFamily: fonts.bold, color: colors.primary },
-  onlineDot: {
-    position: 'absolute',
-    right: 0,
-    bottom: 0,
-    width: 11,
-    height: 11,
-    borderRadius: 6,
-    backgroundColor: colors.success,
-    borderWidth: 2.5,
-    borderColor: colors.surface,
-  },
   threadBody: { flex: 1, minWidth: 0 },
   threadTitle: { fontSize: 14.5, fontFamily: fonts.bold, color: colors.textPrimary },
   threadPreview: {

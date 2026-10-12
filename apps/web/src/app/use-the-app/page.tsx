@@ -15,6 +15,7 @@ export default async function UseTheAppPage() {
   if (!user) redirect("/sign-in");
 
   const profile = await getMyProfile(supabase);
+  if (!profile || profile.archived_at) redirect("/account-issue");
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-canvas p-6">

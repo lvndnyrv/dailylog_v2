@@ -1,4 +1,4 @@
-import { isStaffRole } from '@dailylog/shared';
+import { isAdminRole, isStaffRole } from '@dailylog/shared';
 import { navigate } from './navigationRef';
 
 function value(payload, ...keys) {
@@ -9,6 +9,18 @@ function value(payload, ...keys) {
   return null;
 }
 
+function idFromHref(payload, segment) {
+  const href = String(payload?.href || '');
+  const match = href.match(new RegExp(`/${segment}/([0-9a-f-]{36})(?:[/?#]|$)`, 'i'));
+  return match?.[1] || null;
+}
+
+function staffProfileRoute(role, params = {}) {
+  return isAdminRole(role)
+    ? { name: 'AdminTabs', params: { screen: 'AdminSettings', params } }
+    : { name: 'EducatorTabs', params: { screen: 'ProfileTab', params } };
+}
+
 function parentHome(payload) {
   return {
     name: 'ParentTabs',
@@ -17,6 +29,7 @@ function parentHome(payload) {
       params: {
         childId: value(payload, 'childId', 'child_id'),
         logDate: value(payload, 'logDate', 'log_date', 'date'),
+        linkedAt: Date.now(),
       },
     },
   };
@@ -31,6 +44,7 @@ export function resolveNotificationRoute(payload = {}, role = 'parent') {
   const requestId = value(payload, 'requestId', 'request_id');
   const invoiceId = value(payload, 'invoiceId', 'invoice_id');
   const paymentId = value(payload, 'paymentId', 'payment_id');
+  const enrollmentId = value(payload, 'enrollmentId', 'enrollment_id') || idFromHref(payload, 'enrollment');
   const closureId = value(payload, 'closureId', 'closure_id');
   const transitionId = value(payload, 'transitionId', 'transition_id');
   const authorizationId = value(payload, 'authorizationId', 'authorization_id');
@@ -40,14 +54,17 @@ export function resolveNotificationRoute(payload = {}, role = 'parent') {
 
   if (role === 'parent') {
     if (screen === 'ParentNotifications') return { name: 'ParentNotifications' };
+    if (screen === 'ParentEditProfile' || type === 'family_profile_updated') {
+      return { name: 'ParentEditProfile', params: { linkedAt: Date.now() } };
+    }
     if (screen === 'AuthorizedPickups' || type === 'pickup_reviewed') {
-      return { name: 'AuthorizedPickups', params: { childId } };
+      return { name: 'AuthorizedPickups', params: { childId, linkedAt: Date.now() } };
     }
     if (screen === 'PickupPass' || type === 'parent_pickup') {
       return { name: 'PickupPass', params: { childId } };
     }
     if (screen === 'ReportAbsence' || type === 'parent_absence') {
-      return { name: 'ReportAbsence', params: { childId } };
+      return { name: 'ReportAbsence', params: { childId, linkedAt: Date.now() } };
     }
     if (screen === 'ParentDayRecap' || type === 'daily_recap') {
       const logDate = value(payload, 'logDate', 'log_date', 'date');
@@ -72,7 +89,7 @@ export function resolveNotificationRoute(payload = {}, role = 'parent') {
       };
     }
     if ((screen === 'IncidentDetail' || type === 'incident') && incidentId) {
-      return { name: 'IncidentDetail', params: { incidentId, childId } };
+      return { name: 'IncidentDetail', params: { incidentId, childId, linkedAt: Date.now() } };
     }
     if (screen === 'ParentDocumentUpload' || type === 'parent_document_request') {
       return {
@@ -128,7 +145,10 @@ export function resolveNotificationRoute(payload = {}, role = 'parent') {
       return { name: 'EventDetail', params: { announcementId } };
     }
     if (screen === 'Announcements' || type === 'announcement') {
-      return { name: 'Announcements' };
+      return {
+        name: 'Announcements',
+        params: { announcementId, linkedAt: Date.now() },
+      };
     }
     if (
       ['Messaging', 'Messages', 'ParentMessages'].includes(screen)
@@ -157,6 +177,39 @@ export function resolveNotificationRoute(payload = {}, role = 'parent') {
         nudgeId: value(payload, 'nudgeId', 'nudge_id'),
       },
     };
+  }
+  if (screen === 'ProfileTab' || ['permission_update', 'staff_role_changed'].includes(type)) {
+    return staffProfileRoute(role, { linkedAt: Date.now() });
+  }
+  if (screen === 'Dashboard' && isAdminRole(role)) {
+    return { name: 'AdminTabs', params: { screen: 'AdminDashboard' } };
+  }
+  if (screen === 'Credentials' || type === 'credential_reminder') {
+    return { name: 'Credentials', params: { credentialId: value(payload, 'credentialId', 'credential_id') } };
+  }
+  if (isAdminRole(role) && (type === 'compliance_due' || String(payload.href || '').startsWith('/compliance'))) {
+    return { name: 'AdminCompliance', params: { linkedAt: Date.now() } };
+  }
+  if (type === 'new_device_sign_in' || String(payload.href || '').includes('/settings#security')) {
+    return staffProfileRoute(role, { focusSection: 'security', linkedAt: Date.now() });
+  }
+  if (
+    isAdminRole(role)
+    && (screen === 'Billing' || type.includes('billing') || type === 'payment_received' || String(payload.href || '').startsWith('/billing'))
+  ) {
+    return invoiceId
+      ? { name: 'AdminInvoiceDetail', params: { invoiceId, paymentId, linkedAt: Date.now() } }
+      : { name: 'AdminBilling', params: { paymentId, linkedAt: Date.now() } };
+  }
+  if (
+    isAdminRole(role)
+    && (['ParentEnrollmentOffer', 'EnrollmentOffer', 'ParentInquiryJourney', 'Enrollment'].includes(screen)
+      || type === 'waitlist_enrollment'
+      || String(payload.href || '').startsWith('/enrollment'))
+  ) {
+    return enrollmentId
+      ? { name: 'AdminEnrollmentReview', params: { enrollmentId, linkedAt: Date.now() } }
+      : { name: 'AdminEnrollmentReview' };
   }
   if (screen === 'StaffConversation' || type === 'staff_message') {
     return {
@@ -190,6 +243,18 @@ export function resolveNotificationRoute(payload = {}, role = 'parent') {
         reportId: value(payload, 'reportId', 'report_id'),
         startsOn: value(payload, 'startsOn', 'starts_on', 'date'),
         endsOn: value(payload, 'endsOn', 'ends_on'),
+        linkedAt: Date.now(),
+      },
+    };
+  }
+  if (type === 'parent_document_review') {
+    return {
+      name: 'AdminDocumentReview',
+      params: {
+        childId,
+        requestId,
+        submissionId: value(payload, 'submissionId', 'submission_id'),
+        linkedAt: Date.now(),
       },
     };
   }
@@ -200,21 +265,34 @@ export function resolveNotificationRoute(payload = {}, role = 'parent') {
         childId,
         pickupId: value(payload, 'pickupId', 'pickup_id'),
         focusSection: type === 'pickup_review' ? 'pickups' : undefined,
+        linkedAt: Date.now(),
       },
     };
   }
-  if (screen === 'Pickups' || ['pickup_security', 'pickup_security_resolved'].includes(type)) {
-    return { name: 'Pickups', params: { childId, eventId: value(payload, 'eventId', 'event_id') } };
+  if (screen === 'ChildConsents' || type === 'activity_consent') {
+    return { name: 'ChildConsents', params: { childId, linkedAt: Date.now() } };
   }
-  if (screen === 'IncidentHub' || ['incident', 'incident_acknowledged'].includes(type)) {
+  if (screen === 'Pickups' || ['pickup_security', 'pickup_security_resolved'].includes(type)) {
+    return {
+      name: 'Pickups',
+      params: { childId, eventId: value(payload, 'eventId', 'event_id'), linkedAt: Date.now() },
+    };
+  }
+  if (screen === 'IncidentHub' || ['incident', 'incident_report', 'incident_acknowledged'].includes(type)) {
     return incidentId
-      ? { name: 'IncidentRecord', params: { incidentId, childId } }
+      ? { name: 'IncidentRecord', params: { incidentId, childId, linkedAt: Date.now() } }
       : { name: 'IncidentHub' };
   }
   if (screen === 'EventDetail' && announcementId) {
     return isStaffRole(role)
       ? { name: 'EventRsvps', params: { announcementId } }
       : { name: 'EventDetail', params: { announcementId } };
+  }
+  if (type === 'time_off_request' && isAdminRole(role) && requestId) {
+    return {
+      name: 'AdminTimeOff',
+      params: { requestId, linkedAt: Date.now() },
+    };
   }
   if (screen === 'TimeOffDetail' && value(payload, 'requestId', 'request_id')) {
     return { name: 'TimeOffDetail', params: { requestId: value(payload, 'requestId', 'request_id') } };
@@ -223,10 +301,53 @@ export function resolveNotificationRoute(payload = {}, role = 'parent') {
     return { name: 'MyTime' };
   }
   if (screen === 'WeeklyTimesheet' || type === 'timesheet_review') {
-    return { name: 'WeeklyTimesheet', params: { entryId: value(payload, 'entryId', 'entry_id') } };
+    return {
+      name: 'WeeklyTimesheet',
+      params: {
+        entryId: value(payload, 'entryId', 'entry_id'),
+        clockedAt: value(payload, 'clockedAt', 'clocked_at'),
+        linkedAt: Date.now(),
+      },
+    };
+  }
+  if (screen === 'StaffCredentialReview' || type === 'credential_review') {
+    return {
+      name: 'AdminCredentials',
+      params: {
+        submissionId: value(payload, 'submissionId', 'submission_id'),
+        staffMemberId: value(payload, 'staffMemberId', 'staff_member_id'),
+        linkedAt: Date.now(),
+      },
+    };
+  }
+  if (['parent_data_request_admin', 'account_deletion_request_admin'].includes(type) || screen === 'AdminPrivacyRequests') {
+    return {
+      name: 'AdminPrivacyRequests',
+      params: {
+        requestId: value(payload, 'requestId', 'request_id'),
+        requestType: value(payload, 'requestType', 'request_type'),
+        source: value(payload, 'source'),
+      },
+    };
+  }
+  if (type === 'account_deletion_request' || screen === 'Settings') {
+    return staffProfileRoute(role, {
+      requestId: value(payload, 'requestId', 'request_id'),
+      linkedAt: Date.now(),
+    });
   }
   if (screen === 'CredentialRenewal' || type === 'cert_expiry') {
-    return { name: 'CredentialRenewal', params: { credentialId: value(payload, 'credentialId', 'credential_id') } };
+    const credentialId = value(payload, 'credentialId', 'credential_id');
+    return isAdminRole(role)
+      ? {
+          name: 'AdminCredentials',
+          params: {
+            credentialId,
+            staffMemberId: value(payload, 'staffMemberId', 'staff_member_id'),
+            linkedAt: Date.now(),
+          },
+        }
+      : { name: credentialId ? 'CredentialRenewal' : 'Credentials', params: credentialId ? { credentialId } : undefined };
   }
   if (screen === 'CredentialDetail' || type === 'credential_decision') {
     return { name: 'CredentialDetail', params: { credentialId: value(payload, 'credentialId', 'credential_id') } };
@@ -237,7 +358,12 @@ export function resolveNotificationRoute(payload = {}, role = 'parent') {
       params: { childId, authorizationId, medicationLogId, linkedAt: Date.now() },
     };
   }
-  if (screen === 'Announcements' || type === 'announcement') return { name: 'Announcements' };
+  if (screen === 'Announcements' || type === 'announcement') {
+    return {
+      name: 'Announcements',
+      params: { announcementId, linkedAt: Date.now() },
+    };
+  }
   return null;
 }
 

@@ -111,6 +111,9 @@ function nextScheduledDose(authorizations, now = new Date()) {
 
 function authorizationState(authorization, now = new Date()) {
   const today = format(now, 'yyyy-MM-dd');
+  if (!authorization?.active && !authorization?.signed_at && !authorization?.consented_at) {
+    return 'consent_needed';
+  }
   if (!authorization?.active) return 'ended';
   if (authorization.start_date && authorization.start_date > today) return 'upcoming';
   if (authorization.end_date && authorization.end_date < today) return 'expired';
@@ -121,6 +124,9 @@ function authorizationStatus(authorization) {
   const state = authorizationState(authorization);
   if (state === 'ended') {
     return { label: 'Ended', color: colors.textMuted, bg: colors.bg };
+  }
+  if (state === 'consent_needed') {
+    return { label: 'Your authorization needed', color: colors.amber, bg: colors.amberLight };
   }
   if (state === 'upcoming') {
     return {
@@ -159,6 +165,7 @@ function authorizationStatus(authorization) {
 }
 
 function canRenewAuthorization(authorization) {
+  if (!authorization?.signed_at || !authorization?.consented_at) return false;
   if (!authorization?.end_date) return !authorization?.active;
   return !authorization.active
     || differenceInCalendarDays(parseISO(authorization.end_date), new Date()) <= 7;
@@ -320,11 +327,13 @@ export default function MedicationScreen({ route, navigation }) {
   const [labelUrls, setLabelUrls] = useState({});
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
+  const [canLogDose, setCanLogDose] = useState(false);
   const [viewingAuth, setViewingAuth] = useState(null);
   const [viewingLogs, setViewingLogs] = useState([]);
   const [viewingLogsLoading, setViewingLogsLoading] = useState(false);
   const [viewingLogsHasMore, setViewingLogsHasMore] = useState(false);
   const [renewingFrom, setRenewingFrom] = useState(null);
+  const [authorizingDraft, setAuthorizingDraft] = useState(null);
   const handledTargetRef = useRef('');
 
   const [composing, setComposing] = useState(false);
@@ -360,8 +369,10 @@ export default function MedicationScreen({ route, navigation }) {
   const isParent = profile?.role === 'parent';
 
   useEffect(() => {
-    if (isParent && route.params?.compose) setComposing(true);
-  }, [isParent, route.params?.compose]);
+    if (isParent && route.params?.compose && !route.params?.authorizationId) {
+      openNewAuthorization();
+    }
+  }, [isParent, route.params?.authorizationId, route.params?.compose, route.params?.linkedAt]);
 
   const activeAuths = useMemo(
     () => auths.filter((authorization) => authorizationState(authorization) === 'active'),
@@ -369,6 +380,10 @@ export default function MedicationScreen({ route, navigation }) {
   );
   const upcomingAuths = useMemo(
     () => auths.filter((authorization) => authorizationState(authorization) === 'upcoming'),
+    [auths]
+  );
+  const pendingAuths = useMemo(
+    () => auths.filter((authorization) => authorizationState(authorization) === 'consent_needed'),
     [auths]
   );
   const pastAuths = useMemo(
@@ -393,19 +408,22 @@ export default function MedicationScreen({ route, navigation }) {
 
   useEffect(() => {
     const target = route.params?.authorizationId || route.params?.medicationLogId;
-    if (!target || handledTargetRef.current === target || !auths.length) return;
+    const targetKey = target ? `${target}:${route.params?.linkedAt || ''}` : '';
+    if (!target || handledTargetRef.current === targetKey || !auths.length) return;
     const targetLog = logs.find((log) => log.id === route.params?.medicationLogId);
     const authorizationId = route.params?.authorizationId || targetLog?.authorization_id;
     const authorization = auths.find((item) => item.id === authorizationId);
     if (authorization) {
-      handledTargetRef.current = target;
-      if (route.params?.openDose && isStaff && authorizationState(authorization) === 'active') {
+      handledTargetRef.current = targetKey;
+      if (route.params?.openDose && canLogDose && authorizationState(authorization) === 'active') {
         openDoseSheet(authorization);
+      } else if (isParent && authorizationState(authorization) === 'consent_needed') {
+        startAuthorizationRequest(authorization);
       } else {
         openAuthorizationDetail(authorization);
       }
     }
-  }, [auths, isStaff, logs, route.params?.authorizationId, route.params?.medicationLogId, route.params?.openDose]);
+  }, [auths, canLogDose, isParent, logs, route.params?.authorizationId, route.params?.linkedAt, route.params?.medicationLogId, route.params?.openDose]);
 
   async function load() {
     setLoading(true);
@@ -435,24 +453,25 @@ export default function MedicationScreen({ route, navigation }) {
         .limit(LOG_PAGE_SIZE + 1),
     ];
 
-    if (isStaff) {
-      requests.push(
-        supabase
-          .from('profiles')
-          .select('id, full_name, role')
-          .eq('daycare_id', profile.daycare_id)
-          .in('role', ['owner_admin', 'admin', 'educator'])
-          .is('archived_at', null)
-          .neq('id', profile.id)
-          .order('full_name')
-      );
-    }
+    requests.push(isStaff
+      ? supabase
+        .from('profiles')
+        .select('id, full_name, role')
+        .eq('daycare_id', profile.daycare_id)
+        .in('role', ['owner_admin', 'admin', 'educator'])
+        .is('archived_at', null)
+        .neq('id', profile.id)
+        .order('full_name')
+      : Promise.resolve({ data: [], error: null }));
+    requests.push(isStaff
+      ? supabase.rpc('has_permission', { p_area: 'medications', p_action: 'edit' })
+      : Promise.resolve({ data: false, error: null }));
 
-    const [childRes, authRes, logRes, staffRes] = await Promise.all(requests);
+    const [childRes, authRes, logRes, staffRes, permissionRes] = await Promise.all(requests);
     const authorizations = authRes.data || [];
     let medicationLogs = (logRes.data || []).slice(0, LOG_PAGE_SIZE);
     setHasOlderLogs((logRes.data || []).length > LOG_PAGE_SIZE);
-    const requestError = childRes.error || authRes.error || logRes.error || staffRes?.error;
+    const requestError = childRes.error || authRes.error || logRes.error || staffRes?.error || permissionRes?.error;
 
     if (
       route.params?.medicationLogId
@@ -478,7 +497,8 @@ export default function MedicationScreen({ route, navigation }) {
     if (childRes.data) setChild(childRes.data);
     setAuths(authorizations);
     setLogs(medicationLogs);
-    if (staffRes) setStaff(staffRes.data || []);
+    setStaff(staffRes?.data || []);
+    setCanLogDose(Boolean(permissionRes?.data));
     setLoading(false);
     loadLabelUrls(authorizations);
   }
@@ -586,6 +606,7 @@ export default function MedicationScreen({ route, navigation }) {
     setConsented(false);
     setFormErrors({});
     setRenewingFrom(null);
+    setAuthorizingDraft(null);
   }
 
   function updateFormField(field, setter) {
@@ -637,6 +658,27 @@ export default function MedicationScreen({ route, navigation }) {
     setEndDate(format(addDays(renewalStart, renewalDays), 'yyyy-MM-dd'));
     setNotes(authorization.notes || '');
     setRenewingFrom(authorization);
+    setViewingAuth(null);
+    setComposing(true);
+  }
+
+  function startAuthorizationRequest(authorization) {
+    const dosage = splitDosage(authorization.dosage);
+    resetAuthorizationForm();
+    setName(authorization.name || '');
+    setDoseAmount(dosage.amount);
+    setDoseUnit(dosage.unit);
+    setRouteName(authorization.route || 'Oral');
+    setMedicationType(authorization.medication_type || 'prescription');
+    setScheduleType(authorization.schedule_type || 'as_needed');
+    setScheduledTimes((authorization.scheduled_times || []).map((time) => String(time).slice(0, 5)));
+    setSchedule(authorization.schedule || '');
+    setCondition(authorization.as_needed_condition || '');
+    setMaxDaily(authorization.max_daily_doses ? String(authorization.max_daily_doses) : '');
+    setStartDate(authorization.start_date || format(new Date(), 'yyyy-MM-dd'));
+    setEndDate(authorization.end_date || format(addDays(new Date(), 30), 'yyyy-MM-dd'));
+    setNotes(authorization.notes || '');
+    setAuthorizingDraft(authorization);
     setViewingAuth(null);
     setComposing(true);
   }
@@ -738,7 +780,7 @@ export default function MedicationScreen({ route, navigation }) {
     try {
       uploadedPath = await uploadLabelPhoto(labelUri);
       const authorizedAt = new Date().toISOString();
-      const { error } = await supabase.from('medication_authorizations').insert({
+      const authorizationRecord = {
         daycare_id: child.daycare_id || profile.daycare_id,
         child_id: child.id,
         parent_id: profile.id,
@@ -764,12 +806,28 @@ export default function MedicationScreen({ route, navigation }) {
         consented_at: authorizedAt,
         authorization_version: AUTHORIZATION_VERSION,
         renewed_from_id: renewingFrom?.id || null,
-      });
+        active: true,
+      };
+      const request = authorizingDraft
+        ? supabase
+          .from('medication_authorizations')
+          .update(authorizationRecord)
+          .eq('id', authorizingDraft.id)
+          .eq('parent_id', profile.id)
+        : supabase.from('medication_authorizations').insert(authorizationRecord);
+      const { error } = await request;
       if (error) throw error;
 
       setComposing(false);
       resetAuthorizationForm();
-      showToast(renewingFrom ? 'Medication renewal authorized' : 'Medication authorized', 'success');
+      showToast(
+        renewingFrom
+          ? 'Medication renewal authorized'
+          : authorizingDraft
+            ? 'Medication request authorized'
+            : 'Medication authorized',
+        'success'
+      );
       await load();
     } catch (error) {
       if (uploadedPath) {
@@ -782,7 +840,11 @@ export default function MedicationScreen({ route, navigation }) {
   }
 
   function handleAuthorizationPress(authorization) {
-    if (isStaff && authorizationState(authorization) === 'active') {
+    if (isParent && authorizationState(authorization) === 'consent_needed') {
+      startAuthorizationRequest(authorization);
+      return;
+    }
+    if (canLogDose && authorizationState(authorization) === 'active') {
       openDoseSheet(authorization);
       return;
     }
@@ -922,7 +984,7 @@ export default function MedicationScreen({ route, navigation }) {
               </Text>
             </View>
           </View>
-          {isStaff && state === 'active' ? (
+          {canLogDose && state === 'active' ? (
             <View style={styles.logDosePill}>
               <Text style={styles.logDosePillText}>Log dose</Text>
             </View>
@@ -1020,6 +1082,21 @@ export default function MedicationScreen({ route, navigation }) {
             </View>
           )}
         </View>
+
+        {isParent && pendingAuths.length ? (
+          <View style={[styles.card, styles.pendingAuthorizationCard]}>
+            <View style={styles.cardHeader}>
+              <Text style={styles.cardTitle}>Needs your authorization</Text>
+              <View style={[styles.countBadge, styles.pendingCountBadge]}>
+                <Text style={[styles.countBadgeText, styles.pendingCountText]}>{pendingAuths.length}</Text>
+              </View>
+            </View>
+            <Text style={styles.cardHint}>
+              Your center prepared these details. Review every field, add a current label photo, and sign before a dose can be given.
+            </Text>
+            {pendingAuths.map(renderAuthorization)}
+          </View>
+        ) : null}
 
         <View style={styles.card}>
           <Text style={styles.cardTitle}>{isParent ? 'Dose history' : 'Administration history'}</Text>
@@ -1162,7 +1239,9 @@ export default function MedicationScreen({ route, navigation }) {
         <Text style={styles.footerNote}>
           {isParent
             ? `Only ${classroomName} educators can log doses. Every dose is time-stamped, witnessed by a second staff member, and sent to you instantly.`
-            : 'Every dose requires the five-rights safety check and a second staff witness. Parents are notified immediately.'}
+            : canLogDose
+              ? 'Every dose requires the five-rights safety check and a second staff witness. Parents are notified immediately.'
+              : 'You have view-only medication access. Authorized staff can log doses after completing the five-rights safety check.'}
         </Text>
       </ScrollView>
 
@@ -1334,7 +1413,11 @@ export default function MedicationScreen({ route, navigation }) {
             showsVerticalScrollIndicator={false}
           >
             <SheetHeader
-              title={renewingFrom ? 'Renew medication' : 'Authorize medication'}
+              title={renewingFrom
+                ? 'Renew medication'
+                : authorizingDraft
+                  ? 'Review medication request'
+                  : 'Authorize medication'}
               onClose={closeAuthorizationForm}
             />
 
@@ -1343,6 +1426,15 @@ export default function MedicationScreen({ route, navigation }) {
                 <Ionicons name="refresh-circle-outline" size={22} color={colors.primary} />
                 <Text style={styles.renewalNoticeText}>
                   Details were copied from the previous authorization. Review every field, add a current label photo, and sign again. The renewal starts after the existing authorization ends.
+                </Text>
+              </View>
+            ) : null}
+
+            {authorizingDraft ? (
+              <View style={styles.renewalNotice}>
+                <Ionicons name="shield-checkmark-outline" size={22} color={colors.primary} />
+                <Text style={styles.renewalNoticeText}>
+                  Your center started this request, but it is not active yet. Confirm the directions, add the medication label, and sign to authorize it.
                 </Text>
               </View>
             ) : null}
@@ -1576,7 +1668,7 @@ export default function MedicationScreen({ route, navigation }) {
             </Text>
 
             <Button
-              label="Authorize medication"
+              label={authorizingDraft ? 'Review & authorize medication' : 'Authorize medication'}
               onPress={handleAuthorize}
               loading={saving}
               style={styles.sheetSubmit}
@@ -1830,6 +1922,10 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     marginBottom: spacing.lg,
   },
+  pendingAuthorizationCard: {
+    borderColor: colors.amber,
+    backgroundColor: colors.amberLight,
+  },
   cardHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1858,6 +1954,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  pendingCountBadge: { backgroundColor: colors.white },
+  pendingCountText: { color: colors.amber },
   countBadgeText: {
     fontSize: 12,
     fontFamily: fonts.bold,

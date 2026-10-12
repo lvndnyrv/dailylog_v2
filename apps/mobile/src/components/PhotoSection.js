@@ -229,10 +229,22 @@ export function PhotoSection({ logId, childId, readOnly = false }) {
   }
 
   async function deletePhoto(photo) {
-    // Remove optimistically from UI, then delete from storage + DB
+    // Delete metadata first. If the report became final while this screen was
+    // stale, the database rejects the change and the stored image stays safe.
     setPhotos(prev => prev.filter(p => p.id !== photo.id));
-    await supabase.storage.from('daily-log-photos').remove([photo.storage_path]);
-    await supabase.from('photos').delete().eq('id', photo.id);
+    const { error: dbError } = await supabase.from('photos').delete().eq('id', photo.id);
+    if (dbError) {
+      await loadPhotos();
+      Alert.alert('Could not remove photo', dbError.message);
+      return;
+    }
+
+    const { error: storageError } = await supabase.storage
+      .from('daily-log-photos')
+      .remove([photo.storage_path]);
+    if (storageError) {
+      Alert.alert('Photo removed', 'The photo was removed from the report, but its stored file still needs cleanup.');
+    }
   }
 
   return (

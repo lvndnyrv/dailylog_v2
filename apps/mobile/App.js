@@ -2,7 +2,7 @@ import React from 'react';
 import { NavigationContainer, useFocusEffect } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { Text, View, TouchableOpacity, StyleSheet, Linking } from 'react-native';
+import { Text, View, TouchableOpacity, StyleSheet } from 'react-native';
 import {
   SafeAreaProvider,
   SafeAreaView,
@@ -29,6 +29,8 @@ import { ParentNotificationsProvider, useParentNotifications } from './src/hooks
 import { usePushNotifications } from './src/hooks/usePushNotifications';
 import { useUnreadMessages } from './src/hooks/useUnreadMessages';
 import { LoadingScreen, Button } from './src/components/ui';
+import { AppErrorBoundary } from './src/components/AppErrorBoundary';
+import { AppUpdateBanner } from './src/components/AppUpdateBanner';
 import { OfflineBanner } from './src/components/OfflineBanner';
 import { ToastHost } from './src/components/Toast';
 import { PushPrimingModal } from './src/components/PushPriming';
@@ -38,6 +40,7 @@ import { RatioAlertGate } from './src/components/RatioAlertGate';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import WelcomeScreen, { WELCOME_SEEN_KEY } from './src/screens/shared/WelcomeScreen';
 import { flushPendingNavigation, navigationRef } from './src/lib/navigationRef';
+import { openConfiguredSupport } from './src/lib/support';
 import { colors, fonts, spacing } from './src/theme';
 
 import LoginScreen          from './src/screens/shared/LoginScreen';
@@ -126,10 +129,26 @@ import ParentClosuresScreen from './src/screens/parent/ParentClosuresScreen';
 import ParentRoomMoveScreen from './src/screens/parent/ParentRoomMoveScreen';
 import ParentChildInviteScreen from './src/screens/parent/ParentChildInviteScreen';
 import AnnouncementsScreen   from './src/screens/shared/AnnouncementsScreen';
+import CenterClosuresScreen  from './src/screens/shared/CenterClosuresScreen';
 import MedicationScreen      from './src/screens/shared/MedicationScreen';
 import ConsentScreen         from './src/screens/shared/ConsentScreen';
 import AdminDashboardScreen  from './src/screens/admin/AdminDashboardScreen';
+import AdminAttendanceScreen from './src/screens/admin/AdminAttendanceScreen';
+import AdminCredentialsScreen from './src/screens/admin/AdminCredentialsScreen';
+import AdminDocumentReviewScreen from './src/screens/admin/AdminDocumentReviewScreen';
+import AdminChildDocumentsScreen from './src/screens/admin/AdminChildDocumentsScreen';
+import AdminPrivacyRequestsScreen from './src/screens/admin/AdminPrivacyRequestsScreen';
+import AdminBillingScreen from './src/screens/admin/AdminBillingScreen';
+import AdminInvoiceDetailScreen from './src/screens/admin/AdminInvoiceDetailScreen';
+import AdminEnrollmentReviewScreen from './src/screens/admin/AdminEnrollmentReviewScreen';
+import AdminComplianceScreen from './src/screens/admin/AdminComplianceScreen';
+import AdminInspectionPackScreen from './src/screens/admin/AdminInspectionPackScreen';
+import AdminClassroomsScreen from './src/screens/admin/AdminClassroomsScreen';
+import AdminChildrenScreen from './src/screens/admin/AdminChildrenScreen';
+import AdminStaffProfileScreen from './src/screens/admin/AdminStaffProfileScreen';
+import AdminFamilyProfileScreen from './src/screens/admin/AdminFamilyProfileScreen';
 import AdminUsersScreen      from './src/screens/admin/AdminUsersScreen';
+import AdminTimeOffScreen    from './src/screens/admin/AdminTimeOffScreen';
 import AdminSettingsScreen   from './src/screens/admin/AdminSettingsScreen';
 
 import { supabase } from './src/lib/supabase';
@@ -380,9 +399,9 @@ function AdminTabs() {
     <Tab.Navigator screenOptions={{ headerShown: false, tabBarStyle }}>
       <Tab.Screen name="AdminDashboard" component={AdminDashboardScreen}
         options={{ tabBarIcon: ({ focused }) => <TabIcon name="grid" label="Dashboard" focused={focused} />, tabBarLabel: () => null }} />
-      <Tab.Screen name="Roster" component={RosterScreen}
+      <Tab.Screen name="Roster" component={AdminChildrenScreen}
         options={{ tabBarIcon: ({ focused }) => <TabIcon name="people" label="Kids" focused={focused} />, tabBarLabel: () => null }} />
-      <Tab.Screen name="ManageTab" component={ManageScreen}
+      <Tab.Screen name="ManageTab" component={AdminClassroomsScreen}
         options={{ tabBarIcon: ({ focused }) => <TabIcon name="school" label="Class" focused={focused} />, tabBarLabel: () => null }} />
       <Tab.Screen name="AdminUsers" component={AdminUsersScreen}
         options={{ tabBarIcon: ({ focused }) => <TabIcon name="person-add" label="Users" focused={focused} />, tabBarLabel: () => null }} />
@@ -469,13 +488,14 @@ const childSwitcherStyles = StyleSheet.create({
 // ─── PROFILE ERROR FALLBACK ───────────────────────────────────────────────────
 // Shown if a signed-in user has no profile row and self-heal failed.
 function ProfileIssueScreen() {
-  const { user, fetchProfile, signOut } = useAuth();
-  const supportEmail = process.env.EXPO_PUBLIC_SUPPORT_EMAIL || 'support@dailylog.app';
+  const { user, fetchProfile, signOut, profileFailure } = useAuth();
   const version = Constants.expoConfig?.version || '1.0.0';
+  const unavailable = profileFailure?.kind === 'unavailable';
 
   function contactSupport() {
-    Linking.openURL(
-      `mailto:${supportEmail}?subject=${encodeURIComponent('DailyLog profile support')}`
+    openConfiguredSupport(
+      'DailyLog profile support',
+      'Ask your childcare center administrator to resend your invitation or verify the email on your account.',
     );
   }
 
@@ -487,8 +507,9 @@ function ProfileIssueScreen() {
         </View>
         <Text style={styles.profileIssueTitle}>We couldn't load{'\n'}your profile</Text>
         <Text style={styles.profileIssueText}>
-          Your account exists but its profile is missing. Try again, or sign out
-          and contact your daycare.
+          {unavailable
+            ? 'Your account is signed in, but DailyLog could not reach your profile. Check your connection and try again.'
+            : 'Your account exists but its DailyLog profile is not ready. Try again, or ask your center to resend your invitation.'}
         </Text>
         <View style={styles.profileIssueActions}>
           <Button
@@ -504,6 +525,35 @@ function ProfileIssueScreen() {
         </TouchableOpacity>
       </View>
       <Text style={styles.profileIssueVersion}>DailyLog v{version}</Text>
+    </View>
+  );
+}
+
+function AccountInactiveScreen() {
+  const { profile, signOut } = useAuth();
+
+  function contactCenter() {
+    openConfiguredSupport(
+      'DailyLog center access',
+      'Contact your childcare center administrator using your enrollment or employment documents and ask them to review your access.',
+    );
+  }
+
+  return (
+    <View style={styles.profileIssue}>
+      <View style={styles.profileIssueContent}>
+        <View style={[styles.profileIssueIcon, styles.inactiveIcon]}>
+          <Ionicons name="lock-closed-outline" size={34} color={colors.coral} />
+        </View>
+        <Text style={styles.profileIssueTitle}>Your center access{`\n`}is inactive</Text>
+        <Text style={styles.profileIssueText}>
+          {profile?.full_name ? `${profile.full_name}, your` : 'Your'} account is still preserved, but it no longer has access to this center. Contact a center administrator if you need access restored.
+        </Text>
+        <View style={styles.profileIssueActions}>
+          <Button label="Contact support" onPress={contactCenter} />
+          <Button label="Sign out" onPress={signOut} variant="ghost" />
+        </View>
+      </View>
     </View>
   );
 }
@@ -572,6 +622,8 @@ function RootNavigator() {
     loading || welcomeSeen === null || inviteHydrating || parentChildInviteHydrating ||
     enrollmentOfferHydrating || enrollmentJourneyHydrating || paymentReceiptHydrating
   ) return <LoadingScreen />;
+
+  if (profile?.archived_at) return <AccountInactiveScreen />;
 
   if (profile?.role === 'parent' && parentFamily.loading) return <LoadingScreen />;
 
@@ -653,6 +705,20 @@ function RootNavigator() {
           <Stack.Screen name="WeeklyTimesheet" component={WeeklyTimesheetScreen} options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="TimeOffRequest"  component={TimeOffRequestScreen}  options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="TimeOffRequests" component={TimeOffRequestsScreen} options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="AdminTimeOff"     component={AdminTimeOffScreen}     options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="AdminAttendance"  component={AdminAttendanceScreen}  options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="AdminCredentials" component={AdminCredentialsScreen} options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="AdminDocumentReview" component={AdminDocumentReviewScreen} options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="AdminChildDocuments" component={AdminChildDocumentsScreen} options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="AdminPrivacyRequests" component={AdminPrivacyRequestsScreen} options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="AdminBilling" component={AdminBillingScreen} options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="AdminInvoiceDetail" component={AdminInvoiceDetailScreen} options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="AdminEnrollmentReview" component={AdminEnrollmentReviewScreen} options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="AdminCompliance" component={AdminComplianceScreen} options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="AdminInspectionPack" component={AdminInspectionPackScreen} options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="AdminRoom"        component={ManageScreen}          options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="AdminStaffProfile" component={AdminStaffProfileScreen} options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="AdminFamilyProfile" component={AdminFamilyProfileScreen} options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="TimeOffDetail"   component={TimeOffDetailScreen}   options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="RoomRatios"       component={RoomRatiosScreen}       options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="RollCall"          component={RollCallScreen}          options={{ animation: 'slide_from_right' }} />
@@ -677,6 +743,7 @@ function RootNavigator() {
           <Stack.Screen name="StaffAbsenceDetail" component={StaffAbsenceDetailScreen} options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="Messaging"       component={MessagingScreen}       options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="Announcements"   component={AnnouncementsScreen}   options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="CenterClosures"  component={CenterClosuresScreen}  options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="Medication"      component={MedicationScreen}      options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="Privacy"         component={PrivacyScreen}         options={{ animation: 'slide_from_bottom' }} />
         </>
@@ -703,6 +770,7 @@ function RootNavigator() {
           <Stack.Screen name="LatePickup"        component={LatePickupScreen}        options={{ animation: 'slide_from_bottom', presentation: 'modal' }} />
           <Stack.Screen name="RollCallComplete"  component={RollCallCompleteScreen}  options={{ animation: 'fade' }} />
           <Stack.Screen name="Credentials"       component={CredentialsScreen}       options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="AdminCredentials" component={AdminCredentialsScreen} options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="CredentialDetail" component={CredentialDetailScreen} options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="CredentialRenewal" component={CredentialRenewalScreen} options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="CredentialSubmitted" component={CredentialSubmittedScreen} options={{ animation: 'fade' }} />
@@ -720,6 +788,7 @@ function RootNavigator() {
           <Stack.Screen name="StaffAbsenceDetail" component={StaffAbsenceDetailScreen} options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="Messaging"       component={MessagingScreen}       options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="Announcements"   component={AnnouncementsScreen}   options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="CenterClosures"  component={CenterClosuresScreen}  options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="Medication"      component={MedicationScreen}      options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="Privacy"         component={PrivacyScreen}         options={{ animation: 'slide_from_bottom' }} />
         </>
@@ -788,41 +857,44 @@ export default function App() {
 
   return (
     <SafeAreaProvider>
-      <AuthProvider>
-        <ParentFamilyProvider>
-          <ParentNotificationsProvider>
-            <EnrollmentOfferProvider>
-              <EnrollmentJourneyProvider>
-                <PaymentReceiptLinkProvider>
-                  <ParentChildInviteProvider>
-                    <StaffInviteProvider>
-                      <ClassroomProvider>
-                      <NavigationContainer
-                        ref={navigationRef}
-                        onReady={flushPendingNavigation}
-                        onStateChange={flushPendingNavigation}
-                      >
-                        <SafeAreaView style={styles.root} edges={['top', 'left', 'right']}>
-                          <ForceUpdateGate>
-                            <BiometricGate>
-                              <OfflineBanner />
-                              <RootNavigator />
-                              <ParentConsentGate />
-                              <PushPrimingModal />
-                              <ToastHost />
-                            </BiometricGate>
-                          </ForceUpdateGate>
-                        </SafeAreaView>
-                      </NavigationContainer>
-                      </ClassroomProvider>
-                    </StaffInviteProvider>
-                  </ParentChildInviteProvider>
-                </PaymentReceiptLinkProvider>
-              </EnrollmentJourneyProvider>
-            </EnrollmentOfferProvider>
-          </ParentNotificationsProvider>
-        </ParentFamilyProvider>
-      </AuthProvider>
+      <AppErrorBoundary>
+        <AuthProvider>
+          <ParentFamilyProvider>
+            <ParentNotificationsProvider>
+              <EnrollmentOfferProvider>
+                <EnrollmentJourneyProvider>
+                  <PaymentReceiptLinkProvider>
+                    <ParentChildInviteProvider>
+                      <StaffInviteProvider>
+                        <ClassroomProvider>
+                        <NavigationContainer
+                          ref={navigationRef}
+                          onReady={flushPendingNavigation}
+                          onStateChange={flushPendingNavigation}
+                        >
+                          <SafeAreaView style={styles.root} edges={['top', 'left', 'right']}>
+                            <ForceUpdateGate>
+                              <BiometricGate>
+                                <AppUpdateBanner />
+                                <OfflineBanner />
+                                <RootNavigator />
+                                <ParentConsentGate />
+                                <PushPrimingModal />
+                                <ToastHost />
+                              </BiometricGate>
+                            </ForceUpdateGate>
+                          </SafeAreaView>
+                        </NavigationContainer>
+                        </ClassroomProvider>
+                      </StaffInviteProvider>
+                    </ParentChildInviteProvider>
+                  </PaymentReceiptLinkProvider>
+                </EnrollmentJourneyProvider>
+              </EnrollmentOfferProvider>
+            </ParentNotificationsProvider>
+          </ParentFamilyProvider>
+        </AuthProvider>
+      </AppErrorBoundary>
     </SafeAreaProvider>
   );
 }
@@ -854,6 +926,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.amberLight,
     marginBottom: spacing.lg,
   },
+  inactiveIcon: { backgroundColor: colors.dangerLight },
   profileIssueTitle: {
     fontSize: 24,
     lineHeight: 30,

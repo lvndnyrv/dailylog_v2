@@ -8,6 +8,7 @@ function rpcMessage(error, fallback) {
 
 export function useParentAbsences(childId) {
   const [hub, setHub] = useState(null);
+  const [policy, setPolicy] = useState(null);
   const [loading, setLoading] = useState(Boolean(childId));
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
@@ -20,17 +21,20 @@ export function useParentAbsences(childId) {
     }
     if (quiet) setRefreshing(true); else setLoading(true);
     setError('');
-    const { data, error: loadError } = await supabase.rpc('get_parent_absence_hub', {
-      p_child_id: childId,
-    });
+    const [hubResult, policyResult] = await Promise.all([
+      supabase.rpc('get_parent_absence_hub', { p_child_id: childId }),
+      supabase.rpc('get_child_absence_policy', { p_child_id: childId }),
+    ]);
     setLoading(false);
     setRefreshing(false);
+    const { data, error: loadError } = hubResult;
     if (loadError) {
       const message = rpcMessage(loadError, 'Absence information could not be loaded.');
       setError(message);
       throw new Error(message);
     }
     setHub(data || null);
+    setPolicy(policyResult.error ? null : policyResult.data || null);
     return data || null;
   }, [childId]);
 
@@ -78,6 +82,7 @@ export function useParentAbsences(childId) {
 
   return {
     hub,
+    policy,
     reports: hub?.reports || [],
     loading,
     refreshing,

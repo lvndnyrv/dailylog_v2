@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
-import * as Calendar from 'expo-calendar/legacy';
 
+import { presentCalendarEvent } from '../lib/calendar';
 import { supabase } from '../lib/supabase';
 
 function localDate(value) {
@@ -42,10 +42,7 @@ export function useParentSchedule() {
     if (!closure?.starts_on || !closure?.ends_on) {
       throw new Error('This closure does not have valid dates yet.');
     }
-    const available = await Calendar.isAvailableAsync();
-    if (!available) throw new Error('A calendar app is not available on this device.');
-
-    return Calendar.createEventInCalendarAsync({
+    return presentCalendarEvent({
       title: `${daycare?.name || 'Childcare center'} closed — ${closure.reason}`,
       startDate: localDate(closure.starts_on),
       endDate: dayAfter(closure.ends_on),

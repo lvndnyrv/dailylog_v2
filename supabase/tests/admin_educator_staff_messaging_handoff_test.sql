@@ -88,6 +88,20 @@ begin
     raise exception 'FAIL: educator did not receive a routable message alert';
   end if;
 
+  perform pg_temp.impersonate('postgres');
+  if not exists (
+    select 1
+      from public.notification_outbox outbox
+     where outbox.recipient_id = v_educator
+       and outbox.channel = 'push'
+       and outbox.kind = 'staff_message'
+       and outbox.payload ->> 'conversationId' = v_conversation::text
+       and outbox.dedupe_key = 'staff-message:' || v_message::text
+  ) then
+    raise exception 'FAIL: educator message push was not queued';
+  end if;
+
+  perform pg_temp.impersonate('authenticated', v_educator);
   if public.mark_staff_conversation_read(v_conversation) <> 1 then
     raise exception 'FAIL: educator could not mark the admin message read';
   end if;
@@ -130,7 +144,73 @@ begin
     raise exception 'FAIL: admin did not receive a routable educator reply alert';
   end if;
 
-  raise notice 'PASS: private admin/educator messaging, unread state, and routing are intact';
+  perform pg_temp.impersonate('postgres');
+  if not exists (
+    select 1
+      from public.notification_outbox outbox
+     where outbox.recipient_id = v_owner
+       and outbox.channel = 'push'
+       and outbox.kind = 'staff_message'
+       and outbox.payload ->> 'conversationId' = v_conversation::text
+       and outbox.dedupe_key = 'staff-message:' || v_reply::text
+  ) then
+    raise exception 'FAIL: admin reply push was not queued';
+  end if;
+
+  -- Offboarding closes the messaging boundary immediately, including for an
+  -- already-issued auth session and a previously valid deep link.
+  perform pg_temp.impersonate('authenticated', v_owner);
+  perform public.admin_set_staff_active(v_educator_staff_member, false);
+  if exists (
+    select 1 from public.list_my_staff_conversations() thread
+     where thread.conversation_id = v_conversation
+  ) then
+    raise exception 'FAIL: deactivated educator still appears in the admin inbox';
+  end if;
+  begin
+    perform public.get_or_create_staff_conversation(v_educator);
+    raise exception 'FAIL: admin reopened a conversation with deactivated staff';
+  exception
+    when others then
+      if sqlerrm like 'FAIL:%' then raise; end if;
+  end;
+  begin
+    perform public.send_staff_message(v_conversation, 'This must not be delivered.');
+    raise exception 'FAIL: admin sent a message to deactivated staff';
+  exception
+    when others then
+      if sqlerrm like 'FAIL:%' then raise; end if;
+  end;
+
+  perform pg_temp.impersonate('authenticated', v_educator);
+  if exists (
+    select 1 from public.conversations conversation
+     where conversation.id = v_conversation
+  ) or exists (
+    select 1 from public.messages message
+     where message.id in (v_message, v_reply)
+  ) or exists (
+    select 1 from public.list_my_staff_conversations() thread
+     where thread.conversation_id = v_conversation
+  ) then
+    raise exception 'FAIL: deactivated educator retained private message access';
+  end if;
+  begin
+    perform public.mark_staff_conversation_read(v_conversation);
+    raise exception 'FAIL: deactivated educator marked a conversation read';
+  exception
+    when others then
+      if sqlerrm like 'FAIL:%' then raise; end if;
+  end;
+  begin
+    perform public.send_staff_message(v_conversation, 'This must not be delivered.');
+    raise exception 'FAIL: deactivated educator sent a staff message';
+  exception
+    when others then
+      if sqlerrm like 'FAIL:%' then raise; end if;
+  end;
+
+  raise notice 'PASS: private staff messaging, push routing, and offboarding boundaries are intact';
 end;
 $$;
 

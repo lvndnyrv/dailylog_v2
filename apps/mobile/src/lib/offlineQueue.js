@@ -1,47 +1,82 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import NetInfo from '@react-native-community/netinfo';
-import { supabase } from '../lib/supabase';
+import { supabase } from './supabase';
 
 const QUEUE_KEY = 'dailylog_offline_queue';
+const FAILED_QUEUE_KEY = 'dailylog_failed_offline_queue';
+const MAX_SERVER_ATTEMPTS = 3;
 
-// ─── Queue change events (live pending count in OfflineBanner) ──────────────
+// AsyncStorage has no compare-and-swap operation. Serialize every queue
+// mutation so a write arriving during replay cannot be overwritten by the
+// replay's final storage update.
+let storageChain = Promise.resolve();
+const withStorageLock = task => {
+  const result = storageChain.then(task, task);
+  storageChain = result.catch(() => {});
+  return result;
+};
+
 const listeners = new Set();
 
-export function subscribeQueue(fn) {
-  listeners.add(fn);
-  return () => listeners.delete(fn);
+function parseQueue(raw) {
+  if (!raw) return [];
+  const value = JSON.parse(raw);
+  if (!Array.isArray(value)) throw new Error('Stored offline changes are invalid');
+  return value;
+}
+
+async function readQueues() {
+  const [[, pendingRaw], [, failedRaw]] = await AsyncStorage.multiGet([
+    QUEUE_KEY,
+    FAILED_QUEUE_KEY,
+  ]);
+  return {
+    pending: parseQueue(pendingRaw),
+    failed: parseQueue(failedRaw),
+  };
+}
+
+export function subscribeQueue(ownerId, listener) {
+  const subscription = { ownerId, listener };
+  listeners.add(subscription);
+  return () => listeners.delete(subscription);
 }
 
 async function emitChange() {
-  const count = await getQueueLength();
-  listeners.forEach((fn) => {
-    try { fn(count); } catch { /* listener errors are non-fatal */ }
-  });
+  for (const subscription of listeners) {
+    try {
+      const status = await getQueueStatus(subscription.ownerId);
+      subscription.listener(status.pendingCount, status.failedCount);
+    } catch {
+      // A display listener must never interrupt durable queue handling.
+    }
+  }
 }
 
-// ─── Core execution ──────────────────────────────────────────────────────────
-// Inserts are executed as upsert ON CONFLICT (id) DO NOTHING so replaying a
-// queued op that already reached the server is a no-op (client supplies the id
-// via lib/uuid.newId()).
-function execute(op) {
-  if (op.type === 'insert') {
-    return supabase.from(op.table).upsert(op.data, { onConflict: 'id', ignoreDuplicates: true });
+function execute(operation) {
+  if (operation.type === 'insert') {
+    return supabase
+      .from(operation.table)
+      .upsert(operation.data, { onConflict: 'id', ignoreDuplicates: true });
   }
-  if (op.type === 'upsert') {
-    return supabase.from(op.table).upsert(op.data, op.onConflict ? { onConflict: op.onConflict, ignoreDuplicates: !!op.ignoreDuplicates } : undefined);
+  if (operation.type === 'upsert') {
+    const options = operation.onConflict
+      ? { onConflict: operation.onConflict, ignoreDuplicates: !!operation.ignoreDuplicates }
+      : undefined;
+    return supabase.from(operation.table).upsert(operation.data, options);
   }
-  if (op.type === 'update') {
-    return supabase.from(op.table).update(op.data).eq('id', op.id);
+  if (operation.type === 'update') {
+    return supabase.from(operation.table).update(operation.data).eq('id', operation.id);
   }
-  if (op.type === 'delete') {
-    return supabase.from(op.table).delete().eq('id', op.id);
+  if (operation.type === 'delete') {
+    return supabase.from(operation.table).delete().eq('id', operation.id);
   }
-  if (op.type === 'rpc') {
-    // Server-side functions (e.g. acknowledge_incident). Queued RPCs must be
-    // idempotent — replaying one that already ran should be a no-op.
-    return supabase.rpc(op.fn, op.args || {});
+  if (operation.type === 'rpc') {
+    return supabase.rpc(operation.fn, operation.args || {});
   }
-  return Promise.resolve({ error: { message: `Unknown queue op type: ${op.type}` } });
+  return Promise.resolve({
+    error: { message: `Unknown queue operation type: ${operation.type}` },
+  });
 }
 
 async function isOnline() {
@@ -49,104 +84,205 @@ async function isOnline() {
     const state = await NetInfo.fetch();
     return !!state.isConnected && state.isInternetReachable !== false;
   } catch {
-    return true; // assume online if NetInfo itself fails
+    return true;
   }
 }
 
+function storageError(error) {
+  return {
+    message: 'This change could not be saved on this device. Free some storage and try again.',
+    cause: error,
+  };
+}
+
 /**
- * Run a write now if online, or queue it for replay if offline / network fails.
- *
- * op: { type: 'insert'|'upsert'|'update'|'delete', table, data?, id?, onConflict? }
- *     | { type: 'rpc', fn, args? }
- * Returns { data?, error?, queued? }:
- *  - error  → a real (RLS/validation) failure: caller should roll back optimistic state
- *  - queued → accepted locally, will sync on reconnect: keep optimistic state
+ * Run a write now, or durably queue it if connectivity is unavailable.
+ * Server validation and permission errors are returned to the caller rather
+ * than queued. A queued result is only reported after AsyncStorage succeeds.
  */
-export async function mutate(op) {
+export async function mutate(operation) {
   if (!(await isOnline())) {
-    await enqueue(op);
-    return { queued: true, error: null };
+    try {
+      await enqueue(operation);
+      return { queued: true, error: null };
+    } catch (error) {
+      return { queued: false, error: storageError(error) };
+    }
   }
+
   try {
-    const result = await execute(op);
-    if (result?.error) return { error: result.error };
-    return { data: result?.data ?? null, error: null };
-  } catch (err) {
-    // Thrown = network-level failure (not a PostgREST rejection) → queue it
-    await enqueue(op);
-    return { queued: true, error: null };
+    const result = await execute(operation);
+    if (result?.error) return { error: result.error, queued: false };
+    return { data: result?.data ?? null, error: null, queued: false };
+  } catch (networkError) {
+    try {
+      await enqueue(operation);
+      return { queued: true, error: null };
+    } catch (error) {
+      return { queued: false, error: storageError(error || networkError) };
+    }
   }
 }
 
-// Add an operation to the offline queue
 export async function enqueue(operation) {
-  try {
-    const raw = await AsyncStorage.getItem(QUEUE_KEY);
-    const queue = raw ? JSON.parse(raw) : [];
-    queue.push({ ...operation, opId: Date.now().toString(36) + Math.random().toString(36).slice(2, 7), timestamp: new Date().toISOString() });
-    await AsyncStorage.setItem(QUEUE_KEY, JSON.stringify(queue));
-    emitChange();
-  } catch (err) {
-    console.error('Offline queue enqueue error:', err);
-  }
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  const ownerId = session?.user?.id;
+  if (!ownerId) throw new Error('No signed-in account is available for offline storage');
+
+  await withStorageLock(async () => {
+    const { pending } = await readQueues();
+    pending.push({
+      ...operation,
+      ownerId,
+      opId: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`,
+      timestamp: new Date().toISOString(),
+      attempts: 0,
+    });
+    await AsyncStorage.setItem(QUEUE_KEY, JSON.stringify(pending));
+  });
+  await emitChange();
 }
 
 /**
- * Replay all queued operations against Supabase (in order).
- * Returns { flushed, remaining }.
+ * Replay queued operations in order. Deterministic server rejections remain
+ * pending for three attempts, then move to a visible failed queue. They are
+ * never counted as synced and are never silently discarded.
  */
-export async function flushQueue() {
+export async function flushQueue(ownerId) {
+  if (!ownerId) return { flushed: 0, remaining: 0, failed: 0 };
+  let summary;
   try {
-    const raw = await AsyncStorage.getItem(QUEUE_KEY);
-    if (!raw) return { flushed: 0, remaining: 0 };
+    summary = await withStorageLock(async () => {
+      const { pending, failed } = await readQueues();
+      const remaining = pending.filter(operation => operation.ownerId && operation.ownerId !== ownerId);
+      const current = pending.filter(operation => !operation.ownerId || operation.ownerId === ownerId);
+      const failedChanges = [...failed];
+      let flushed = 0;
 
-    const queue = JSON.parse(raw);
-    if (!queue.length) return { flushed: 0, remaining: 0 };
-
-    const failed = [];
-
-    for (const op of queue) {
-      try {
-        const result = await execute(op);
-        if (result?.error) {
-          console.warn(`Queue replay rejected for op ${op.opId}:`, result.error.message);
-          // Rejected by the server (RLS/validation) — dropping it would lose
-          // data silently; keeping it forever would jam the queue. Drop after
-          // 3 failed attempts.
-          const attempts = (op.attempts || 0) + 1;
-          if (attempts < 3) failed.push({ ...op, attempts });
+      for (const queuedOperation of current) {
+        // Pre-scope queue entries are not replayed automatically because their
+        // originating account cannot be proven. Surface them for review under
+        // the currently signed-in account instead.
+        if (!queuedOperation.ownerId) {
+          failedChanges.push({
+            ...queuedOperation,
+            ownerId,
+            lastError: 'This older offline change needs confirmation before retrying.',
+            failedAt: new Date().toISOString(),
+          });
+          continue;
         }
-      } catch (err) {
-        // Network failure — keep for next flush, don't count attempts
-        failed.push(op);
+        const operation = queuedOperation;
+        try {
+          const result = await execute(operation);
+          if (!result?.error) {
+            flushed += 1;
+            continue;
+          }
+
+          const attempts = (operation.attempts || 0) + 1;
+          if (attempts < MAX_SERVER_ATTEMPTS) {
+            remaining.push({
+              ...operation,
+              attempts,
+              lastError: result.error.message || 'The server rejected this change',
+            });
+          } else {
+            failedChanges.push({
+              ...operation,
+              attempts,
+              lastError: result.error.message || 'The server rejected this change',
+              failedAt: new Date().toISOString(),
+            });
+          }
+        } catch {
+          // A transport failure does not consume a server attempt.
+          remaining.push(operation);
+        }
       }
-    }
 
-    await AsyncStorage.setItem(QUEUE_KEY, JSON.stringify(failed));
-    emitChange();
+      await AsyncStorage.multiSet([
+        [QUEUE_KEY, JSON.stringify(remaining)],
+        [FAILED_QUEUE_KEY, JSON.stringify(failedChanges)],
+      ]);
 
-    const flushed = queue.length - failed.length;
-    if (failed.length === 0) console.log('Offline queue flushed successfully');
-    else console.warn(`${failed.length} operations still pending after flush`);
-    return { flushed, remaining: failed.length };
-  } catch (err) {
-    console.error('Offline queue flush error:', err);
-    return { flushed: 0, remaining: await getQueueLength() };
+      return {
+        flushed,
+        remaining: remaining.filter(operation => operation.ownerId === ownerId).length,
+        failed: failedChanges.filter(operation => operation.ownerId === ownerId).length,
+      };
+    });
+  } catch (error) {
+    console.error('Offline queue flush error:', error);
+    const status = await getQueueStatus(ownerId);
+    summary = {
+      flushed: 0,
+      remaining: status.pendingCount,
+      failed: status.failedCount,
+    };
   }
+
+  await emitChange();
+  return summary;
 }
 
-// Get current queue length (for showing "X changes pending" UI)
-export async function getQueueLength() {
+export async function retryFailedOperations(ownerId) {
+  if (!ownerId) return;
+  await withStorageLock(async () => {
+    const { pending, failed } = await readQueues();
+    const mine = failed.filter(operation => operation.ownerId === ownerId);
+    const others = failed.filter(operation => operation.ownerId !== ownerId);
+    const retried = mine.map(({ lastError, failedAt, ...operation }) => ({
+      ...operation,
+      attempts: 0,
+    }));
+    await AsyncStorage.multiSet([
+      [QUEUE_KEY, JSON.stringify([...retried, ...pending])],
+      [FAILED_QUEUE_KEY, JSON.stringify(others)],
+    ]);
+  });
+  await emitChange();
+}
+
+export async function discardFailedOperations(ownerId) {
+  if (!ownerId) return;
+  await withStorageLock(async () => {
+    const { failed } = await readQueues();
+    await AsyncStorage.setItem(
+      FAILED_QUEUE_KEY,
+      JSON.stringify(failed.filter(operation => operation.ownerId !== ownerId)),
+    );
+  });
+  await emitChange();
+}
+
+export async function getQueueStatus(ownerId) {
+  if (!ownerId) return { pendingCount: 0, failedCount: 0 };
   try {
-    const raw = await AsyncStorage.getItem(QUEUE_KEY);
-    return raw ? JSON.parse(raw).length : 0;
+    const { pending, failed } = await readQueues();
+    return {
+      pendingCount: pending.filter(operation => !operation.ownerId || operation.ownerId === ownerId).length,
+      failedCount: failed.filter(operation => operation.ownerId === ownerId).length,
+    };
   } catch {
-    return 0;
+    return { pendingCount: 0, failedCount: 0 };
   }
 }
 
-// Clear the queue entirely (e.g. after a full refresh from server)
-export async function clearQueue() {
-  await AsyncStorage.removeItem(QUEUE_KEY);
-  emitChange();
+export async function getQueueLength(ownerId) {
+  return (await getQueueStatus(ownerId)).pendingCount;
+}
+
+export async function clearQueue(ownerId) {
+  if (!ownerId) return;
+  await withStorageLock(async () => {
+    const { pending } = await readQueues();
+    await AsyncStorage.setItem(
+      QUEUE_KEY,
+      JSON.stringify(pending.filter(operation => operation.ownerId !== ownerId)),
+    );
+  });
+  await emitChange();
 }

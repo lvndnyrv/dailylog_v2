@@ -102,6 +102,162 @@ function esc(s) {
   return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+function complianceTime(value, timezone, fallback = '—') {
+  if (!value) return fallback;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return fallback;
+  try {
+    return date.toLocaleString('en-CA', {
+      timeZone: timezone || 'UTC',
+      year: 'numeric', month: 'short', day: 'numeric',
+      hour: 'numeric', minute: '2-digit',
+    });
+  } catch {
+    return date.toLocaleString();
+  }
+}
+
+function complianceTable(headers, rows, empty) {
+  if (!rows.length) return `<p class="muted">${esc(empty)}</p>`;
+  return `<table><thead><tr>${headers.map(header => `<th>${esc(header)}</th>`).join('')}</tr></thead><tbody>${rows.map(row => `<tr>${row.map(value => `<td>${esc(value)}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+}
+
+function complianceStaffComplete(staff, today) {
+  const required = (staff.credentials || []).filter(credential => credential.required);
+  return required.length > 0 && required.every(credential => (
+    credential.completed_on
+    && (!credential.expires_on || credential.expires_on >= today)
+    && credential.document_id
+    && !credential.pending_review
+  ));
+}
+
+export function complianceInspectionHtml(pack) {
+  const attendance = pack.attendance || [];
+  const ratioLedger = pack.ratio_ledger || {
+    captured_since: null, opens_at: '—', closes_at: '—', observed_minutes: 0,
+    compliant_minutes: 0, over_minutes: 0, intervals: [],
+  };
+  const staff = pack.staff || [];
+  const completeStaff = staff.filter(member => complianceStaffComplete(member, pack.today)).length;
+  const unsigned = (pack.incidents || []).filter(incident => !incident.signed_off_at).length;
+  const checks = [
+    staff.length > 0 && completeStaff === staff.length,
+    unsigned === 0,
+    (pack.documents || []).some(document => document.category === 'license' && (!document.expires_on || document.expires_on >= pack.today)),
+    (pack.documents || []).some(document => document.category === 'insurance' && (!document.expires_on || document.expires_on >= pack.today)),
+    (pack.drills || []).some(drill => !drill.voided_at),
+  ];
+  const readiness = Math.round((checks.filter(Boolean).length / checks.length) * 100);
+  const ratioPercent = ratioLedger.observed_minutes
+    ? Math.round((Number(ratioLedger.compliant_minutes) / Number(ratioLedger.observed_minutes)) * 100)
+    : null;
+  const attendanceRows = attendance.map(row => [
+    `${row.room || 'Unassigned'} · ${row.child_name}`,
+    complianceTime(row.checked_in_at, pack.timezone),
+    complianceTime(row.checked_out_at, pack.timezone),
+    row.dropped_off_by || row.picked_up_by || '—',
+    row.status || '—',
+  ]);
+  const intervalRows = (ratioLedger.intervals || []).map(interval => {
+    const ratioRequired = Number(interval.required_staff) > 0;
+    return [
+      interval.room,
+      complianceTime(interval.starts_at, pack.timezone),
+      complianceTime(interval.ends_at, pack.timezone, 'Current'),
+      String(interval.present_count),
+      ratioRequired ? `${interval.staff_count} / ${interval.required_staff}` : 'Not required',
+      ratioRequired
+        ? Number(interval.staff_count) >= Number(interval.required_staff) ? 'In ratio' : 'Over ratio'
+        : 'Closed hours',
+    ];
+  });
+  const exceptionRows = (pack.ratio_events || []).map(event => [
+    event.room,
+    complianceTime(event.started_at, pack.timezone),
+    complianceTime(event.resolved_at, pack.timezone, 'Still open'),
+    String(event.peak_present),
+    `${event.minimum_staff} / ${event.required_staff}`,
+  ]);
+  const staffSections = staff.map(member => {
+    const credentialRows = (member.credentials || []).map(credential => [
+      credential.name,
+      credential.required ? 'Yes' : 'No',
+      credential.completed_on || 'Missing',
+      credential.expires_on || 'Not recorded',
+      credential.pending_review ? 'Renewal awaiting review' : credential.document_id ? 'Original on file' : 'Original missing',
+    ]);
+    return `<div class="record"><h3>${esc(member.name)}</h3>${complianceTable(['Item', 'Required', 'Completed', 'Expires', 'Original / review'], credentialRows, 'Required checklist not configured.')}</div>`;
+  }).join('');
+  const drillRows = (pack.drills || []).map(drill => [
+    `${String(drill.kind || '').replaceAll('_', ' ')}${drill.voided_at ? ' · VOIDED' : ''}`,
+    complianceTime(drill.conducted_at, pack.timezone),
+    drill.lead_name,
+    `${Math.floor(Number(drill.duration_seconds || 0) / 60)}m ${Number(drill.duration_seconds || 0) % 60}s`,
+    `${drill.children_count} children · ${drill.staff_count} staff`,
+    drill.next_due_on || '—',
+  ]);
+  const incidentRows = (pack.incidents || []).map(incident => [
+    incident.child_name,
+    complianceTime(incident.occurred_at, pack.timezone),
+    incident.severity,
+    complianceTime(incident.signed_off_at, pack.timezone, 'Awaiting sign-off'),
+    complianceTime(incident.parent_acknowledged_at, pack.timezone, 'Not acknowledged'),
+  ]);
+  const documentRows = (pack.documents || []).map(document => [
+    document.title,
+    String(document.category || '').replaceAll('_', ' '),
+    `v${document.version}`,
+    document.expires_on || 'No expiry',
+    complianceTime(document.created_at, pack.timezone),
+  ]);
+
+  return `<html><head><meta name="viewport" content="width=device-width,initial-scale=1">${baseStyles}<style>
+    @page { margin: 13mm; }
+    body { padding: 0; color: #17335B; }
+    h1 { color: #17335B; margin: 0; }
+    h2 { color: #17335B; font-weight: 700; }
+    h3 { font-size: 13px; margin: 0 0 6px; }
+    .summary { display: flex; gap: 8px; margin: 18px 0; }
+    .metric { flex: 1; background: #F2F7FD; border: 1px solid #D6E1F0; border-radius: 10px; padding: 10px; }
+    .metric strong { display: block; color: #2F80D9; font-size: 18px; }
+    .metric span { color: #5B6B82; font-size: 10px; }
+    .section { page-break-inside: auto; }
+    .section-title { color: #17335B; border-color: #2F80D9; }
+    .record, tr { break-inside: avoid; page-break-inside: avoid; }
+    .record { margin: 10px 0 16px; }
+    thead { display: table-header-group; }
+    th { color: #5B6B82; background: #F2F7FD; }
+    td { color: #17335B; font-size: 10.5px; vertical-align: top; }
+    .notice { border: 1px solid #EBCB93; background: #FFF8EA; border-radius: 10px; padding: 10px; font-size: 10.5px; line-height: 1.45; }
+  </style></head><body>
+    <h1>Inspection pack — ${esc(pack.center_name)}</h1>
+    <h2>Generated ${esc(complianceTime(pack.generated_at, pack.timezone))} · ${esc(pack.timezone)}</h2>
+    <div class="summary">
+      <div class="metric"><strong>${readiness}%</strong><span>record checks complete</span></div>
+      <div class="metric"><strong>${ratioPercent === null ? '—' : `${ratioPercent}%`}</strong><span>observed ratio-compliant minutes</span></div>
+      <div class="metric"><strong>${unsigned}</strong><span>unsigned incidents</span></div>
+    </div>
+    <div class="notice">This is a live record summary, not a certification of regulatory readiness. Staff originals, incident narratives and photos remain in their authorized workflows. Printed or shared copies reflect the generation time above.</div>
+    <div class="section"><div class="section-title">Today’s sign-in sheets</div>${complianceTable(['Room / child', 'In', 'Out', 'Recorded by family', 'Status'], attendanceRows, 'No attendance entries have been recorded today.')}</div>
+    <div class="section"><div class="section-title">Ratio coverage ledger · last 30 days</div><p class="muted">Captured since ${esc(complianceTime(ratioLedger.captured_since, pack.timezone, 'not yet activated'))} · center hours ${esc(ratioLedger.opens_at)}–${esc(ratioLedger.closes_at)} · ${esc(ratioLedger.observed_minutes)} observed minutes, ${esc(ratioLedger.over_minutes)} over-ratio minutes.</p>${complianceTable(['Room', 'From', 'To', 'Children', 'Staff / required', 'Result'], intervalRows, 'No ratio intervals have been captured yet.')}</div>
+    <div class="section"><div class="section-title">Ratio exception history</div>${complianceTable(['Room', 'Started', 'Resolved', 'Peak children', 'Minimum / required'], exceptionRows, 'No recorded ratio exceptions in this window.')}</div>
+    <div class="section"><div class="section-title">Staff files & certificates</div><p class="muted">${completeStaff}/${staff.length} required checklists complete.</p>${staffSections || '<p class="muted">No active staff files.</p>'}</div>
+    <div class="section"><div class="section-title">Drill history</div>${complianceTable(['Drill', 'Conducted', 'Lead', 'Duration', 'Accounted for', 'Next due'], drillRows, 'No drill records in this window.')}</div>
+    <div class="section"><div class="section-title">Incident register</div>${complianceTable(['Child', 'Occurred', 'Severity', 'Admin sign-off', 'Parent acknowledgment'], incidentRows, 'No submitted incidents in this window.')}</div>
+    <div class="section"><div class="section-title">Included licenses, insurance & documents</div>${complianceTable(['Document', 'Category', 'Version', 'Expires', 'Added'], documentRows, 'No documents are selected for this pack.')}</div>
+    <div class="footer">Generated securely by DailyLog · summary only · retain and dispose of printed copies according to your center’s privacy policy.</div>
+  </body></html>`;
+}
+
+export async function printComplianceInspectionPack(pack) {
+  return Print.printAsync({ html: complianceInspectionHtml(pack) });
+}
+
+export async function shareComplianceInspectionPdf(pack) {
+  return sharePdf(complianceInspectionHtml(pack), `${pack.center_name} inspection pack`);
+}
+
 // ─── DAILY LOG → PDF ─────────────────────────────────────────────────────────
 export async function exportDailyLogPdf({ child, log, meals, diapers, sleeps, activities, supplies, dateStr, daycareName }) {
   const mealRows = meals.map(m =>

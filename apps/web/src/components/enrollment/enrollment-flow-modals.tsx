@@ -32,12 +32,14 @@ export function TourSlotsModal({
   classrooms,
   educators,
   timeZone,
+  centerToday,
   onClose,
 }: {
   slots: EnrollmentTourSlotRow[];
   classrooms: { id: string; name: string }[];
   educators: { id: string; fullName: string }[];
   timeZone: string;
+  centerToday: string;
   onClose: () => void;
 }) {
   const [state, action, pending] = useActionState<EnrollmentActionState, FormData>(createTourSlotAction, {});
@@ -72,7 +74,7 @@ export function TourSlotsModal({
         <input type="hidden" name="time_zone" value={timeZone} />
         <b className="text-[12.5px] text-ink">Add a 45-minute slot</b>
         <div className="grid grid-cols-2 gap-2.5">
-          <Field label="Date" name="date" type="date" min={new Date().toISOString().slice(0, 10)} required />
+          <Field label="Date" name="date" type="date" min={centerToday} required />
           <Field label="Time" name="time" type="time" required />
         </div>
         <div className="grid grid-cols-2 gap-2.5">
@@ -383,9 +385,12 @@ export function RequestDocumentsModal({ enrollment, onClose }: { enrollment: Enr
   );
 }
 
-export function SendOfferModal({ enrollment, rooms, defaultWindow, onClose }: { enrollment: Enrollment; rooms: RoomLiveStatus[]; defaultWindow: number; onClose: () => void }) {
+export function SendOfferModal({ enrollment, rooms, defaultWindow, centerToday, onClose }: { enrollment: Enrollment; rooms: RoomLiveStatus[]; defaultWindow: number; centerToday: string; onClose: () => void }) {
   const [state, action, pending] = useActionState<EnrollmentActionState, FormData>(sendOfferAction, {});
   const room = rooms.find((item) => item.id === enrollment.classroom_id);
+  const firstDay = enrollment.desired_start_date && enrollment.desired_start_date >= centerToday
+    ? enrollment.desired_start_date
+    : centerToday;
   return (
     <Modal onClose={onClose} width={430}>
       <ModalHeading title="Send a waitlist offer" subtitle="The family receives an email with the room, first day, tuition, deadline and deposit." />
@@ -394,7 +399,7 @@ export function SendOfferModal({ enrollment, rooms, defaultWindow, onClose }: { 
         <form action={action} className="flex flex-col gap-4">
           <input type="hidden" name="enrollment_id" value={enrollment.id} />
           <Select label="The room" name="classroom_id" defaultValue={room?.id ?? ""} options={rooms.map((item) => ({ id: item.id, name: `${item.name} · ${item.enrolled_count}/${item.capacity ?? "—"} currently enrolled` }))} empty="Choose room" required />
-          <div className="grid grid-cols-2 gap-2.5"><Field label="First day" name="desired_start" type="date" defaultValue={enrollment.desired_start_date ?? ""} required /><Select label="Offer expires" name="offer_window_hours" defaultValue={String(defaultWindow)} options={[{ id: "48", name: "48 hours" }, { id: "168", name: "1 week" }, { id: "336", name: "2 weeks" }]} required /></div>
+          <div className="grid grid-cols-2 gap-2.5"><Field label="First day" name="desired_start" type="date" min={centerToday} defaultValue={firstDay} required /><Select label="Offer expires" name="offer_window_hours" defaultValue={String(defaultWindow)} options={[{ id: "48", name: "48 hours" }, { id: "168", name: "1 week" }, { id: "336", name: "2 weeks" }]} required /></div>
           <div className="grid grid-cols-2 gap-2.5"><Field label="Tuition / month" name="tuition" type="number" min={0} defaultValue={(enrollment.offer_tuition_cents ?? 145000) / 100} required /><Field label="Deposit" name="deposit" type="number" min={0} defaultValue={(enrollment.offer_deposit_cents ?? 20000) / 100} required /></div>
           <Notice tone="info">Room capacity, age fit, center closures and the selected first day are rechecked atomically when you send. Published staffing gaps remain visible in the application fit check so coverage can be planned before arrival.</Notice>
           <Notice tone="success">The deposit is credited to the first month. If this offer closes, the configured rule can prepare the next safe family for administrator review.</Notice>

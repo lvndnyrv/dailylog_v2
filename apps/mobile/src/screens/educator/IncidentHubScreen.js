@@ -11,6 +11,7 @@ import {
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { format, isToday } from 'date-fns';
+import { isAdminRole } from '@dailylog/shared';
 
 import { ChildAvatar } from '../../components/ChildAvatar';
 import { ClassroomSwitcher } from '../../components/ClassroomSwitcher';
@@ -59,13 +60,14 @@ function classroomInitials(name) {
 export default function IncidentHubScreen({ navigation }) {
   const { profile } = useAuth();
   const { active } = useClassroom();
+  const adminMode = isAdminRole(profile?.role);
   const [reports, setReports] = useState([]);
   const [children, setChildren] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showChildren, setShowChildren] = useState(false);
 
   const load = useCallback(async () => {
-    if (!active?.id || !profile?.id) {
+    if ((!active?.id && !adminMode) || !profile?.id) {
       setReports([]);
       setChildren([]);
       setLoading(false);
@@ -73,14 +75,12 @@ export default function IncidentHubScreen({ navigation }) {
     }
 
     setLoading(true);
-    const [{ data: childRows }, { data: incidentRows }] = await Promise.all([
-      supabase
+    let childQuery = supabase
         .from('children')
         .select('id, first_name, last_name, classroom_id, photo_url')
-        .eq('classroom_id', active.id)
         .is('archived_at', null)
-        .order('first_name'),
-      supabase
+        .order('first_name');
+    let incidentQuery = supabase
         .from('incident_reports')
         .select(`*,
           child:children(id, first_name, last_name, classroom_id, photo_url),
@@ -88,15 +88,21 @@ export default function IncidentHubScreen({ navigation }) {
           director:profiles!incident_reports_signed_off_by_fkey(id, full_name),
           first_aid_provider:profiles!incident_reports_first_aid_by_fkey(id, full_name),
           witness:profiles!incident_reports_witness_id_fkey(id, full_name)`)
-        .eq('classroom_id', active.id)
         .order('updated_at', { ascending: false })
-        .limit(30),
-    ]);
+        .limit(50);
+    if (adminMode) {
+      childQuery = childQuery.eq('daycare_id', profile.daycare_id);
+      incidentQuery = incidentQuery.eq('daycare_id', profile.daycare_id);
+    } else {
+      childQuery = childQuery.eq('classroom_id', active.id);
+      incidentQuery = incidentQuery.eq('classroom_id', active.id);
+    }
+    const [{ data: childRows }, { data: incidentRows }] = await Promise.all([childQuery, incidentQuery]);
 
     setChildren(childRows || []);
     setReports(incidentRows || []);
     setLoading(false);
-  }, [active?.id, profile?.id]);
+  }, [active?.id, adminMode, profile?.daycare_id, profile?.id]);
 
   useFocusEffect(useCallback(() => {
     load();
@@ -147,13 +153,13 @@ export default function IncidentHubScreen({ navigation }) {
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
       >
-        <ClassroomSwitcher />
+        {!adminMode && <ClassroomSwitcher />}
 
         <View style={styles.scopePill}>
           <View style={styles.scopeAvatar}>
-            <Text style={styles.scopeAvatarText}>{classroomInitials(active?.name)}</Text>
+            <Text style={styles.scopeAvatarText}>{adminMode ? 'ALL' : classroomInitials(active?.name)}</Text>
           </View>
-          <Text style={styles.scopeText}>{active?.name || 'Classroom'} · Today</Text>
+          <Text style={styles.scopeText}>{adminMode ? 'All classrooms' : active?.name || 'Classroom'} · Today</Text>
         </View>
 
         <Button
@@ -195,7 +201,7 @@ export default function IncidentHubScreen({ navigation }) {
             <View style={styles.recentCard}>
               <Text style={styles.sectionTitle}>Recent reports</Text>
               {!recentReports.length ? (
-                <EmptyState icon="🛡️" message="No incident reports for this classroom yet." />
+                <EmptyState icon="🛡️" message={adminMode ? 'No incident reports for this center yet.' : 'No incident reports for this classroom yet.'} />
               ) : (
                 recentReports.map((report, index) => {
                   const severity = SEVERITY_META[report.severity] || SEVERITY_META.minor;
@@ -272,7 +278,7 @@ export default function IncidentHubScreen({ navigation }) {
             <View style={styles.sheetHeader}>
               <View>
                 <Text style={styles.sheetTitle}>Who was involved?</Text>
-                <Text style={styles.sheetSub}>Choose a child from {active?.name || 'this classroom'}.</Text>
+                <Text style={styles.sheetSub}>Choose a child from {adminMode ? 'this center' : active?.name || 'this classroom'}.</Text>
               </View>
               <TouchableOpacity
                 onPress={() => setShowChildren(false)}

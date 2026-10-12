@@ -80,9 +80,9 @@ async function ensureAndroidChannels(Notifications) {
     vibrationPattern: [0, 250, 250, 250],
     lightColor: '#1D9E75',
   });
-  // Referenced by notifyIncident() for serious incidents
+  // Shared by serious incidents and time-sensitive center broadcasts.
   await Notifications.setNotificationChannelAsync('urgent', {
-    name: 'Urgent incident alerts',
+    name: 'Urgent alerts',
     importance: Notifications.AndroidImportance.MAX,
     sound: 'default',
     vibrationPattern: [0, 500, 250, 500],

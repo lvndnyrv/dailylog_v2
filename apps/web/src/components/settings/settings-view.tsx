@@ -33,11 +33,24 @@ export interface AuditEntry {
 
 export interface ParentDataRequest {
   id: string;
+  source: "parent" | "account";
   request_type: "export" | "deletion";
   status: "requested" | "processing";
   requested_at: string;
   updated_at: string;
+  role?: "owner_admin" | "admin" | "educator";
   profile: { full_name: string; email: string } | null;
+}
+
+export interface ClientErrorReport {
+  id: string;
+  surface: "mobile_ios" | "mobile_android" | "web_admin";
+  error_code: string;
+  app_version: string | null;
+  release_channel: string | null;
+  framework_reference: string | null;
+  created_at: string;
+  profile: { full_name: string } | null;
 }
 
 type LatePickupPolicy = Tables<"late_pickup_policies">;
@@ -47,6 +60,7 @@ const AUDIT_LABELS: Record<string, string> = {
   account_security: "account security",
   attendance_records: "attendance record",
   center_closures: "center closure",
+  center_roles: "staff role",
   children: "child record",
   daycares: "center settings",
   family_ledger_entries: "family ledger",
@@ -61,7 +75,7 @@ const AUDIT_LABELS: Record<string, string> = {
   staff_delegations: "delegation",
 };
 const MONEY_ENTITIES = new Set(["invoices", "payments", "family_ledger_entries", "late_pickup_events"]);
-const SECURITY_ENTITIES = new Set(["account_security", "profiles", "staff_delegations", "staff_invites", "roles", "role_permissions"]);
+const SECURITY_ENTITIES = new Set(["account_security", "center_roles", "profiles", "staff_delegations", "staff_invites", "roles", "role_permissions"]);
 const SAFE_CHANGE_KEYS = new Set([
   "name", "address", "phone", "opens_at", "closes_at", "licensed_capacity",
   "license_number", "effective_from", "grace_minutes", "fee_per_minute_cents",
@@ -75,6 +89,7 @@ export function SettingsView({
   closures,
   audit = [],
   dataRequests = [],
+  clientErrors = [],
   latePickupPolicy,
   notificationPreferences = [],
   mfaEnabled,
@@ -83,6 +98,7 @@ export function SettingsView({
   closures: Closure[];
   audit?: AuditEntry[];
   dataRequests?: ParentDataRequest[];
+  clientErrors?: ClientErrorReport[];
   latePickupPolicy: LatePickupPolicy | null;
   notificationPreferences?: NotificationPreferenceRow[];
   mfaEnabled: boolean;
@@ -179,14 +195,25 @@ export function SettingsView({
             <p className="mt-3 text-[11.5px] leading-relaxed text-faint">Use the notification bell to choose delivery channels and quiet hours.</p>
           </section>
 
-          <section className={card}>
+          <section id="privacy-data-requests" className={`${card} scroll-mt-28`}>
             <div className="mb-2 flex items-center gap-2"><h2 className={cardTitle}>Privacy & data requests</h2>{dataRequests.length > 0 && <span className="rounded-full bg-warning-bg px-2 py-0.5 text-[10.5px] font-bold text-warning-text">{dataRequests.length} open</span>}</div>
-            {dataRequests.length === 0 ? <p className="text-[12px] text-faint">No parent requests need review.</p> : dataRequests.map((request) => (
+            {dataRequests.length === 0 ? <p className="text-[12px] text-faint">No privacy requests need review.</p> : dataRequests.map((request) => (
               <div key={request.id} className="border-b border-[#EDF3FB] py-2.5 last:border-b-0">
-                <span className="block truncate text-[12.5px] font-bold text-ink">{request.profile?.full_name ?? "Parent account"}</span><span className="block text-[11px] text-muted">{request.request_type === "export" ? "Family data export" : "Account deletion review"}</span>
-                <form action={updateParentDataRequestAction} className="mt-2"><input type="hidden" name="request_id" value={request.id} /><input type="hidden" name="status" value={request.status === "requested" ? "processing" : "completed"} /><button type="submit" className="text-[11.5px] font-bold text-primary">{request.status === "requested" ? "Start review" : "Mark handled"} →</button></form>
+                <span className="block truncate text-[12.5px] font-bold text-ink">{request.profile?.full_name ?? "DailyLog account"}</span><span className="block text-[11px] text-muted">{request.request_type === "export" ? "Family data export" : request.source === "account" ? `${roleLabel(request.role)} account closure` : "Parent account deletion review"}</span>
+                <form action={updateParentDataRequestAction} className="mt-2"><input type="hidden" name="request_id" value={request.id} /><input type="hidden" name="source" value={request.source} /><input type="hidden" name="expected_status" value={request.status} /><input type="hidden" name="status" value={request.status === "requested" ? "processing" : "completed"} /><button type="submit" className="text-[11.5px] font-bold text-primary">{request.status === "requested" ? "Start review" : "Mark handled"} →</button></form>
               </div>
             ))}
+          </section>
+
+          <section className={card}>
+            <h2 className={`${cardTitle} mb-2`}>Recent app diagnostics</h2>
+            {clientErrors.length === 0 ? <p className="text-[12px] text-faint">No recent app failures were reported.</p> : clientErrors.map((report) => (
+              <div key={report.id} className="border-b border-[#EDF3FB] py-2.5 last:border-b-0">
+                <span className="flex items-center gap-2"><span className="rounded-full bg-danger-bg px-2 py-0.5 text-[9.5px] font-bold uppercase text-danger">{report.surface.replace("mobile_", "")}</span><span className="truncate text-[12px] font-bold text-ink">{humanize(report.error_code)}</span></span>
+                <span className="mt-1 block text-[10.5px] text-faint">Ref {report.id.slice(0, 8).toUpperCase()} · {report.profile?.full_name ?? "Signed-in user"} · {new Date(report.created_at).toLocaleString("en-CA", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</span>
+              </div>
+            ))}
+            <p className="mt-3 text-[11px] leading-relaxed text-faint">Reports contain a technical category, app version and reference only—never form contents, messages or child records.</p>
           </section>
         </aside>
       </div>
@@ -213,6 +240,7 @@ export function SettingsView({
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) { return <div className="flex justify-between gap-3 py-0.5"><dt className="text-[12.5px] text-muted">{label}</dt><dd className="text-right text-[12.5px] font-semibold text-ink">{children}</dd></div>; }
 function StatusPill({ on, children }: { on: boolean; children: React.ReactNode }) { return <span className={`rounded-full px-2 py-0.5 text-[10.5px] font-bold ${on ? "bg-[#E4F3EC] text-success" : "bg-warning-bg text-warning-text"}`}>{children}</span>; }
+function roleLabel(role?: ParentDataRequest["role"]): string { return role === "owner_admin" ? "Owner" : role === "admin" ? "Admin" : "Educator"; }
 function PolicyRow({ title, description, status, editable = false }: { title: string; description: string; status: string; editable?: boolean }) { return <div className="flex items-center gap-3 border-t border-[#EDF3FB] py-2.5 first:border-t-0"><span className="min-w-0 flex-1"><span className="block text-[13px] font-bold text-ink">{title}</span><span className="block text-[11.5px] text-muted">{description}</span></span><span className={`rounded-full px-2.5 py-1 text-[10.5px] font-bold ${editable ? "bg-[#E3EDFA] text-primary" : "bg-[#E4F3EC] text-success"}`}>{status}</span></div>; }
 function NotificationRow({ label, enabled, detail }: { label: string; enabled: boolean; detail: string }) { return <div className="flex items-center gap-2 border-t border-[#EDF3FB] py-2.5 first:border-t-0"><span className="min-w-0 flex-1"><span className="block text-[12.5px] font-semibold text-ink">{label}</span><span className="block text-[10.5px] text-faint">{detail}</span></span><span className={`h-[22px] w-[38px] rounded-full p-0.5 ${enabled ? "bg-primary" : "bg-[#D6E1F0]"}`}><span className={`block size-[18px] rounded-full bg-white transition-transform ${enabled ? "translate-x-4" : ""}`} /></span></div>; }
 

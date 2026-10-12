@@ -33,6 +33,7 @@ const PRESENTATION = {
   parent_billing: { icon: 'card-outline', tone: 'amber' },
   parent_payment_receipt: { icon: 'receipt-outline', tone: 'green' },
   parent_data_request: { icon: 'shield-checkmark-outline', tone: 'blue' },
+  family_profile_updated: { icon: 'person-circle-outline', tone: 'blue' },
   overdue_billing: { icon: 'card-outline', tone: 'danger' },
   center_closure: { icon: 'calendar-outline', tone: 'amber' },
   center_closure_reminder: { icon: 'calendar-outline', tone: 'amber' },
@@ -66,19 +67,20 @@ function groupKey(value) {
 }
 
 function NotificationRow({ notification, onPress, actionable }) {
+  const urgent = notification.payload?.priority === 'urgent';
   const presentationKey = notification.payload?.type || notification.kind;
   const meta = PRESENTATION[presentationKey] || PRESENTATION[notification.kind]
     || { icon: 'notifications-outline', tone: 'blue' };
-  const tone = TONES[meta.tone] || TONES.blue;
+  const tone = urgent ? TONES.danger : TONES[meta.tone] || TONES.blue;
   return (
     <TouchableOpacity
-      style={[styles.row, !notification.read_at && styles.rowUnread]}
+      style={[styles.row, !notification.read_at && styles.rowUnread, urgent && styles.rowUrgent]}
       onPress={onPress}
       activeOpacity={0.72}
       accessibilityRole="button"
       accessibilityLabel={`${notification.read_at ? '' : 'Unread. '}${notification.title}`}
     >
-      {!notification.read_at ? <View style={styles.unreadRail} /> : null}
+      {!notification.read_at ? <View style={[styles.unreadRail, urgent && styles.unreadRailUrgent]} /> : null}
       <View style={[styles.icon, { backgroundColor: tone.background }]}>
         <Ionicons name={meta.icon} size={20} color={tone.color} />
       </View>
@@ -205,10 +207,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg, paddingVertical: spacing.md,
   },
   rowUnread: { backgroundColor: '#FBFDFF' },
+  rowUrgent: { backgroundColor: '#FFF8F8' },
   unreadRail: {
     position: 'absolute', left: 0, top: 12, bottom: 12, width: 3,
     borderTopRightRadius: 3, borderBottomRightRadius: 3, backgroundColor: colors.primary,
   },
+  unreadRailUrgent: { backgroundColor: colors.danger },
   icon: {
     width: 42, height: 42, borderRadius: 13, alignItems: 'center', justifyContent: 'center',
   },

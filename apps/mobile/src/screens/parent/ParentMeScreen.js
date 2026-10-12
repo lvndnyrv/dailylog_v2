@@ -2,7 +2,6 @@ import React, { useCallback, useMemo } from 'react';
 import {
   Alert,
   Image,
-  Linking,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -20,6 +19,7 @@ import { useParentBilling } from '../../hooks/useParentBilling';
 import { useParentFamily } from '../../hooks/useParentFamily';
 import { useParentNotifications } from '../../hooks/useParentNotifications';
 import { colors, fonts, radius, spacing } from '../../theme';
+import { openConfiguredSupport } from '../../lib/support';
 import { AccountIcon, ErrorCard, LoadingCard, initials } from './ParentAccountShared';
 
 function formatMoney(cents) {
@@ -89,14 +89,10 @@ export default function ParentMeScreen({ navigation }) {
   }
 
   async function openSupport() {
-    const url = 'mailto:support@dailylog.app?subject=DailyLog%20parent%20support';
-    try {
-      const supported = await Linking.canOpenURL(url);
-      if (!supported) throw new Error('Email is unavailable');
-      await Linking.openURL(url);
-    } catch {
-      Alert.alert('Contact support', 'Email support@dailylog.app and include your center and account email.');
-    }
+    await openConfiguredSupport(
+      'DailyLog parent support',
+      'Contact your childcare center using the phone or email in your enrollment documents. Include your account email, but never your password or pickup PIN.',
+    );
   }
 
   return (

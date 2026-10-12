@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   RefreshControl,
@@ -15,7 +15,11 @@ import { format } from 'date-fns';
 
 import { ClassroomSwitcher } from '../../components/ClassroomSwitcher';
 import { useClassroom } from '../../hooks/useClassroom';
-import { useTodayPickups } from '../../hooks/usePickupVerification';
+import {
+  resolvePickupSecurityEvent,
+  usePickupSecurityEvents,
+  useTodayPickups,
+} from '../../hooks/usePickupVerification';
 import { colors, fonts, radius, spacing } from '../../theme';
 
 function initials(name) {
@@ -73,14 +77,21 @@ function PickupRow({ pickup, completed, onVerify }) {
   );
 }
 
-export default function PickupsScreen({ navigation }) {
+export default function PickupsScreen({ navigation, route }) {
   const { active } = useClassroom();
   const { pickups, loading, error, load } = useTodayPickups(active?.id);
+  const security = usePickupSecurityEvents();
+  const [resolvingEventId, setResolvingEventId] = useState(null);
+  const [securityActionError, setSecurityActionError] = useState('');
   const isFocused = useIsFocused();
 
   useEffect(() => {
     if (isFocused && active?.id) load({ quiet: pickups.length > 0 });
   }, [active?.id, isFocused, load]);
+
+  useEffect(() => {
+    if (isFocused) security.load({ quiet: security.events.length > 0 });
+  }, [isFocused, route.params?.eventId, route.params?.linkedAt]);
 
   const expected = useMemo(
     () => pickups.filter((pickup) => pickup.pickup_status !== 'completed'),
@@ -94,6 +105,21 @@ export default function PickupsScreen({ navigation }) {
   function verify(pickup) {
     navigation.navigate('VerifyPickup', { pickup });
   }
+
+  async function resolveEvent(event) {
+    setResolvingEventId(event.id);
+    setSecurityActionError('');
+    try {
+      await resolvePickupSecurityEvent(event.id);
+      await security.load({ quiet: true });
+    } catch (resolveError) {
+      setSecurityActionError(resolveError.message || 'This pickup alert could not be resolved.');
+    } finally {
+      setResolvingEventId(null);
+    }
+  }
+
+  const openSecurityEvents = security.events.filter((event) => event.status === 'open');
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -118,6 +144,68 @@ export default function PickupsScreen({ navigation }) {
           <RefreshControl refreshing={loading && pickups.length > 0} onRefresh={() => load()} />
         )}
       >
+        {openSecurityEvents.length > 0 && (
+          <View style={styles.securitySection}>
+            <View style={styles.securityHeading}>
+              <View style={styles.securityHeadingIcon}>
+                <Ionicons name="shield-outline" size={20} color={colors.danger} />
+              </View>
+              <View style={styles.securityHeadingCopy}>
+                <Text style={styles.securityTitle}>Pickup safety alerts</Text>
+                <Text style={styles.securitySubtitle}>Children remain with staff until each alert is reviewed.</Text>
+              </View>
+              <View style={styles.securityCount}><Text style={styles.securityCountText}>{openSecurityEvents.length}</Text></View>
+            </View>
+            <View style={styles.securityList}>
+              {openSecurityEvents.map((event, index) => {
+                const childRecord = Array.isArray(event.child) ? event.child[0] : event.child;
+                const reporter = Array.isArray(event.reporter) ? event.reporter[0] : event.reporter;
+                const childName = [childRecord?.first_name, childRecord?.last_name].filter(Boolean).join(' ') || 'Child';
+                const focused = route.params?.eventId === event.id;
+                return (
+                  <View
+                    key={event.id}
+                    style={[
+                      styles.securityRow,
+                      index > 0 && styles.securityRowBorder,
+                      focused && styles.securityRowFocused,
+                    ]}
+                  >
+                    <View style={styles.securityDot} />
+                    <View style={styles.securityCopy}>
+                      <Text style={styles.securityChild}>{childName}</Text>
+                      <Text style={styles.securityAttempt}>
+                        {event.attempted_name || 'Unidentified person'} · {format(new Date(event.created_at), 'MMM d, h:mm a')}
+                      </Text>
+                      <Text style={styles.securityMeta}>
+                        Reported by {reporter?.full_name || 'an educator'}{event.notes ? ` · ${event.notes}` : ''}
+                      </Text>
+                    </View>
+                    {security.canResolve ? (
+                      <TouchableOpacity
+                        style={styles.resolveButton}
+                        onPress={() => resolveEvent(event)}
+                        disabled={resolvingEventId === event.id}
+                        accessibilityLabel={`Mark pickup safety alert for ${childName} resolved`}
+                      >
+                        {resolvingEventId === event.id
+                          ? <ActivityIndicator size="small" color={colors.success} />
+                          : <Text style={styles.resolveButtonText}>Resolve</Text>}
+                      </TouchableOpacity>
+                    ) : (
+                      <Ionicons name="lock-closed-outline" size={17} color={colors.textFaint} />
+                    )}
+                  </View>
+                );
+              })}
+            </View>
+            {securityActionError ? <Text style={styles.securityError}>{securityActionError}</Text> : null}
+            {!security.canResolve ? (
+              <Text style={styles.securityPermission}>A team member with attendance-approval permission must close these alerts.</Text>
+            ) : null}
+          </View>
+        )}
+
         <View style={styles.scanCard}>
           <View style={styles.scanIcon}>
             <Ionicons name="scan-outline" size={26} color={colors.primary} />
@@ -217,6 +305,27 @@ const styles = StyleSheet.create({
   headerCopy: { flex: 1, minWidth: 0 },
   title: { fontSize: 23, fontFamily: fonts.black, color: colors.textPrimary },
   content: { paddingHorizontal: spacing.xl, paddingBottom: spacing.xxxl },
+  securitySection: { marginBottom: spacing.xl, overflow: 'hidden', borderWidth: 1.5, borderColor: colors.danger + '55', borderRadius: radius.xl, backgroundColor: colors.dangerLight },
+  securityHeading: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md },
+  securityHeadingIcon: { width: 38, height: 38, alignItems: 'center', justifyContent: 'center', borderRadius: radius.md, backgroundColor: colors.surface },
+  securityHeadingCopy: { flex: 1, minWidth: 0 },
+  securityTitle: { color: colors.textPrimary, fontFamily: fonts.black, fontSize: 14.5 },
+  securitySubtitle: { marginTop: 2, color: colors.textMuted, fontFamily: fonts.regular, fontSize: 10.5, lineHeight: 15 },
+  securityCount: { minWidth: 27, height: 27, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8, borderRadius: 14, backgroundColor: colors.danger },
+  securityCountText: { color: colors.white, fontFamily: fonts.bold, fontSize: 11.5 },
+  securityList: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.danger + '33', backgroundColor: colors.surface },
+  securityRow: { minHeight: 78, flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md },
+  securityRowBorder: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.borderSoft },
+  securityRowFocused: { backgroundColor: colors.amberLight },
+  securityDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.danger },
+  securityCopy: { flex: 1, minWidth: 0 },
+  securityChild: { color: colors.textPrimary, fontFamily: fonts.bold, fontSize: 13 },
+  securityAttempt: { marginTop: 2, color: colors.danger, fontFamily: fonts.bold, fontSize: 11 },
+  securityMeta: { marginTop: 2, color: colors.textMuted, fontFamily: fonts.regular, fontSize: 10.5, lineHeight: 14 },
+  resolveButton: { minWidth: 64, minHeight: 36, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.sm, borderWidth: 1, borderColor: colors.success + '55', borderRadius: radius.md, backgroundColor: colors.successLight },
+  resolveButtonText: { color: colors.success, fontFamily: fonts.bold, fontSize: 11.5 },
+  securityError: { paddingHorizontal: spacing.md, paddingBottom: spacing.sm, color: colors.danger, fontFamily: fonts.bold, fontSize: 10.5 },
+  securityPermission: { paddingHorizontal: spacing.md, paddingBottom: spacing.md, color: colors.textMuted, fontFamily: fonts.regular, fontSize: 10.5, lineHeight: 15 },
   scanCard: {
     flexDirection: 'row', alignItems: 'center', gap: spacing.md,
     padding: spacing.lg, borderRadius: radius.xl, backgroundColor: colors.primaryLight,

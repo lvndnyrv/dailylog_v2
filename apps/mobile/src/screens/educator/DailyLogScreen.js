@@ -347,7 +347,7 @@ export default function DailyLogScreen({ route, navigation }) {
     addDiaper, updateDiaper, deleteDiaper,
     addSleep, updateSleep, deleteSleep,
     toggleActivity, toggleSupply,
-    sendToParents,
+    sendToParents, refresh,
   } = useDailyLog(child.id, logDate, {
     createIfMissing: true,
     educatorId: profile?.id,
@@ -436,15 +436,23 @@ export default function DailyLogScreen({ route, navigation }) {
           text: 'Copy',
           onPress: async () => {
             setCopying(true);
-            const result = await copyYesterdayLog(child.id, log.id, logDate);
-            setCopying(false);
-            if (!result.copied) {
-              Alert.alert('Nothing to copy', result.reason);
-            } else {
-              Alert.alert(
-                'Copied ✓',
-                `Copied ${result.mealCount} meals and ${result.activityCount} activities from the previous day.`
-              );
+            try {
+              const result = await copyYesterdayLog(child.id, log.id, logDate);
+              if (!result?.copied) {
+                Alert.alert('Nothing to copy', result?.reason || 'No previous daily report was found.');
+              } else if ((result.mealCount || 0) + (result.activityCount || 0) === 0) {
+                Alert.alert('Already copied', 'The previous day’s meals and activities are already in this report.');
+              } else {
+                Alert.alert(
+                  'Copied ✓',
+                  `Added ${result.mealCount || 0} meals and ${result.activityCount || 0} activities from the previous day.`
+                );
+              }
+              await refresh();
+            } catch (copyError) {
+              Alert.alert('Could not copy', copyError.message || 'Try again in a moment.');
+            } finally {
+              setCopying(false);
             }
           },
         },

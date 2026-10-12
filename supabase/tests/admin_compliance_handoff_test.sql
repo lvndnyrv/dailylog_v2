@@ -58,12 +58,22 @@ begin
   perform pg_temp.expect_denied('select public.create_compliance_inspection_share(''Forbidden'')');
   if exists(select 1 from public.list_compliance_due_items()) then raise exception 'FAIL: restricted role sees deadline previews'; end if;
   perform pg_temp.impersonate('postgres');
-  update public.center_roles set permissions='{"reports":{"edit":false}}' where id=v_role;
+  update public.center_roles set permissions='{
+    "staff":{"view":true},
+    "incidents":{"view":true},
+    "attendance":{"view":true},
+    "reports":{"view":true,"edit":false}
+  }' where id=v_role;
   perform pg_temp.impersonate('authenticated',v_staff);
   if not public.can_access_compliance() or public.can_access_compliance(true) then raise exception 'FAIL: read-only reporting permission is not respected'; end if;
   perform pg_temp.expect_denied('select public.create_compliance_inspection_share(''Forbidden'')');
   perform pg_temp.impersonate('postgres');
-  update public.center_roles set permissions='{}' where id=v_role;
+  update public.center_roles set permissions='{
+    "staff":{"view":true},
+    "incidents":{"view":true},
+    "attendance":{"view":true},
+    "reports":{"view":true,"edit":true}
+  }' where id=v_role;
   perform pg_temp.impersonate('authenticated',v_staff);
   v_share:=public.create_compliance_inspection_share('Rollback-only permission removal');
   perform pg_temp.impersonate('postgres');

@@ -44,6 +44,7 @@ export function EnrollmentApplicationView({
   educators,
   offerWindowHours,
   timeZone,
+  centerToday,
 }: {
   enrollment: Enrollment;
   fitCheck: EnrollmentFitCheck | null;
@@ -52,6 +53,7 @@ export function EnrollmentApplicationView({
   educators: { id: string; fullName: string }[];
   offerWindowHours: number;
   timeZone: string;
+  centerToday: string;
 }) {
   const [dialog, setDialog] = useState<Dialog>("none");
   const room = rooms.find((item) => item.id === enrollment.classroom_id);
@@ -312,6 +314,7 @@ export function EnrollmentApplicationView({
           enrollment={enrollment}
           rooms={rooms}
           defaultWindow={offerWindowHours}
+          centerToday={centerToday}
           onClose={() => setDialog("none")}
         />
       )}

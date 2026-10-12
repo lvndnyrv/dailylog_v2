@@ -1,10 +1,11 @@
 "use server";
 
-import { getMyProfile } from "@dailylog/db/queries";
+import { getMyDaycare, getMyProfile, listStaffShifts } from "@dailylog/db/queries";
 import { validateRoomSettings } from "./room-validation";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { getServerSupabase } from "@/lib/supabase/server";
+import { addDateDays, dateInTimeZone } from "@/lib/center-date";
 
 export interface RoomActionState {
   error?: string;
@@ -143,14 +144,71 @@ export async function cancelCoverageAction(id: string): Promise<RoomActionState>
 
 export async function roomForecastAction(date: string) {
   const supabase = await getServerSupabase();
-  const [forecast, children, bookings, review] = await Promise.all([
+  const daycare = await getMyDaycare(supabase);
+  const timeZone = daycare?.timezone ?? "America/Toronto";
+  const [forecast, children, bookings, patterns, review, shifts] = await Promise.all([
     supabase.rpc("get_room_demand_forecast", { p_date: date }),
     supabase.from("children").select("id, first_name, last_name, classroom_id").is("archived_at", null).order("first_name"),
     supabase.from("child_attendance_bookings").select("child_id, expected, arrives_at, leaves_at").eq("booked_on", date),
+    supabase.from("child_attendance_booking_patterns").select("child_id, weekdays, arrives_at, leaves_at, starts_on, ends_on, updated_at").order("starts_on"),
     supabase.rpc("get_room_coverage_review", { p_date: date }),
+    listStaffShifts(
+      supabase,
+      `${addDateDays(date, -1)}T00:00:00Z`,
+      `${addDateDays(date, 2)}T00:00:00Z`,
+    ),
   ]);
-  const error = forecast.error ?? children.error ?? bookings.error ?? review.error;
-  return { rows: forecast.data ?? [], children: children.data ?? [], bookings: bookings.data ?? [], review: review.data ?? [], error: error?.message };
+  const error = forecast.error ?? children.error ?? bookings.error ?? patterns.error ?? review.error;
+  return {
+    rows: forecast.data ?? [],
+    children: children.data ?? [],
+    bookings: bookings.data ?? [],
+    patterns: patterns.data ?? [],
+    review: review.data ?? [],
+    shifts: shifts.filter(
+      (shift) => shift.status === "published" && dateInTimeZone(shift.starts_at, timeZone) === date,
+    ),
+    error: error?.message,
+  };
+}
+
+export async function saveRecurringBookingAction(values: {
+  childId: string;
+  weekdays: number[];
+  arrivesAt: string;
+  leavesAt: string;
+  startsOn: string;
+  endsOn: string;
+}): Promise<RoomActionState> {
+  if (!values.childId) return { error: "Choose a child." };
+  if (!values.weekdays.length) return { error: "Choose at least one weekday." };
+  if (!values.arrivesAt || !values.leavesAt || values.arrivesAt >= values.leavesAt) {
+    return { error: "Pickup must be after arrival." };
+  }
+  if (!values.startsOn || (values.endsOn && values.endsOn < values.startsOn)) {
+    return { error: "Choose a valid schedule date range." };
+  }
+  const supabase = await getServerSupabase();
+  const { error } = await supabase.rpc("save_child_attendance_booking_pattern", {
+    p_child: values.childId,
+    p_weekdays: values.weekdays,
+    p_arrives_at: values.arrivesAt,
+    p_leaves_at: values.leavesAt,
+    p_starts_on: values.startsOn,
+    ...(values.endsOn ? { p_ends_on: values.endsOn } : {}),
+  });
+  if (error) return { error: error.message };
+  revalidatePath("/rooms", "layout");
+  return { ok: true };
+}
+
+export async function deleteRecurringBookingAction(childId: string): Promise<RoomActionState> {
+  if (!childId) return { error: "Choose a child." };
+  const supabase = await getServerSupabase();
+  const { error } = await supabase.rpc("delete_child_attendance_booking_pattern", { p_child: childId });
+  if (error) return { error: error.message };
+  revalidatePath("/rooms", "layout");
+  return { ok: true };
 }
 
 export async function saveAttendanceBookingsAction(date: string, bookings: { child_id: string; state: string; arrives_at: string; leaves_at: string }[]): Promise<RoomActionState> {

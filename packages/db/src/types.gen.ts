@@ -39,6 +39,70 @@ export type Database = {
   }
   public: {
     Tables: {
+      account_deletion_requests: {
+        Row: {
+          completed_at: string | null
+          created_at: string
+          daycare_id: string
+          handled_by: string | null
+          id: string
+          notes: string | null
+          profile_id: string
+          requested_at: string
+          role: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          completed_at?: string | null
+          created_at?: string
+          daycare_id: string
+          handled_by?: string | null
+          id?: string
+          notes?: string | null
+          profile_id: string
+          requested_at?: string
+          role: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          completed_at?: string | null
+          created_at?: string
+          daycare_id?: string
+          handled_by?: string | null
+          id?: string
+          notes?: string | null
+          profile_id?: string
+          requested_at?: string
+          role?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "account_deletion_requests_daycare_id_fkey"
+            columns: ["daycare_id"]
+            isOneToOne: false
+            referencedRelation: "daycares"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "account_deletion_requests_handled_by_fkey"
+            columns: ["handled_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "account_deletion_requests_profile_id_fkey"
+            columns: ["profile_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       activity_entries: {
         Row: {
           activity_name: string
@@ -249,8 +313,8 @@ export type Database = {
       }
       announcements: {
         Row: {
-          author_id: string | null
           audience_type: string
+          author_id: string | null
           body: string
           cancelled_at: string | null
           classroom_id: string | null
@@ -262,6 +326,7 @@ export type Database = {
           event_location: string | null
           id: string
           pinned: boolean | null
+          priority: string
           published_at: string | null
           rsvp_enabled: boolean
           scheduled_for: string | null
@@ -269,8 +334,8 @@ export type Database = {
           updated_at: string | null
         }
         Insert: {
-          author_id?: string | null
           audience_type?: string
+          author_id?: string | null
           body: string
           cancelled_at?: string | null
           classroom_id?: string | null
@@ -282,6 +347,7 @@ export type Database = {
           event_location?: string | null
           id?: string
           pinned?: boolean | null
+          priority?: string
           published_at?: string | null
           rsvp_enabled?: boolean
           scheduled_for?: string | null
@@ -289,8 +355,8 @@ export type Database = {
           updated_at?: string | null
         }
         Update: {
-          author_id?: string | null
           audience_type?: string
+          author_id?: string | null
           body?: string
           cancelled_at?: string | null
           classroom_id?: string | null
@@ -302,6 +368,7 @@ export type Database = {
           event_location?: string | null
           id?: string
           pinned?: boolean | null
+          priority?: string
           published_at?: string | null
           rsvp_enabled?: boolean
           scheduled_for?: string | null
@@ -842,6 +909,70 @@ export type Database = {
           },
         ]
       }
+      child_attendance_booking_patterns: {
+        Row: {
+          arrives_at: string
+          child_id: string
+          created_at: string
+          daycare_id: string
+          ends_on: string | null
+          id: string
+          leaves_at: string
+          starts_on: string
+          updated_at: string
+          updated_by: string | null
+          weekdays: number[]
+        }
+        Insert: {
+          arrives_at: string
+          child_id: string
+          created_at?: string
+          daycare_id: string
+          ends_on?: string | null
+          id?: string
+          leaves_at: string
+          starts_on: string
+          updated_at?: string
+          updated_by?: string | null
+          weekdays: number[]
+        }
+        Update: {
+          arrives_at?: string
+          child_id?: string
+          created_at?: string
+          daycare_id?: string
+          ends_on?: string | null
+          id?: string
+          leaves_at?: string
+          starts_on?: string
+          updated_at?: string
+          updated_by?: string | null
+          weekdays?: number[]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "child_attendance_booking_patterns_child_id_fkey"
+            columns: ["child_id"]
+            isOneToOne: true
+            referencedRelation: "children"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "child_attendance_booking_patterns_daycare_id_fkey"
+            columns: ["daycare_id"]
+            isOneToOne: false
+            referencedRelation: "daycares"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "child_attendance_booking_patterns_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       child_attendance_bookings: {
         Row: {
           arrives_at: string | null
@@ -1372,6 +1503,70 @@ export type Database = {
           {
             foreignKeyName: "classrooms_lead_educator_id_fkey"
             columns: ["lead_educator_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      client_error_reports: {
+        Row: {
+          app_version: string | null
+          created_at: string
+          daycare_id: string | null
+          error_code: string
+          framework_reference: string | null
+          id: string
+          profile_id: string | null
+          release_channel: string | null
+          resolved_at: string | null
+          resolved_by: string | null
+          surface: string
+        }
+        Insert: {
+          app_version?: string | null
+          created_at?: string
+          daycare_id?: string | null
+          error_code: string
+          framework_reference?: string | null
+          id?: string
+          profile_id?: string | null
+          release_channel?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          surface: string
+        }
+        Update: {
+          app_version?: string | null
+          created_at?: string
+          daycare_id?: string | null
+          error_code?: string
+          framework_reference?: string | null
+          id?: string
+          profile_id?: string | null
+          release_channel?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          surface?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "client_error_reports_daycare_id_fkey"
+            columns: ["daycare_id"]
+            isOneToOne: false
+            referencedRelation: "daycares"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "client_error_reports_profile_id_fkey"
+            columns: ["profile_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "client_error_reports_resolved_by_fkey"
+            columns: ["resolved_by"]
             isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
@@ -4972,6 +5167,7 @@ export type Database = {
           daily_log_id: string
           id: string
           storage_path: string
+          uploader_id: string | null
         }
         Insert: {
           caption?: string | null
@@ -4979,6 +5175,7 @@ export type Database = {
           daily_log_id: string
           id?: string
           storage_path: string
+          uploader_id?: string | null
         }
         Update: {
           caption?: string | null
@@ -4986,6 +5183,7 @@ export type Database = {
           daily_log_id?: string
           id?: string
           storage_path?: string
+          uploader_id?: string | null
         }
         Relationships: [
           {
@@ -4993,6 +5191,13 @@ export type Database = {
             columns: ["daily_log_id"]
             isOneToOne: false
             referencedRelation: "daily_logs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "photos_uploader_id_fkey"
+            columns: ["uploader_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -6725,6 +6930,68 @@ export type Database = {
           },
         ]
       }
+      staff_permission_overrides: {
+        Row: {
+          classroom_id: string | null
+          created_at: string
+          daycare_id: string
+          id: string
+          permissions: Json
+          profile_id: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          classroom_id?: string | null
+          created_at?: string
+          daycare_id: string
+          id?: string
+          permissions?: Json
+          profile_id: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          classroom_id?: string | null
+          created_at?: string
+          daycare_id?: string
+          id?: string
+          permissions?: Json
+          profile_id?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "staff_permission_overrides_classroom_id_fkey"
+            columns: ["classroom_id"]
+            isOneToOne: false
+            referencedRelation: "classrooms"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "staff_permission_overrides_daycare_id_fkey"
+            columns: ["daycare_id"]
+            isOneToOne: false
+            referencedRelation: "daycares"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "staff_permission_overrides_profile_id_fkey"
+            columns: ["profile_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "staff_permission_overrides_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       staff_regular_schedules: {
         Row: {
           classroom_id: string | null
@@ -7499,19 +7766,13 @@ export type Database = {
         Args: { p_code: string }
         Returns: Json
       }
-      accept_staff_invite:
-        | { Args: { p_code: string }; Returns: undefined }
-        | {
-            Args: {
-              p_code: string
-              p_terms_accepted: boolean
-              p_terms_version: string
-            }
-            Returns: undefined
-          }
-      bulk_assign_staff_room: {
-        Args: { p_classroom_id?: string | null; p_staff_member_ids: string[] }
-        Returns: Json
+      accept_staff_invite: {
+        Args: {
+          p_code: string
+          p_terms_accepted: boolean
+          p_terms_version: string
+        }
+        Returns: undefined
       }
       acknowledge_incident: {
         Args: { p_incident_id: string; p_name: string }
@@ -7545,9 +7806,82 @@ export type Database = {
         }
         Returns: Json
       }
+      admin_cancel_parent_invite: {
+        Args: { p_invite_id: string }
+        Returns: Json
+      }
+      admin_link_existing_guardian: {
+        Args: {
+          p_child_id: string
+          p_parent_id: string
+          p_pickup_authorized?: boolean
+          p_relationship: string
+        }
+        Returns: Json
+      }
+      admin_list_family_access_activity: {
+        Args: { p_limit?: number; p_parent_id: string }
+        Returns: {
+          action: string
+          actor_name: string
+          after_state: Json
+          before_state: Json
+          child_id: string
+          child_name: string
+          event_id: string
+          occurred_at: string
+        }[]
+      }
+      admin_renew_parent_invite: {
+        Args: { p_invite_id: string }
+        Returns: Json
+      }
+      admin_set_pickup_authorization: {
+        Args: { p_authorized: boolean; p_child_id: string; p_parent_id: string }
+        Returns: Json
+      }
+      admin_set_primary_guardian: {
+        Args: { p_child_id: string; p_parent_id: string }
+        Returns: Json
+      }
+      admin_set_staff_active: {
+        Args: { p_active: boolean; p_staff_member_id: string }
+        Returns: Json
+      }
       admin_set_user_role: {
         Args: { p_role: string; p_user_id: string }
         Returns: undefined
+      }
+      admin_unlink_parent_child: {
+        Args: { p_child_id: string; p_parent_id: string }
+        Returns: Json
+      }
+      admin_update_family_profile: {
+        Args: {
+          p_full_name: string
+          p_parent_id: string
+          p_phone: string
+          p_preferred_language: string
+        }
+        Returns: Json
+      }
+      admin_update_guardian_relationship: {
+        Args: {
+          p_child_id: string
+          p_parent_id: string
+          p_relationship: string
+        }
+        Returns: Json
+      }
+      admin_update_staff_record: {
+        Args: {
+          p_classroom_id: string
+          p_employment_type: string
+          p_job_title: string
+          p_staff_member_id: string
+          p_started_on: string
+        }
+        Returns: Json
       }
       approve_time_entry: {
         Args: { p_approved: boolean; p_entry_id: string; p_notes?: string }
@@ -7582,6 +7916,10 @@ export type Database = {
         }
         Returns: string
       }
+      attach_bulk_daily_log_photos: {
+        Args: { p_caption?: string; p_items: Json }
+        Returns: Json
+      }
       attach_late_pickup_fee_to_invoice: {
         Args: { p_event_id: string; p_invoice_id: string }
         Returns: boolean
@@ -7592,6 +7930,38 @@ export type Database = {
       }
       book_parent_enrollment_tour: {
         Args: { p_code: string; p_slot_id: string }
+        Returns: Json
+      }
+      bulk_assign_staff_room: {
+        Args: { p_classroom_id?: string; p_staff_member_ids: string[] }
+        Returns: Json
+      }
+      bulk_log_daily_updates: {
+        Args: { p_child_ids: string[]; p_kind: string; p_payload?: Json }
+        Returns: Json
+      }
+      bulk_log_scheduled_meal:
+        | {
+            Args: {
+              p_alternatives?: Json
+              p_amounts: Json
+              p_child_ids: string[]
+              p_menu_item_id: string
+            }
+            Returns: Json
+          }
+        | {
+            Args: {
+              p_alternatives: Json
+              p_amounts: Json
+              p_child_ids: string[]
+              p_food_type: string
+              p_menu_item_id: string
+            }
+            Returns: Json
+          }
+      bulk_set_mobile_attendance: {
+        Args: { p_action: string; p_child_ids: string[] }
         Returns: Json
       }
       bulk_set_moods: {
@@ -7620,6 +7990,10 @@ export type Database = {
       }
       can_delete_unreferenced_parent_document: {
         Args: { p_name: string }
+        Returns: boolean
+      }
+      can_manage_daily_log_photo_object: {
+        Args: { p_allow_orphan_cleanup?: boolean; p_name: string }
         Returns: boolean
       }
       can_manage_family_billing: {
@@ -7847,6 +8221,10 @@ export type Database = {
         }
         Returns: string
       }
+      copy_previous_daily_log_entries: {
+        Args: { p_target_log_id: string }
+        Returns: Json
+      }
       correct_attendance_record: {
         Args: {
           p_attendance_id: string
@@ -7941,6 +8319,10 @@ export type Database = {
       default_role_name: {
         Args: { p_classroom: string; p_job_title: string; p_role: string }
         Returns: string
+      }
+      delete_child_attendance_booking_pattern: {
+        Args: { p_child: string }
+        Returns: undefined
       }
       delete_my_account: { Args: never; Returns: undefined }
       enqueue_center_notification: {
@@ -8061,6 +8443,7 @@ export type Database = {
           sort: number
         }[]
       }
+      get_child_absence_policy: { Args: { p_child_id: string }; Returns: Json }
       get_classroom_log_status: {
         Args: { p_classroom_id: string; p_date?: string }
         Returns: {
@@ -8194,6 +8577,7 @@ export type Database = {
         Args: { p_child_id: string }
         Returns: Json
       }
+      get_mobile_release_config: { Args: never; Returns: Json }
       get_mobile_roll_call: { Args: { p_classroom_id: string }; Returns: Json }
       get_mobile_room_ratios: {
         Args: never
@@ -8343,10 +8727,6 @@ export type Database = {
           token: string
         }[]
       }
-      get_push_delivery_reachability: {
-        Args: never
-        Returns: Json
-      }
       get_parent_schedule_hub: { Args: never; Returns: Json }
       get_public_center_info: {
         Args: { p_daycare_id: string }
@@ -8355,6 +8735,7 @@ export type Database = {
           programs: Json
         }[]
       }
+      get_push_delivery_reachability: { Args: never; Returns: Json }
       get_room_coverage_review: {
         Args: { p_date: string }
         Returns: {
@@ -8498,6 +8879,24 @@ export type Database = {
           starts_at: string
         }[]
       }
+      get_staff_invite: {
+        Args: { p_code: string }
+        Returns: {
+          classroom_name: string
+          daycare_name: string
+          email: string
+          expires_at: string
+          full_name: string
+          invited_by_name: string
+          job_title: string
+          require_background_check: boolean
+          role: string
+        }[]
+      }
+      get_staff_permission_matrix: {
+        Args: { p_profile_id: string }
+        Returns: Json
+      }
       get_staff_time_off_coverage_impacts: {
         Args: { p_request_ids: string[] }
         Returns: {
@@ -8513,20 +8912,6 @@ export type Database = {
           uncertain_staff: number
           unknown_bookings: number
           work_date: string
-        }[]
-      }
-      get_staff_invite: {
-        Args: { p_code: string }
-        Returns: {
-          classroom_name: string
-          daycare_name: string
-          email: string
-          expires_at: string
-          full_name: string
-          invited_by_name: string
-          job_title: string
-          require_background_check: boolean
-          role: string
         }[]
       }
       get_unread_child_message_counts: {
@@ -8549,6 +8934,10 @@ export type Database = {
         Args: { p_action?: string; p_area: string }
         Returns: boolean
       }
+      has_permission_for_classroom: {
+        Args: { p_action: string; p_area: string; p_classroom_id: string }
+        Returns: boolean
+      }
       invite_staff: {
         Args: {
           p_classroom_id?: string
@@ -8559,10 +8948,6 @@ export type Database = {
           p_role: string
         }
         Returns: string
-      }
-      resend_staff_invite: {
-        Args: { p_invite_id: string }
-        Returns: Json
       }
       is_admin: { Args: never; Returns: boolean }
       is_staff: { Args: never; Returns: boolean }
@@ -8632,10 +9017,6 @@ export type Database = {
           requested_languages: string[]
         }[]
       }
-      list_notification_delivery_health: {
-        Args: { p_days?: number }
-        Returns: Json
-      }
       list_compliance_due_items: {
         Args: never
         Returns: {
@@ -8681,6 +9062,10 @@ export type Database = {
           unread_count: number
         }[]
       }
+      list_notification_delivery_health: {
+        Args: { p_days?: number }
+        Returns: Json
+      }
       log_compliance_drill: {
         Args: {
           p_children_count: number
@@ -8698,6 +9083,10 @@ export type Database = {
       mark_staff_conversation_read: {
         Args: { p_conversation_id: string }
         Returns: number
+      }
+      meal_allergy_overlap: {
+        Args: { p_child_allergies: string[]; p_menu_allergens: string[] }
+        Returns: boolean
       }
       mobile_mark_child_absent: {
         Args: {
@@ -8720,6 +9109,10 @@ export type Database = {
       next_center_open_date: {
         Args: { p_after_date: string; p_daycare_id: string }
         Returns: string
+      }
+      normalize_center_role_permissions: {
+        Args: { p_permissions: Json }
+        Returns: Json
       }
       parent_add_authorized_pickup: {
         Args: {
@@ -8758,12 +9151,8 @@ export type Database = {
           reason: string
         }[]
       }
-      process_due_attendance_followups: { Args: never; Returns: number }
       process_due_announcements: { Args: never; Returns: number }
-      process_unread_announcement_email_nudges: {
-        Args: never
-        Returns: number
-      }
+      process_due_attendance_followups: { Args: never; Returns: number }
       process_due_child_departures: { Args: never; Returns: number }
       process_due_enrollment_invoices: {
         Args: { p_daycare_id?: string }
@@ -8774,6 +9163,7 @@ export type Database = {
       process_medication_authorization_statuses: { Args: never; Returns: Json }
       process_overdue_waitlist_checkins: { Args: never; Returns: number }
       process_room_ratio_history: { Args: never; Returns: number }
+      process_unread_announcement_email_nudges: { Args: never; Returns: number }
       profile_has_permission: {
         Args: { p_action?: string; p_area: string; p_profile_id: string }
         Returns: boolean
@@ -8845,6 +9235,16 @@ export type Database = {
         Args: { p_credentials: Json; p_staff_member_id: string }
         Returns: undefined
       }
+      report_client_error: {
+        Args: {
+          p_app_version?: string
+          p_error_code: string
+          p_framework_reference?: string
+          p_release_channel?: string
+          p_surface: string
+        }
+        Returns: string
+      }
       report_parent_absence: {
         Args: {
           p_child_id: string
@@ -8874,6 +9274,7 @@ export type Database = {
         Returns: Json
       }
       request_fingerprint: { Args: never; Returns: string }
+      request_my_account_deletion: { Args: never; Returns: Json }
       request_parent_data_action: {
         Args: { p_request_type: string }
         Returns: Json
@@ -8901,10 +9302,7 @@ export type Database = {
         Args: { p_payment_id: string }
         Returns: Json
       }
-      retry_notification_delivery: {
-        Args: { p_delivery_id: string }
-        Returns: boolean
-      }
+      resend_staff_invite: { Args: { p_invite_id: string }; Returns: Json }
       respond_parent_waitlist_checkin: {
         Args: { p_code: string; p_keep_spot: boolean }
         Returns: Json
@@ -8934,6 +9332,19 @@ export type Database = {
       respond_to_room_coverage: {
         Args: { p_assignment: string; p_response: string }
         Returns: undefined
+      }
+      resubmit_time_entry_correction: {
+        Args: {
+          p_break_minutes?: number
+          p_clocked_in_at: string
+          p_clocked_out_at: string
+          p_entry_id: string
+        }
+        Returns: undefined
+      }
+      retry_notification_delivery: {
+        Args: { p_delivery_id: string }
+        Returns: boolean
       }
       review_parent_authorized_pickup: {
         Args: { p_decision: string; p_note?: string; p_pickup_id: string }
@@ -8966,6 +9377,27 @@ export type Database = {
       save_attendance_bookings: {
         Args: { p_bookings: Json; p_date: string }
         Returns: undefined
+      }
+      save_child_attendance_booking_pattern: {
+        Args: {
+          p_arrives_at: string
+          p_child: string
+          p_ends_on?: string
+          p_leaves_at: string
+          p_starts_on: string
+          p_weekdays: number[]
+        }
+        Returns: string
+      }
+      save_child_care_profile: {
+        Args: {
+          p_allergies: string[]
+          p_child_id: string
+          p_emergency_contacts: Json
+          p_medical_notes: string
+          p_no_known_medical_needs?: boolean
+        }
+        Returns: Json
       }
       save_compliance_document: {
         Args: {
@@ -9097,6 +9529,14 @@ export type Database = {
         }
         Returns: string
       }
+      save_staff_permission_override: {
+        Args: {
+          p_classroom_id: string
+          p_permissions: Json
+          p_profile_id: string
+        }
+        Returns: undefined
+      }
       save_staff_regular_schedule: {
         Args: { p_schedule: Json; p_staff_member_id: string }
         Returns: number
@@ -9123,6 +9563,10 @@ export type Database = {
           followup_id: string
           queued_recipients: number
         }[]
+      }
+      send_bulk_staff_message: {
+        Args: { p_body: string; p_profile_ids: string[] }
+        Returns: Json
       }
       send_mobile_event_rsvp: {
         Args: {
@@ -9154,10 +9598,6 @@ export type Database = {
         Args: { p_body: string; p_conversation_id: string }
         Returns: string
       }
-      send_bulk_staff_message: {
-        Args: { p_body: string; p_profile_ids: string[] }
-        Returns: Json
-      }
       send_waitlist_checkins: {
         Args: { p_enrollment_ids: string[]; p_message: string }
         Returns: Json
@@ -9169,6 +9609,10 @@ export type Database = {
       set_mobile_parent_consent: {
         Args: { p_child_id: string; p_granted: boolean; p_kind: string }
         Returns: Json
+      }
+      set_my_preferred_language: {
+        Args: { p_language: string }
+        Returns: string
       }
       set_parent_billing_preferences: {
         Args: { p_autopay_enabled: boolean; p_payment_method_id: string }
@@ -9191,6 +9635,10 @@ export type Database = {
         Returns: undefined
       }
       shares_family_with: { Args: { p_profile_id: string }; Returns: boolean }
+      sign_off_incident_report: {
+        Args: { p_incident_id: string }
+        Returns: Json
+      }
       sign_parent_enrollment_agreement: {
         Args: {
           p_acknowledge_policies: boolean
@@ -9280,6 +9728,24 @@ export type Database = {
         Args: { p_staff_member_id: string }
         Returns: undefined
       }
+      transition_account_deletion_request: {
+        Args: {
+          p_expected_status: string
+          p_next_status: string
+          p_notes?: string
+          p_request_id: string
+        }
+        Returns: Json
+      }
+      transition_parent_data_request: {
+        Args: {
+          p_expected_status: string
+          p_next_status: string
+          p_notes?: string
+          p_request_id: string
+        }
+        Returns: Json
+      }
       update_enrollment_waitlist_rules: {
         Args: {
           p_auto_archive_checkins: number
@@ -9298,10 +9764,6 @@ export type Database = {
           p_phone?: string
         }
         Returns: Json
-      }
-      set_my_preferred_language: {
-        Args: { p_language: string }
-        Returns: string
       }
       verify_mobile_pickup_pass: {
         Args: {
@@ -9357,6 +9819,8 @@ export type Database = {
           created_at: string | null
           file_size_limit: number | null
           id: string
+          lifecycle_configuration: Json | null
+          lifecycle_configuration_generation: string | null
           name: string
           owner: string | null
           owner_id: string | null
@@ -9371,6 +9835,8 @@ export type Database = {
           created_at?: string | null
           file_size_limit?: number | null
           id: string
+          lifecycle_configuration?: Json | null
+          lifecycle_configuration_generation?: string | null
           name: string
           owner?: string | null
           owner_id?: string | null
@@ -9385,6 +9851,8 @@ export type Database = {
           created_at?: string | null
           file_size_limit?: number | null
           id?: string
+          lifecycle_configuration?: Json | null
+          lifecycle_configuration_generation?: string | null
           name?: string
           owner?: string | null
           owner_id?: string | null
@@ -9699,7 +10167,7 @@ export type Database = {
         Returns: string
       }
       get_size_by_bucket: {
-        Args: never
+        Args: { delete_markers?: string; noncurrent_versions?: string }
         Returns: {
           bucket_id: string
           size: number
@@ -9713,6 +10181,7 @@ export type Database = {
           next_key_token?: string
           next_upload_token?: string
           prefix_param: string
+          raw_prefix_param?: string
         }
         Returns: {
           created_at: string
@@ -9723,28 +10192,38 @@ export type Database = {
       list_objects_with_delimiter: {
         Args: {
           _bucket_id: string
+          delete_markers?: string
           delimiter_param: string
           max_keys?: number
           next_token?: string
+          next_token_archived_at?: string
+          next_token_version?: string
+          noncurrent_versions?: string
           prefix_param: string
           sort_order?: string
           start_after?: string
         }
         Returns: {
+          archived_at: string
           created_at: string
           id: string
+          is_delete_marker: boolean
+          is_versioned: boolean
           last_accessed_at: string
           metadata: Json
           name: string
           updated_at: string
+          version: string
         }[]
       }
       operation: { Args: never; Returns: string }
       search: {
         Args: {
           bucketname: string
+          delete_markers?: string
           levels?: number
           limits?: number
+          noncurrent_versions?: string
           offsets?: number
           prefix: string
           search?: string
@@ -9752,16 +10231,22 @@ export type Database = {
           sortorder?: string
         }
         Returns: {
+          archived_at: string
           created_at: string
           id: string
+          is_delete_marker: boolean
+          is_versioned: boolean
           last_accessed_at: string
           metadata: Json
           name: string
           updated_at: string
+          version: string
         }[]
       }
       search_by_timestamp: {
         Args: {
+          delete_markers?: string
+          noncurrent_versions?: string
           p_bucket_id: string
           p_level: number
           p_limit: number
@@ -9770,36 +10255,50 @@ export type Database = {
           p_sort_column_after: string
           p_sort_order: string
           p_start_after: string
+          p_start_after_version?: string
         }
         Returns: {
+          archived_at: string
           created_at: string
           id: string
+          is_delete_marker: boolean
+          is_versioned: boolean
           key: string
           last_accessed_at: string
           metadata: Json
           name: string
           updated_at: string
+          version: string
         }[]
       }
       search_v2: {
         Args: {
           bucket_name: string
+          delete_markers?: string
           levels?: number
           limits?: number
+          noncurrent_versions?: string
           prefix: string
           sort_column?: string
           sort_column_after?: string
           sort_order?: string
           start_after?: string
+          start_after_archived_at?: string
+          start_after_is_continuation?: boolean
+          start_after_version?: string
         }
         Returns: {
+          archived_at: string
           created_at: string
           id: string
+          is_delete_marker: boolean
+          is_versioned: boolean
           key: string
           last_accessed_at: string
           metadata: Json
           name: string
           updated_at: string
+          version: string
         }[]
       }
     }

@@ -85,6 +85,49 @@ export function useTodayPickups(classroomId) {
   return { pickups, loading, error, load };
 }
 
+export function usePickupSecurityEvents() {
+  const [events, setEvents] = useState([]);
+  const [canResolve, setCanResolve] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  const load = useCallback(async ({ quiet = false } = {}) => {
+    if (!quiet) setLoading(true);
+    const [{ data, error: queryError }, { data: allowed, error: permissionError }] = await Promise.all([
+      supabase
+        .from('pickup_security_events')
+        .select('id, child_id, attempted_name, notes, status, created_at, resolved_at, child:children(first_name, last_name, classroom_id), reporter:profiles!pickup_security_events_reported_by_fkey(full_name)')
+        .order('created_at', { ascending: false })
+        .limit(20),
+      supabase.rpc('has_permission', { p_area: 'attendance', p_action: 'approve' }),
+    ]);
+    const nextError = queryError || permissionError;
+    if (nextError) {
+      setError(nextError);
+    } else {
+      setEvents(data || []);
+      setCanResolve(Boolean(allowed));
+      setError(null);
+    }
+    setLoading(false);
+    return data || [];
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    const channel = supabase
+      .channel('mobile-pickup-security-events')
+      .on('postgres_changes', {
+        event: '*', schema: 'public', table: 'pickup_security_events',
+      }, () => load({ quiet: true }))
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [load]);
+
+  return { events, canResolve, loading, error, load };
+}
+
 export async function getParentPickupOptions(childId, includeRemoved = true) {
   const { data, error } = await supabase.rpc('get_parent_pickup_options', {
     p_child_id: childId,
@@ -134,6 +177,45 @@ export async function removeAuthorizedPickup(pickupId) {
     p_pickup_id: pickupId,
   });
   throwIfError(error);
+}
+
+export async function getStaffPickupPeople(childId) {
+  const [{ data: people, error: peopleError }, { data: canReview, error: permissionError }] = await Promise.all([
+    supabase
+      .from('child_pickups')
+      .select('id, full_name, relationship, phone, is_primary, approval_status, requested_at, reviewed_at, review_note, archived_at')
+      .eq('child_id', childId)
+      .is('archived_at', null)
+      .order('requested_at', { ascending: false, nullsFirst: false })
+      .order('created_at', { ascending: false }),
+    supabase.rpc('has_permission', { p_area: 'children', p_action: 'edit' }),
+  ]);
+  throwIfError(peopleError);
+  throwIfError(permissionError);
+  return { people: people || [], canReview: Boolean(canReview) };
+}
+
+export async function reviewAuthorizedPickup(pickupId, decision, note = null) {
+  const { data, error } = await supabase.rpc('review_parent_authorized_pickup', {
+    p_pickup_id: pickupId,
+    p_decision: decision,
+    p_note: note || null,
+  });
+  throwIfError(error);
+  return data;
+}
+
+export async function resolvePickupSecurityEvent(eventId) {
+  const { data, error } = await supabase
+    .from('pickup_security_events')
+    .update({ status: 'resolved', resolved_at: new Date().toISOString() })
+    .eq('id', eventId)
+    .eq('status', 'open')
+    .select('id')
+    .maybeSingle();
+  throwIfError(error);
+  if (!data) throw new Error('This pickup alert has already been resolved or is no longer available.');
+  return data;
 }
 
 export async function verifyMobilePickupPass({ token, code, expectedChildId }) {

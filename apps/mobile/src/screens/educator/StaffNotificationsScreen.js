@@ -29,6 +29,21 @@ const PRESENTATION = {
   schedule_update: { icon: 'time-outline', tone: 'blue' },
   staff_message: { icon: 'chatbubble-ellipses-outline', tone: 'blue' },
   ratio_alert: { icon: 'warning-outline', tone: 'danger' },
+  incident_report: { icon: 'medkit-outline', tone: 'danger' },
+  credential_review: { icon: 'ribbon-outline', tone: 'purple' },
+  cert_expiry: { icon: 'ribbon-outline', tone: 'amber' },
+  parent_document_review: { icon: 'document-text-outline', tone: 'blue' },
+  parent_data_request_admin: { icon: 'shield-checkmark-outline', tone: 'purple' },
+  waitlist_enrollment: { icon: 'person-add-outline', tone: 'blue' },
+  payment_received: { icon: 'cash-outline', tone: 'green' },
+  overdue_billing: { icon: 'card-outline', tone: 'danger' },
+  new_device_sign_in: { icon: 'phone-portrait-outline', tone: 'amber' },
+  permission_update: { icon: 'key-outline', tone: 'purple' },
+  activity_consent: { icon: 'shield-checkmark-outline', tone: 'purple' },
+  staff_role_changed: { icon: 'people-outline', tone: 'purple' },
+  credential_reminder: { icon: 'ribbon-outline', tone: 'amber' },
+  compliance_due: { icon: 'shield-checkmark-outline', tone: 'amber' },
+  room_activity_nudge_response: { icon: 'chatbubble-ellipses-outline', tone: 'green' },
 };
 
 const TONES = {
@@ -79,6 +94,17 @@ export default function StaffNotificationsScreen({ navigation }) {
     } catch (error) {
       setActionError(error.message || 'Notifications could not be marked as read.');
     }
+  }
+
+  async function openNotification(notification) {
+    const payload = { type: notification.kind, ...(notification.payload || {}) };
+    const destination = resolveNotificationRoute(payload, profile?.role);
+    try {
+      await center.markRead(notification.id);
+    } catch {
+      // A read receipt should never block an operational destination.
+    }
+    if (destination) navigation.navigate(destination.name, destination.params);
   }
 
   return (
@@ -138,22 +164,23 @@ export default function StaffNotificationsScreen({ navigation }) {
               <View style={styles.card}>
                 {notifications.map((notification, index) => {
                   const payload = { type: notification.kind, ...(notification.payload || {}) };
+                  const urgent = notification.payload?.priority === 'urgent';
                   const presentationKey = notification.payload?.type || notification.kind;
                   const meta = PRESENTATION[presentationKey] || PRESENTATION[notification.kind]
                     || { icon: 'notifications-outline', tone: 'blue' };
-                  const tone = TONES[meta.tone] || TONES.blue;
+                  const tone = urgent ? TONES.danger : TONES[meta.tone] || TONES.blue;
                   const actionable = Boolean(resolveNotificationRoute(payload, profile?.role));
                   return (
                     <View key={notification.id}>
                       {index ? <View style={styles.divider} /> : null}
                       <TouchableOpacity
-                        style={[styles.row, !notification.read_at && styles.rowUnread]}
-                        onPress={() => center.open(notification)}
+                        style={[styles.row, !notification.read_at && styles.rowUnread, urgent && styles.rowUrgent]}
+                        onPress={() => openNotification(notification)}
                         activeOpacity={0.72}
                         accessibilityRole="button"
                         accessibilityLabel={`${notification.read_at ? '' : 'Unread. '}${notification.title}`}
                       >
-                        {!notification.read_at ? <View style={styles.unreadRail} /> : null}
+                        {!notification.read_at ? <View style={[styles.unreadRail, urgent && styles.unreadRailUrgent]} /> : null}
                         <View style={[styles.icon, { backgroundColor: tone.background }]}>
                           <Ionicons name={meta.icon} size={20} color={tone.color} />
                         </View>
@@ -208,10 +235,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg, paddingVertical: spacing.md,
   },
   rowUnread: { backgroundColor: '#FBFDFF' },
+  rowUrgent: { backgroundColor: '#FFF8F8' },
   unreadRail: {
     position: 'absolute', left: 0, top: 12, bottom: 12, width: 3,
     borderTopRightRadius: 3, borderBottomRightRadius: 3, backgroundColor: colors.primary,
   },
+  unreadRailUrgent: { backgroundColor: colors.danger },
   icon: { width: 42, height: 42, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
   rowCopy: { flex: 1, minWidth: 0 },
   rowTitle: { color: colors.textSecondary, fontFamily: fonts.regular, fontSize: 13.5 },

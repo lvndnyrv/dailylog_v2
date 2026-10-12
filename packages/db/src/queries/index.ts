@@ -133,7 +133,7 @@ export async function getMyProfile(client: Client) {
     .from('profiles')
     .select('*')
     .eq('id', userData.user.id)
-    .single();
+    .maybeSingle();
 
   if (error) throw error;
   return data;

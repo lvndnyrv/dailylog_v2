@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
-import { format, subDays } from 'date-fns';
+import { format } from 'date-fns';
 
 /**
  * Daily log hook.
@@ -293,67 +293,10 @@ export function useDailyLog(childId, date = new Date(), {
 // ---- COPY PREVIOUS DAY ----
 // Standalone function — copies the previous day's meals and activities
 // into the target log. `baseDate` is the day being edited (defaults to today).
-export async function copyYesterdayLog(childId, todayLogId, baseDate = new Date()) {
-  const yesterdayStr = format(subDays(baseDate, 1), 'yyyy-MM-dd');
-
-  // Find the previous day's log
-  const { data: yLog } = await supabase
-    .from('daily_logs')
-    .select('id, moods')
-    .eq('child_id', childId)
-    .eq('log_date', yesterdayStr)
-    .maybeSingle();
-
-  if (!yLog) return { copied: false, reason: 'No log found for yesterday.' };
-
-  // Fetch yesterday's entries
-  const [meals, activities] = await Promise.all([
-    supabase.from('meal_entries').select('*').eq('daily_log_id', yLog.id).order('time'),
-    supabase.from('activity_entries').select('*').eq('daily_log_id', yLog.id),
-  ]);
-
-  const inserts = [];
-
-  if (meals.data?.length) {
-    inserts.push(
-      supabase.from('meal_entries').insert(
-        meals.data.map(m => ({
-          daily_log_id: todayLogId,
-          time: m.time,
-          food_type: m.food_type,
-          amount: m.amount,
-        }))
-      )
-    );
-  }
-
-  if (activities.data?.length) {
-    // Only copy activities not already in today's log
-    const { data: existingActivities } = await supabase
-      .from('activity_entries')
-      .select('activity_name')
-      .eq('daily_log_id', todayLogId);
-
-    const existing = new Set((existingActivities || []).map(a => a.activity_name));
-    const newActivities = activities.data.filter(a => !existing.has(a.activity_name));
-
-    if (newActivities.length) {
-      inserts.push(
-        supabase.from('activity_entries').insert(
-          newActivities.map(a => ({
-            daily_log_id: todayLogId,
-            activity_name: a.activity_name,
-          }))
-        )
-      );
-    }
-  }
-
-  await Promise.all(inserts);
-
-  return {
-    copied: true,
-    mealCount: meals.data?.length || 0,
-    activityCount: activities.data?.length || 0,
-  };
+export async function copyYesterdayLog(_childId, todayLogId, _baseDate = new Date()) {
+  const { data, error } = await supabase.rpc('copy_previous_daily_log_entries', {
+    p_target_log_id: todayLogId,
+  });
+  if (error) throw error;
+  return data;
 }

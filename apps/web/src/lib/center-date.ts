@@ -23,6 +23,22 @@ export function dateInTimeZone(value: Date | string, timeZone: string): string {
   return `${part("year")}-${part("month")}-${part("day")}`;
 }
 
+export function dateTimeLocalInTimeZone(value: Date | string, timeZone: string): string {
+  const date = typeof value === "string" ? new Date(value) : value;
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(date);
+  const part = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((item) => item.type === type)?.value ?? "";
+  return `${part("year")}-${part("month")}-${part("day")}T${part("hour")}:${part("minute")}`;
+}
+
 export function monthRange(date: string): { from: string; to: string } {
   const [year, month] = date.split("-").map(Number);
   const next = month === 12 ? `${year + 1}-01-01` : `${year}-${String(month + 1).padStart(2, "0")}-01`;

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -20,8 +20,7 @@ import { isStaffRole } from '@dailylog/shared';
 import { useAuth } from '../../hooks/useAuth';
 import { useClassroom } from '../../hooks/useClassroom';
 import { supabase } from '../../lib/supabase';
-import { listLocalizedAnnouncements } from '../../lib/localizedAnnouncements';
-import { notifyAnnouncement } from '../../hooks/usePushNotifications';
+import { getLocalizedAnnouncement, listLocalizedAnnouncements } from '../../lib/localizedAnnouncements';
 import { Button, EmptyState, Input } from '../../components/ui';
 import { DatePickerField } from '../../components/DatePickerField';
 import { showToast } from '../../components/Toast';
@@ -34,12 +33,21 @@ function announcementTime(value) {
   return format(date, 'MMM d');
 }
 
-export default function AnnouncementsScreen({ navigation }) {
+const ANNOUNCEMENT_SELECT = `
+  *,
+  author:profiles!announcements_author_id_fkey(id, full_name),
+  daycare:daycares(name),
+  classroom:classrooms(name),
+  rsvps:announcement_rsvps(profile_id, response, guests, child_id)
+`;
+
+export default function AnnouncementsScreen({ navigation, route }) {
   const { profile } = useAuth();
   const classroomContext = useClassroom();
   const classrooms = classroomContext?.classrooms || [];
   const [items, setItems] = useState([]);
   const [readIds, setReadIds] = useState(new Set());
+  const [deliveryMetrics, setDeliveryMetrics] = useState({});
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [loadError, setLoadError] = useState('');
@@ -48,6 +56,8 @@ export default function AnnouncementsScreen({ navigation }) {
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
   const [pinned, setPinned] = useState(false);
+  const [urgent, setUrgent] = useState(false);
+  const [audienceType, setAudienceType] = useState('families');
   const [rsvpEnabled, setRsvpEnabled] = useState(false);
   const [eventDate, setEventDate] = useState(format(addDays(new Date(), 14), 'yyyy-MM-dd'));
   const [eventStart, setEventStart] = useState('11:00');
@@ -55,8 +65,13 @@ export default function AnnouncementsScreen({ navigation }) {
   const [eventLocation, setEventLocation] = useState('');
   const [targetClassroom, setTargetClassroom] = useState(null);
   const [sending, setSending] = useState(false);
+  const [canEditBroadcasts, setCanEditBroadcasts] = useState(false);
+  const [canApproveBroadcasts, setCanApproveBroadcasts] = useState(false);
+  const listRef = useRef(null);
 
   const isStaff = isStaffRole(profile?.role);
+  const canViewMetrics = isStaff;
+  const focusAnnouncementId = route?.params?.announcementId || null;
 
   const load = useCallback(async ({ silent = false } = {}) => {
     if (!profile?.id) return;
@@ -66,22 +81,36 @@ export default function AnnouncementsScreen({ navigation }) {
     let announcements;
     try {
       if (isStaff) {
+        const [{ data: canEdit }, { data: canApprove }] = await Promise.all([
+          supabase.rpc('has_permission', { p_area: 'broadcasts', p_action: 'edit' }),
+          supabase.rpc('has_permission', { p_area: 'broadcasts', p_action: 'approve' }),
+        ]);
+        setCanEditBroadcasts(canEdit === true);
+        setCanApproveBroadcasts(canApprove === true);
         const { data, error } = await supabase
           .from('announcements')
-          .select(`
-            *,
-            author:profiles!announcements_author_id_fkey(full_name),
-            daycare:daycares(name),
-            classroom:classrooms(name),
-            rsvps:announcement_rsvps(profile_id, response, guests, child_id)
-          `)
+          .select(ANNOUNCEMENT_SELECT)
           .order('pinned', { ascending: false })
           .order('created_at', { ascending: false })
           .limit(50);
         if (error) throw error;
         announcements = data || [];
+
+        if (focusAnnouncementId && !announcements.some((item) => item.id === focusAnnouncementId)) {
+          const { data: focused, error: focusError } = await supabase
+            .from('announcements')
+            .select(ANNOUNCEMENT_SELECT)
+            .eq('id', focusAnnouncementId)
+            .maybeSingle();
+          if (focusError) throw focusError;
+          if (focused) announcements = [focused, ...announcements];
+        }
       } else {
         announcements = await listLocalizedAnnouncements(50);
+        if (focusAnnouncementId && !announcements.some((item) => item.id === focusAnnouncementId)) {
+          const focused = await getLocalizedAnnouncement(focusAnnouncementId);
+          if (focused) announcements = [focused, ...announcements];
+        }
       }
     } catch (error) {
       setLoadError(error.message || 'We could not load announcements.');
@@ -90,6 +119,16 @@ export default function AnnouncementsScreen({ navigation }) {
       return;
     }
     setItems(announcements);
+    if (canViewMetrics && announcements.length) {
+      const { data: metrics } = await supabase.rpc('list_broadcast_delivery_metrics', {
+        p_announcement_ids: announcements.map((item) => item.id),
+      });
+      setDeliveryMetrics(Object.fromEntries(
+        (metrics || []).map((metric) => [metric.announcement_id, metric]),
+      ));
+    } else {
+      setDeliveryMetrics({});
+    }
     if (announcements[0]?.daycare?.name) {
       setCenterName(announcements[0].daycare.name);
     } else if (profile.daycare_id) {
@@ -112,7 +151,7 @@ export default function AnnouncementsScreen({ navigation }) {
     }
     setLoading(false);
     setRefreshing(false);
-  }, [isStaff, profile?.daycare_id, profile?.id]);
+  }, [canViewMetrics, focusAnnouncementId, isStaff, profile?.daycare_id, profile?.id]);
 
   useFocusEffect(useCallback(() => {
     load();
@@ -133,6 +172,15 @@ export default function AnnouncementsScreen({ navigation }) {
     return () => supabase.removeChannel(channel);
   }, [load, profile?.id]);
 
+  useEffect(() => {
+    if (!focusAnnouncementId || !items.length) return;
+    const index = items.findIndex((item) => item.id === focusAnnouncementId);
+    if (index < 0) return;
+    requestAnimationFrame(() => {
+      listRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0.15 });
+    });
+  }, [focusAnnouncementId, items, route?.params?.linkedAt]);
+
   async function handleSend() {
     if (!title.trim() || !body.trim()) {
       Alert.alert('Required', 'Please enter both a title and a message.');
@@ -140,7 +188,7 @@ export default function AnnouncementsScreen({ navigation }) {
     }
     let eventAt = null;
     let eventEndsAt = null;
-    if (rsvpEnabled) {
+    if (rsvpEnabled && audienceType === 'families' && !urgent) {
       if (!eventDate || !/^([01]\d|2[0-3]):[0-5]\d$/.test(eventStart)
           || !/^([01]\d|2[0-3]):[0-5]\d$/.test(eventEnd)
           || !eventLocation.trim()) {
@@ -163,38 +211,34 @@ export default function AnnouncementsScreen({ navigation }) {
     setSending(true);
     const row = {
       daycare_id: profile.daycare_id,
-      classroom_id: targetClassroom?.id || null,
+      classroom_id: audienceType === 'families' ? targetClassroom?.id || null : null,
       author_id: profile.id,
+      audience_type: audienceType,
       title: title.trim(),
       body: body.trim(),
-      pinned,
-      rsvp_enabled: rsvpEnabled,
+      pinned: urgent || pinned,
+      priority: urgent ? 'urgent' : 'normal',
+      published_at: new Date().toISOString(),
+      rsvp_enabled: audienceType === 'families' && !urgent && rsvpEnabled,
       event_at: eventAt,
       event_ends_at: eventEndsAt,
       event_location: rsvpEnabled ? eventLocation.trim() : null,
     };
-    const { data, error } = await supabase
+    const { error } = await supabase
       .from('announcements')
-      .insert(row)
-      .select('id')
-      .single();
+      .insert(row);
     setSending(false);
     if (error) {
       Alert.alert('Could not send announcement', error.message);
       return;
     }
 
-    notifyAnnouncement(
-      profile.daycare_id,
-      targetClassroom?.id || null,
-      row.title,
-      row.body,
-      data?.id,
-    );
     setComposing(false);
     setTitle('');
     setBody('');
     setPinned(false);
+    setUrgent(false);
+    setAudienceType('families');
     setRsvpEnabled(false);
     setEventDate(format(addDays(new Date(), 14), 'yyyy-MM-dd'));
     setEventStart('11:00');
@@ -206,13 +250,18 @@ export default function AnnouncementsScreen({ navigation }) {
   }
 
   async function handleDelete(item) {
-    Alert.alert('Delete announcement', `Delete "${item.title}"?`, [
+    Alert.alert('Delete scheduled announcement', `Delete "${item.title}" before it is sent?`, [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Delete',
         style: 'destructive',
         onPress: async () => {
-          await supabase.from('announcements').delete().eq('id', item.id);
+          const { error } = await supabase.from('announcements').delete().eq('id', item.id);
+          if (error) {
+            Alert.alert('Could not delete announcement', error.message);
+            return;
+          }
+          showToast('Announcement deleted', 'success');
           load();
         },
       },
@@ -241,6 +290,7 @@ export default function AnnouncementsScreen({ navigation }) {
 
   function renderParentItem({ item }) {
     const isRead = readIds.has(item.id);
+    const isUrgent = item.priority === 'urgent';
     const myRsvp = item.rsvps?.find((rsvp) => rsvp.profile_id === profile.id)?.response;
     const eventIsPast = item.rsvp_enabled && item.event_at && new Date(item.event_at) <= new Date();
     const roomLabel = item.classroom?.name ? item.classroom.name.toUpperCase() : 'ALL ROOMS';
@@ -250,9 +300,13 @@ export default function AnnouncementsScreen({ navigation }) {
     }
     return (
       <TouchableOpacity
-        style={styles.parentCard}
-        onPress={item.rsvp_enabled ? openEvent : undefined}
-        activeOpacity={item.rsvp_enabled ? 0.76 : 1}
+        style={[
+          styles.parentCard,
+          isUrgent && styles.urgentCard,
+          item.id === focusAnnouncementId && styles.focusedCard,
+        ]}
+        onPress={item.rsvp_enabled ? openEvent : isUrgent && !isRead ? () => markRead(item) : undefined}
+        activeOpacity={item.rsvp_enabled || (isUrgent && !isRead) ? 0.76 : 1}
       >
         {item.rsvp_enabled ? (
           <View style={styles.eventBanner}>
@@ -269,7 +323,12 @@ export default function AnnouncementsScreen({ navigation }) {
         ) : null}
         <View style={styles.parentCardContent}>
           <View style={styles.metaRow}>
-            {item.rsvp_enabled ? (
+            {isUrgent ? (
+              <View style={styles.urgentBadge}>
+                <Ionicons name="warning" size={12} color={colors.white} />
+                <Text style={styles.urgentBadgeText}>URGENT</Text>
+              </View>
+            ) : item.rsvp_enabled ? (
               <View style={styles.eventBadge}>
                 <Text style={styles.eventBadgeText}>EVENT · RSVP</Text>
               </View>
@@ -287,7 +346,7 @@ export default function AnnouncementsScreen({ navigation }) {
             </Text>
             {!isRead ? <View style={styles.unreadDot} /> : null}
           </View>
-          <Text style={styles.parentCardTitle}>{item.title}</Text>
+          <Text style={[styles.parentCardTitle, isUrgent && styles.urgentTitle]}>{item.title}</Text>
           <Text style={styles.parentCardBody} numberOfLines={item.rsvp_enabled ? 3 : 5}>{item.body}</Text>
 
           {item.rsvp_enabled && (
@@ -328,19 +387,36 @@ export default function AnnouncementsScreen({ navigation }) {
   function renderStaffItem({ item }) {
     const staffOnly = item.audience_type === 'staff';
     const isRead = readIds.has(item.id);
+    const isUrgent = item.priority === 'urgent';
+    const metrics = deliveryMetrics[item.id];
+    const canDelete = !item.published_at
+      && !item.cancelled_at
+      && canEditBroadcasts
+      && (item.author?.id === profile.id || canApproveBroadcasts);
     function openItem() {
-      if (staffOnly && !isRead) markRead(item);
+      if (!isRead) markRead(item);
       if (item.rsvp_enabled) navigation.navigate('EventRsvps', { announcementId: item.id });
     }
     return (
       <TouchableOpacity
-        style={[styles.staffCard, item.pinned && styles.staffCardPinned]}
-        onPress={staffOnly || item.rsvp_enabled ? openItem : undefined}
-        onLongPress={() => handleDelete(item)}
+        style={[
+          styles.staffCard,
+          item.pinned && styles.staffCardPinned,
+          isUrgent && styles.urgentCard,
+          item.id === focusAnnouncementId && styles.focusedCard,
+        ]}
+        onPress={openItem}
+        onLongPress={canDelete ? () => handleDelete(item) : undefined}
         activeOpacity={0.72}
       >
         <View style={styles.metaRow}>
-          {item.pinned && (
+          {isUrgent && (
+            <View style={styles.urgentBadge}>
+              <Ionicons name="warning" size={12} color={colors.white} />
+              <Text style={styles.urgentBadgeText}>URGENT</Text>
+            </View>
+          )}
+          {item.pinned && !isUrgent && (
             <View style={styles.pinnedBadge}>
               <Text style={styles.pinnedBadgeText}>PINNED</Text>
             </View>
@@ -353,7 +429,7 @@ export default function AnnouncementsScreen({ navigation }) {
           <Text style={styles.metaText}>
             {staffOnly ? 'Team update' : item.classroom?.name || 'All rooms'} · {announcementTime(item.created_at)}
           </Text>
-          {staffOnly && !isRead ? <View style={styles.unreadDot} /> : null}
+          {!isRead ? <View style={[styles.unreadDot, isUrgent && styles.urgentUnreadDot]} /> : null}
         </View>
         <Text style={styles.parentCardTitle}>{item.title}</Text>
         <Text style={styles.parentCardBody}>{item.body}</Text>
@@ -361,13 +437,19 @@ export default function AnnouncementsScreen({ navigation }) {
           {item.author?.full_name || 'Staff'}
           {item.rsvp_enabled ? ` · ${item.rsvps?.filter((rsvp) => rsvp.response === 'yes').length || 0} attending` : ''}
         </Text>
+        {metrics ? (
+          <Text style={styles.deliveryStatus}>
+            Read {Number(metrics.read_count || 0)}/{Number(metrics.recipient_count || 0)} · Push delivered{' '}
+            {Number(metrics.push_delivered || 0)}/{Number(metrics.push_queued || 0)}
+          </Text>
+        ) : null}
         {item.rsvp_enabled ? (
           <View style={styles.responsesLink}>
             <Text style={styles.responsesLinkText}>View family responses</Text>
             <Ionicons name="chevron-forward" size={16} color={colors.primary} />
           </View>
         ) : null}
-        {staffOnly && !isRead ? (
+        {!isRead ? (
           <TouchableOpacity onPress={() => markRead(item)} style={styles.markReadButton}>
             <Text style={styles.markReadText}>Mark as read</Text>
           </TouchableOpacity>
@@ -394,7 +476,7 @@ export default function AnnouncementsScreen({ navigation }) {
               {isStaff ? 'Family and team updates' : centerName}
             </Text>
           </View>
-          {isStaff ? (
+          {isStaff && canEditBroadcasts ? (
             <TouchableOpacity onPress={() => setComposing(true)} style={styles.newButton}>
               <Ionicons name="add" size={18} color={colors.white} />
               <Text style={styles.newButtonText}>New</Text>
@@ -419,6 +501,7 @@ export default function AnnouncementsScreen({ navigation }) {
           </View>
         ) : (
           <FlatList
+            ref={listRef}
             data={items}
             keyExtractor={(item) => item.id}
             renderItem={isStaff ? renderStaffItem : renderParentItem}
@@ -431,6 +514,9 @@ export default function AnnouncementsScreen({ navigation }) {
                 tintColor={colors.primary}
               />
             )}
+            onScrollToIndexFailed={({ index }) => {
+              setTimeout(() => listRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0.15 }), 120);
+            }}
           />
         )}
 
@@ -471,44 +557,98 @@ export default function AnnouncementsScreen({ navigation }) {
               <Text style={styles.fieldLabel}>Audience</Text>
               <View style={styles.audienceWrap}>
                 <TouchableOpacity
-                  onPress={() => setTargetClassroom(null)}
-                  style={[styles.audienceChip, !targetClassroom && styles.audienceChipActive]}
+                  onPress={() => {
+                    setAudienceType('families');
+                    setTargetClassroom(null);
+                  }}
+                  style={[
+                    styles.audienceChip,
+                    audienceType === 'families' && !targetClassroom && styles.audienceChipActive,
+                  ]}
                 >
-                  <Text style={[styles.audienceText, !targetClassroom && styles.audienceTextActive]}>
+                  <Text style={[
+                    styles.audienceText,
+                    audienceType === 'families' && !targetClassroom && styles.audienceTextActive,
+                  ]}>
                     Whole daycare
                   </Text>
                 </TouchableOpacity>
                 {classrooms.map((classroom) => (
                   <TouchableOpacity
                     key={classroom.id}
-                    onPress={() => setTargetClassroom(classroom)}
+                    onPress={() => {
+                      setAudienceType('families');
+                      setTargetClassroom(classroom);
+                    }}
                     style={[
                       styles.audienceChip,
-                      targetClassroom?.id === classroom.id && styles.audienceChipActive,
+                      audienceType === 'families'
+                        && targetClassroom?.id === classroom.id
+                        && styles.audienceChipActive,
                     ]}
                   >
                     <Text
                       style={[
                         styles.audienceText,
-                        targetClassroom?.id === classroom.id && styles.audienceTextActive,
+                        audienceType === 'families'
+                          && targetClassroom?.id === classroom.id
+                          && styles.audienceTextActive,
                       ]}
                     >
                       {classroom.name}
                     </Text>
                   </TouchableOpacity>
                 ))}
+                <TouchableOpacity
+                  onPress={() => {
+                    setAudienceType('staff');
+                    setTargetClassroom(null);
+                    setRsvpEnabled(false);
+                  }}
+                  style={[
+                    styles.audienceChip,
+                    audienceType === 'staff' && styles.audienceChipActive,
+                  ]}
+                >
+                  <Text style={[
+                    styles.audienceText,
+                    audienceType === 'staff' && styles.audienceTextActive,
+                  ]}>
+                    Staff only
+                  </Text>
+                </TouchableOpacity>
               </View>
 
-              <View style={styles.pinRow}>
+              <View style={[styles.urgentToggle, urgent && styles.urgentToggleActive]}>
+                <View style={styles.eventToggleCopy}>
+                  <Text style={styles.urgentToggleTitle}>Urgent alert</Text>
+                  <Text style={styles.eventToggleHint}>
+                    Sends now. Family alerts also notify center staff and email unread families after 15 minutes.
+                  </Text>
+                </View>
+                <Switch
+                  value={urgent}
+                  onValueChange={(value) => {
+                    setUrgent(value);
+                    if (value) {
+                      setPinned(true);
+                      setRsvpEnabled(false);
+                    }
+                  }}
+                  trackColor={{ false: colors.border, true: colors.danger }}
+                />
+              </View>
+
+              {!urgent ? <View style={styles.pinRow}>
                 <Text style={styles.fieldLabel}>Pin to top</Text>
                 <Switch
                   value={pinned}
                   onValueChange={setPinned}
                   trackColor={{ false: colors.border, true: colors.primary }}
                 />
-              </View>
+              </View> : null}
 
-              <View style={styles.pinRow}>
+              {audienceType === 'families' && !urgent ? <View style={styles.pinRow}>
                 <View style={styles.eventToggleCopy}>
                   <Text style={styles.fieldLabel}>Collect family RSVPs</Text>
                   <Text style={styles.eventToggleHint}>Adds an event detail page and response tracking.</Text>
@@ -518,7 +658,7 @@ export default function AnnouncementsScreen({ navigation }) {
                   onValueChange={setRsvpEnabled}
                   trackColor={{ false: colors.border, true: colors.primary }}
                 />
-              </View>
+              </View> : null}
 
               {rsvpEnabled ? (
                 <View style={styles.eventFields}>
@@ -560,13 +700,19 @@ export default function AnnouncementsScreen({ navigation }) {
               ) : null}
 
               <Button
-                label={rsvpEnabled ? 'Publish event' : 'Send announcement'}
+                label={urgent ? 'Send urgent alert' : rsvpEnabled ? 'Publish event' : 'Send announcement'}
                 onPress={handleSend}
                 loading={sending}
                 style={{ marginTop: spacing.lg }}
               />
               <Text style={styles.pushHint}>
-                Families in {targetClassroom ? targetClassroom.name : 'the whole daycare'} will receive this update.
+                {urgent
+                  ? audienceType === 'staff'
+                    ? 'Active center staff will receive this urgent alert immediately.'
+                    : `Families in ${targetClassroom ? targetClassroom.name : 'the whole daycare'} and active center staff will receive this immediately.`
+                  : audienceType === 'staff'
+                    ? 'Active center staff will receive this update.'
+                    : `Families in ${targetClassroom ? targetClassroom.name : 'the whole daycare'} will receive this update.`}
               </Text>
             </KeyboardAwareScrollView>
           </View>
@@ -621,6 +767,19 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     marginBottom: spacing.md,
   },
+  urgentCard: { borderColor: colors.danger, backgroundColor: '#FFF8F8' },
+  focusedCard: { borderColor: colors.primary, borderWidth: 2.5 },
+  urgentBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    borderRadius: radius.full,
+    backgroundColor: colors.danger,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  urgentBadgeText: { fontSize: 10.5, letterSpacing: 0.7, fontFamily: fonts.black, color: colors.white },
+  urgentTitle: { color: colors.danger },
   eventBanner: {
     minHeight: 104,
     flexDirection: 'row',
@@ -678,6 +837,7 @@ const styles = StyleSheet.create({
   roomBadgeText: { fontSize: 11, letterSpacing: 0.5, fontFamily: fonts.bold, color: colors.amber },
   metaText: { flex: 1, fontSize: 12, fontFamily: fonts.regular, color: colors.textFaint },
   unreadDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.primary },
+  urgentUnreadDot: { backgroundColor: colors.danger },
   parentCardTitle: {
     fontSize: 17,
     lineHeight: 23,
@@ -717,6 +877,12 @@ const styles = StyleSheet.create({
   },
   staffCardPinned: { borderColor: colors.amber, backgroundColor: '#FFFCF7' },
   staffFooter: { marginTop: spacing.md, fontSize: 11.5, fontFamily: fonts.regular, color: colors.textFaint },
+  deliveryStatus: {
+    marginTop: spacing.sm,
+    fontSize: 11.5,
+    fontFamily: fonts.bold,
+    color: colors.textSecondary,
+  },
   responsesLink: { flexDirection: 'row', alignItems: 'center', gap: 3, alignSelf: 'flex-start', marginTop: spacing.sm },
   responsesLinkText: { fontSize: 12.5, fontFamily: fonts.bold, color: colors.primary },
   retryButton: {
@@ -758,6 +924,20 @@ const styles = StyleSheet.create({
   audienceText: { fontSize: 13, fontFamily: fonts.regular, color: colors.textSecondary },
   audienceTextActive: { fontFamily: fonts.bold, color: colors.primary },
   pinRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: spacing.sm },
+  urgentToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.md,
+    marginBottom: spacing.sm,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
+    padding: spacing.md,
+  },
+  urgentToggleActive: { borderColor: colors.danger, backgroundColor: colors.dangerLight },
+  urgentToggleTitle: { marginBottom: spacing.sm, fontSize: 13, fontFamily: fonts.bold, color: colors.textPrimary },
   eventToggleCopy: { flex: 1, paddingRight: spacing.lg },
   eventToggleHint: { marginTop: -4, fontSize: 11.5, lineHeight: 17, fontFamily: fonts.regular, color: colors.textMuted },
   eventFields: { marginTop: spacing.lg, padding: spacing.lg, borderRadius: radius.md, backgroundColor: colors.primarySoft },

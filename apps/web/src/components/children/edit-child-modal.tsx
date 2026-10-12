@@ -97,6 +97,14 @@ export function EditChildModal({
   const [tab, setTab] = useState<Tab>(initialTab);
   const [room, setRoom] = useState(child.classroom_id ?? "");
   const [removePhoto, setRemovePhoto] = useState(false);
+  const childSetupState =
+    child.setup_state && typeof child.setup_state === "object" && !Array.isArray(child.setup_state)
+      ? (child.setup_state as Record<string, unknown>)
+      : {};
+  const [noKnownMedicalNeeds, setNoKnownMedicalNeeds] = useState(
+    Boolean(childSetupState.no_known_medical_needs),
+  );
+  const [medicalReviewTouched, setMedicalReviewTouched] = useState(false);
   const [schedule, setSchedule] = useState<Record<Weekday, ScheduleValue>>(
     readSchedule(
       child.setup_state && typeof child.setup_state === "object" && !Array.isArray(child.setup_state)
@@ -195,6 +203,16 @@ export function EditChildModal({
             <input type="hidden" name="classroom_id" value={room} />
             <input type="hidden" name="existing_photo_url" value={child.photo_url ?? ""} />
             <input type="hidden" name="remove_photo" value={removePhoto.toString()} />
+            <input
+              type="hidden"
+              name="no_known_medical_needs"
+              value={noKnownMedicalNeeds.toString()}
+            />
+            <input
+              type="hidden"
+              name="medical_review_touched"
+              value={medicalReviewTouched.toString()}
+            />
             {WEEKDAYS.map((day) => (
               <input key={day} type="hidden" name={`schedule_${day}`} value={schedule[day]} />
             ))}
@@ -320,11 +338,46 @@ export function EditChildModal({
             {/* MEDICAL */}
             <div className={`flex flex-col gap-4 ${shown("Medical")}`}>
               <span className={sectionLabel}>MEDICAL &amp; ALLERGIES</span>
+              <button
+                type="button"
+                role="checkbox"
+                aria-checked={noKnownMedicalNeeds}
+                onClick={() => {
+                  setNoKnownMedicalNeeds((value) => !value);
+                  setMedicalReviewTouched(true);
+                }}
+                className={`flex items-center gap-3 rounded-[14px] border-[1.5px] px-4 py-3 text-left ${
+                  noKnownMedicalNeeds
+                    ? "border-[#BDE5D1] bg-[#F0FAF5]"
+                    : "border-[#D6E1F0] bg-card hover:bg-canvas"
+                }`}
+              >
+                <span
+                  aria-hidden
+                  className={`grid size-5 flex-none place-items-center rounded-full border text-[12px] font-bold ${
+                    noKnownMedicalNeeds
+                      ? "border-success bg-success text-white"
+                      : "border-[#B8C8DD] text-transparent"
+                  }`}
+                >
+                  ✓
+                </span>
+                <span>
+                  <span className="block text-[13px] font-bold text-ink">
+                    No known allergies or medical needs
+                  </span>
+                  <span className="block text-[11.5px] text-muted">
+                    Confirms this section was reviewed instead of simply left blank.
+                  </span>
+                </span>
+              </button>
               <LabeledInput
                 label="Allergies (comma-separated)"
                 name="allergies"
                 defaultValue={(child.allergies ?? []).join(", ")}
                 placeholder="Peanuts, Dairy"
+                disabled={noKnownMedicalNeeds}
+                onChange={() => setMedicalReviewTouched(true)}
               />
               <label className="flex flex-col gap-[7px]">
                 <span className={label}>Medical notes</span>
@@ -333,7 +386,9 @@ export function EditChildModal({
                   defaultValue={child.medical_notes ?? ""}
                   rows={4}
                   placeholder="EpiPen location, asthma, anything educators must know…"
-                  className={`${input} leading-relaxed`}
+                  disabled={noKnownMedicalNeeds}
+                  onChange={() => setMedicalReviewTouched(true)}
+                  className={`${input} leading-relaxed disabled:bg-canvas disabled:text-faint`}
                 />
               </label>
               <LabeledInput
@@ -449,13 +504,17 @@ export function EditChildModal({
                     >
                       {lifecycle === "active" ? "Active" : lifecycle === "ended" ? "Ended" : "Consent needed"}
                     </span>
-                    <button
-                      type="button"
-                      onClick={() => setEditingMedication(m)}
-                      className="text-[12px] font-bold text-primary hover:underline"
-                    >
-                      Edit
-                    </button>
+                    {lifecycle === "consent_needed" ? (
+                      <button
+                        type="button"
+                        onClick={() => setEditingMedication(m)}
+                        className="text-[12px] font-bold text-primary hover:underline"
+                      >
+                        Edit request
+                      </button>
+                    ) : (
+                      <span className="text-[11px] font-semibold text-faint">Signed record</span>
+                    )}
                   </div>
                   );
                 })
@@ -598,12 +657,14 @@ function MedicationEditor({
         <input name="name" required defaultValue={medication?.name ?? ""} placeholder="Medication name" className={input} />
         <input name="dosage" required defaultValue={medication?.dosage ?? ""} placeholder="Dosage" className={input} />
         <input name="schedule" defaultValue={medication?.schedule ?? ""} placeholder="Schedule" className={input} />
-        <select name="status" defaultValue={medication?.active === false ? "consent" : "active"} className={input}>
-          <option value="active">Active</option>
-          <option value="consent">Consent needed</option>
-        </select>
-        <select name="parent_id" defaultValue={medication?.parent_id ?? ""} className={`${input} col-span-2`}>
-          <option value="">No parent authorization yet</option>
+        <input
+          value="Parent review required"
+          disabled
+          aria-label="Medication authorization status"
+          className={`${input} cursor-not-allowed bg-[#F8FBFE] text-muted`}
+        />
+        <select name="parent_id" required defaultValue={medication?.parent_id ?? ""} className={`${input} col-span-2`}>
+          <option value="">Choose the parent who will review and sign</option>
           {guardians.filter((guardian) => guardian.parent).map((guardian) => (
             <option key={guardian.parent!.id} value={guardian.parent!.id}>
               Authorized by {guardian.parent!.full_name}
@@ -618,6 +679,9 @@ function MedicationEditor({
           className={`${input} col-span-2`}
         />
       </div>
+      <p className="text-[11.5px] leading-relaxed text-muted">
+        This creates a request only. The parent must verify the directions, upload the medication label, and sign before educators can give a dose.
+      </p>
       {state.error && <p className="text-[11.5px] font-semibold text-danger">{state.error}</p>}
       {state.ok && <p className="text-[11.5px] font-semibold text-success">Medication saved.</p>}
       <div className="flex justify-end gap-2">
@@ -625,7 +689,7 @@ function MedicationEditor({
           Cancel
         </button>
         <button type="submit" disabled={pending} className="rounded-btn bg-primary px-4 py-2 text-[12px] font-bold text-white hover:bg-primary-hover disabled:opacity-60">
-          {pending ? "Saving…" : "Save medication"}
+          {pending ? "Sending…" : medication ? "Update request" : "Request parent authorization"}
         </button>
       </div>
     </form>

@@ -44,7 +44,7 @@ export function ParentChildInviteProvider({ children }) {
       ]);
       if (!active) return;
       const linkedCode = extractParentChildInviteCode(initialUrl);
-      if (linkedCode) await beginInvite(linkedCode);
+      if (linkedCode) await handleIncomingUrl(initialUrl);
       else if (storedCode) setCode(storedCode);
       if (active) setHydrating(false);
     })();

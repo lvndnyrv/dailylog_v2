@@ -165,6 +165,13 @@ function StatusChip({ label, tone = 'neutral', onPress }) {
 
 function ChildRow({ item, onOpen, onStatusPress }) {
   const opensAttendanceUpdate = Boolean(item.statusAction && onStatusPress);
+  const setup = item.child.setup_state && typeof item.child.setup_state === 'object' && !Array.isArray(item.child.setup_state)
+    ? item.child.setup_state
+    : {};
+  const handoffDetails = [
+    setup.cubby_label ? `Cubby ${setup.cubby_label}` : null,
+    item.isPrimary ? 'You are primary' : setup.primary_educator_name || null,
+  ].filter(Boolean).join(' · ');
   return (
     <TouchableOpacity
       onPress={() => opensAttendanceUpdate ? onStatusPress(item) : onOpen(item.child)}
@@ -179,9 +186,12 @@ function ChildRow({ item, onOpen, onStatusPress }) {
         <ChildAvatar child={item.child} size={38} fontSize={13} />
         {item.isPresent && <View style={styles.presentDot} />}
       </View>
-      <Text style={styles.childName} numberOfLines={1}>
-        {item.child.first_name} {item.child.last_name}
-      </Text>
+      <View style={styles.childCopy}>
+        <Text style={styles.childName} numberOfLines={1}>
+          {item.child.first_name} {item.child.last_name}
+        </Text>
+        {handoffDetails ? <Text style={styles.childHandoff} numberOfLines={1}>{handoffDetails}</Text> : null}
+      </View>
       <StatusChip
         label={item.chip}
         tone={item.tone}
@@ -425,8 +435,9 @@ export default function RosterScreen({ navigation }) {
       isPresent: attendanceStatus === 'present',
       log: logStatus[child.id] || null,
       isNapping: Boolean(activeNaps[child.id]),
+      isPrimary: String(child.setup_state?.primary_educator_id || '') === String(profile?.id || ''),
     };
-  }), [activeNaps, attendance, children, getAttendanceStatus, logStatus]);
+  }), [activeNaps, attendance, children, getAttendanceStatus, logStatus, profile?.id]);
 
   const dueMedicationTasks = useMemo(() => getDueMedicationTasks({
     authorizations: medicationAuthorizations,
@@ -782,7 +793,7 @@ export default function RosterScreen({ navigation }) {
                 <Text style={styles.medicationBandSubtitle}>Review the signed label and complete all five safety rights.</Text>
               </View>
             </View>
-            {dueMedicationTasks.slice(0, 2).map(task => (
+            {dueMedicationTasks.map(task => (
               <TouchableOpacity
                 key={task.authorization.id}
                 style={styles.medicationTask}
@@ -818,9 +829,6 @@ export default function RosterScreen({ navigation }) {
                 <Ionicons name="chevron-forward" size={17} color={colors.textFaint} />
               </TouchableOpacity>
             ))}
-            {dueMedicationTasks.length > 2 ? (
-              <Text style={styles.medicationMore}>+ {dueMedicationTasks.length - 2} more due medication checks</Text>
-            ) : null}
           </View>
         ) : null}
 
@@ -1120,7 +1128,6 @@ const styles = StyleSheet.create({
   medicationTimingBadgeOverdue: { backgroundColor: colors.dangerLight },
   medicationTimingText: { color: colors.amber, fontFamily: fonts.bold, fontSize: 10.5 },
   medicationTimingTextOverdue: { color: colors.danger },
-  medicationMore: { paddingHorizontal: spacing.md, paddingBottom: spacing.md, color: colors.primary, fontFamily: fonts.bold, fontSize: 11.5 },
   pickupShortcut: {
     minHeight: 66,
     flexDirection: 'row',
@@ -1229,13 +1236,13 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: colors.surface,
   },
+  childCopy: { flex: 1, minWidth: 0 },
   childName: {
-    flex: 1,
-    minWidth: 0,
     color: colors.textPrimary,
     fontFamily: fonts.bold,
     fontSize: 14.5,
   },
+  childHandoff: { marginTop: 2, color: colors.textMuted, fontFamily: fonts.regular, fontSize: 10.5 },
   statusChip: {
     borderRadius: radius.full,
     paddingHorizontal: 12,

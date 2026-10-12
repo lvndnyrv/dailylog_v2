@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { isStaffRole } from '@dailylog/shared';
 import {
   View, Text, FlatList, TouchableOpacity,
@@ -7,11 +7,12 @@ import {
 } from 'react-native';
 import { useIsFocused } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../hooks/useAuth';
 import { supabase } from '../../lib/supabase';
 import { LoadingScreen, EmptyState, Badge, Button } from '../../components/ui';
 import { showToast } from '../../components/Toast';
-import { colors, spacing, radius } from '../../theme';
+import { colors, fonts, spacing, radius } from '../../theme';
 
 const ROLE_STYLE = {
   owner_admin: { label: 'Owner admin', color: colors.purple, bg: colors.purpleLight },
@@ -24,7 +25,7 @@ const ROLE_STYLE = {
  * Admin user management — list all daycare users, change roles,
  * invite educators (invite-gated signup), revoke pending invites.
  */
-export default function AdminUsersScreen() {
+export default function AdminUsersScreen({ navigation, route }) {
   const isFocused = useIsFocused();
   const { profile } = useAuth();
   const [users, setUsers]       = useState([]);
@@ -32,6 +33,8 @@ export default function AdminUsersScreen() {
   const [loading, setLoading]   = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [filter, setFilter]     = useState('staff'); // staff | parents | all
+  const [search, setSearch] = useState('');
+  const [busyInviteId, setBusyInviteId] = useState(null);
 
   // Invite educator modal
   const [inviteOpen, setInviteOpen]   = useState(false);
@@ -39,7 +42,7 @@ export default function AdminUsersScreen() {
   const [inviteName, setInviteName] = useState('');
   const [inviteJobTitle, setInviteJobTitle] = useState('Educator');
   const [inviteBackgroundCheck, setInviteBackgroundCheck] = useState(false);
-  const [inviteError, setInviteError] = useState(null);
+  const [inviteErrors, setInviteErrors] = useState({});
   const [inviteRoom, setInviteRoom]   = useState(null);
   const [rooms, setRooms]             = useState([]);
   const [sendingInvite, setSendingInvite] = useState(false);
@@ -48,28 +51,48 @@ export default function AdminUsersScreen() {
     if (isFocused) load();
   }, [isFocused]);
 
+  useEffect(() => {
+    if (!isFocused || !route?.params?.openInvite) return;
+    setInviteErrors({});
+    setInviteOpen(true);
+    navigation.setParams({ openInvite: undefined });
+  }, [isFocused, navigation, route?.params?.openInvite]);
+
   async function load() {
     const { data, error } = await supabase.rpc('get_daycare_users');
     if (error) showToast(`Couldn't load users: ${error.message}`, 'error');
-    setUsers(data || []);
+    const userRows = data || [];
+
+    const [{ data: memberRows }, { data: roomRows }] = await Promise.all([
+      userRows.length
+        ? supabase.from('staff_members')
+          .select('id, profile_id, job_title, employment_type, status, started_on')
+          .in('profile_id', userRows.map(user => user.id))
+        : Promise.resolve({ data: [] }),
+      profile?.daycare_id
+        ? supabase.from('classrooms')
+          .select('id, name')
+          .eq('daycare_id', profile.daycare_id)
+          .is('archived_at', null)
+          .order('name')
+        : Promise.resolve({ data: [] }),
+    ]);
+    const memberByProfile = Object.fromEntries((memberRows || []).map(member => [member.profile_id, member]));
+    const roomById = Object.fromEntries((roomRows || []).map(room => [room.id, room]));
+    setUsers(userRows.map(user => ({
+      ...user,
+      staff_member: memberByProfile[user.id] || null,
+      classroom_name: roomById[user.classroom_id]?.name || null,
+    })));
+    setRooms(roomRows || []);
 
     // Pending staff invites
     const { data: inviteRows } = await supabase
       .from('staff_invites')
-      .select('id, email, full_name, role, job_title, require_background_check, created_at, classroom:classrooms(name)')
+      .select('id, email, full_name, role, job_title, require_background_check, created_at, expires_at, last_sent_at, resend_count, classroom:classrooms(name)')
       .is('accepted_at', null)
       .order('created_at', { ascending: false });
     setInvites(inviteRows || []);
-
-    // Classrooms for the invite modal
-    if (profile?.daycare_id) {
-      const { data: roomRows } = await supabase
-        .from('classrooms')
-        .select('id, name')
-        .eq('daycare_id', profile.daycare_id)
-        .order('name');
-      setRooms(roomRows || []);
-    }
 
     setLoading(false);
     setRefreshing(false);
@@ -78,12 +101,17 @@ export default function AdminUsersScreen() {
   async function handleSendInvite() {
     const email = inviteEmail.trim().toLowerCase();
     const fullName = inviteName.trim();
-    if (!email) { setInviteError('Email is required'); return; }
-    if (!/\S+@\S+\.\S+/.test(email)) { setInviteError('Enter a valid email address'); return; }
-    if (fullName.length < 2) { setInviteError('Full name is required'); return; }
+    const errors = {};
+    if (!email) errors.email = 'Email is required';
+    else if (!/\S+@\S+\.\S+/.test(email)) errors.email = 'Enter a valid email address';
+    if (fullName.length < 2) errors.name = 'Full name is required';
+    if (Object.keys(errors).length) {
+      setInviteErrors(errors);
+      return;
+    }
 
     setSendingInvite(true);
-    setInviteError(null);
+    setInviteErrors({});
 
     // 1. Create the server-side invite (authoritative role/daycare/classroom)
     const { data: inviteCode, error: rpcError } = await supabase.rpc('invite_staff', {
@@ -96,7 +124,7 @@ export default function AdminUsersScreen() {
     });
     if (rpcError) {
       setSendingInvite(false);
-      setInviteError(rpcError.message);
+      setInviteErrors({ form: rpcError.message });
       return;
     }
 
@@ -114,9 +142,7 @@ export default function AdminUsersScreen() {
     });
     setSendingInvite(false);
     if (emailError) {
-      setInviteError(
-        `The invitation was created, but its email could not be queued: ${emailError.message}`
-      );
+      setInviteErrors({ form: `The invitation was created, but its email could not be queued: ${emailError.message}` });
       load();
       return;
     }
@@ -137,59 +163,70 @@ export default function AdminUsersScreen() {
       {
         text: 'Revoke', style: 'destructive',
         onPress: async () => {
-          await supabase.from('staff_invites').delete().eq('id', invite.id);
-          showToast('Invite revoked', 'success');
+          setBusyInviteId(invite.id);
+          const { error } = await supabase.from('staff_invites').delete().eq('id', invite.id);
+          setBusyInviteId(null);
+          if (error) {
+            Alert.alert('Could not revoke invite', error.message);
+            return;
+          }
+          showToast('Invite cancelled', 'success');
           load();
         },
       },
     ]);
   }
 
-  function handleChangeRole(user) {
-    if (user.id === profile.id) {
-      Alert.alert('Not allowed', 'You cannot change your own role.');
+  async function handleResendInvite(invite) {
+    setBusyInviteId(invite.id);
+    const { data, error } = await supabase.rpc('resend_staff_invite', { p_invite_id: invite.id });
+    if (error) {
+      setBusyInviteId(null);
+      Alert.alert('Could not resend invite', error.message);
       return;
     }
-    const options = ['educator', 'parent', 'admin']
-      .filter(r => r !== user.role)
-      .map(r => ({
-        text: `Make ${ROLE_STYLE[r].label}`,
-        onPress: async () => {
-          const { error } = await supabase.rpc('admin_set_user_role', {
-            p_user_id: user.id,
-            p_role: r,
-          });
-          if (error) Alert.alert('Error', error.message);
-          else {
-            showToast(`${user.full_name} is now ${ROLE_STYLE[r].label}`, 'success');
-            load();
-          }
-        },
-      }));
-
-    Alert.alert(
-      `Change role — ${user.full_name}`,
-      `Current role: ${ROLE_STYLE[user.role]?.label || user.role}`,
-      [...options, { text: 'Cancel', style: 'cancel' }]
-    );
+    const inviteLink = `dailylog://invite?code=${encodeURIComponent(data.code)}`;
+    const { error: emailError } = await supabase.rpc('enqueue_email_notification', {
+      p_daycare_id: profile.daycare_id,
+      p_recipient_email: data.email,
+      p_kind: 'staff_invite',
+      p_title: "You're invited to DailyLog",
+      p_body: `Your center renewed your DailyLog invitation. Open it on your phone: ${inviteLink}`,
+      p_payload: { type: 'staff_invite', inviteLink },
+      p_dedupe_key: `staff-invite-resend:${invite.id}:${data.resendCount}`,
+    });
+    setBusyInviteId(null);
+    if (emailError) {
+      Alert.alert('Invite renewed, email not queued', emailError.message);
+    } else {
+      showToast(`Invite resent to ${data.email}`, 'success');
+    }
+    load();
   }
 
-  const filtered = users.filter(u => {
+  const filtered = useMemo(() => users.filter(u => {
     if (filter === 'staff') return isStaffRole(u.role);
     if (filter === 'parents') return u.role === 'parent';
     return true;
-  });
+  }).filter(u => {
+    const value = `${u.full_name || ''} ${u.email || ''} ${u.classroom_name || ''}`.toLowerCase();
+    return value.includes(search.trim().toLowerCase());
+  }), [filter, search, users]);
 
   function renderUser({ item }) {
     const roleStyle = ROLE_STYLE[item.role] || ROLE_STYLE.parent;
     const isMe = item.id === profile.id;
-    const isOwner = item.role === 'owner_admin';
     return (
       <TouchableOpacity
         style={styles.userCard}
-        onPress={() => handleChangeRole(item)}
+        onPress={() => {
+          if (isStaffRole(item.role)) {
+            navigation.getParent()?.navigate('AdminStaffProfile', { person: item });
+          } else {
+            navigation.getParent()?.navigate('AdminFamilyProfile', { person: item });
+          }
+        }}
         activeOpacity={0.7}
-        disabled={isMe || isOwner}
       >
         <View style={styles.userAvatar}>
           <Text style={styles.userInitial}>{item.full_name?.[0] || '?'}</Text>
@@ -204,6 +241,7 @@ export default function AdminUsersScreen() {
           )}
         </View>
         <Badge label={roleStyle.label} color={roleStyle.color} bg={roleStyle.bg} />
+        <Ionicons name="chevron-forward" size={17} color={colors.textFaint} />
       </TouchableOpacity>
     );
   }
@@ -211,17 +249,35 @@ export default function AdminUsersScreen() {
   if (loading) return <LoadingScreen />;
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.header}>
         <View style={styles.headerRow}>
           <View style={{ flex: 1 }}>
-            <Text style={styles.headerTitle}>Users</Text>
-            <Text style={styles.headerSub}>{users.length} people · tap a user to change their role</Text>
+            <Text style={styles.headerTitle}>People</Text>
+            <Text style={styles.headerSub}>{users.length} connected people · {invites.length} pending invite{invites.length === 1 ? '' : 's'}</Text>
           </View>
           <TouchableOpacity style={styles.inviteBtn} onPress={() => setInviteOpen(true)}>
-            <Text style={styles.inviteBtnText}>+ Invite educator</Text>
+            <Ionicons name="person-add-outline" size={17} color={colors.white} />
+            <Text style={styles.inviteBtnText}>Invite</Text>
           </TouchableOpacity>
         </View>
+      </View>
+
+      <View style={styles.searchWrap}>
+        <Ionicons name="search-outline" size={18} color={colors.textFaint} />
+        <TextInput
+          value={search}
+          onChangeText={setSearch}
+          placeholder="Search people or rooms"
+          placeholderTextColor={colors.textFaint}
+          style={styles.searchInput}
+          accessibilityLabel="Search people or rooms"
+        />
+        {search ? (
+          <TouchableOpacity onPress={() => setSearch('')} accessibilityLabel="Clear search">
+            <Ionicons name="close-circle" size={18} color={colors.textFaint} />
+          </TouchableOpacity>
+        ) : null}
       </View>
 
       {/* Filter */}
@@ -253,13 +309,13 @@ export default function AdminUsersScreen() {
             <View style={styles.invitesSection}>
               <Text style={styles.invitesTitle}>⏳ Pending invites</Text>
               {invites.map(inv => (
-                <TouchableOpacity
+                <View
                   key={inv.id}
                   style={styles.inviteCard}
-                  onLongPress={() => handleRevokeInvite(inv)}
-                  activeOpacity={0.7}
                 >
-                  <View style={{ flex: 1 }}>
+                  <View style={styles.inviteTopRow}>
+                    <View style={styles.inviteAvatar}><Ionicons name="mail-unread-outline" size={18} color={colors.amber} /></View>
+                    <View style={{ flex: 1 }}>
                     <Text style={styles.inviteEmail}>{inv.full_name || inv.email}</Text>
                     <Text style={styles.inviteMeta}>
                       {inv.job_title || 'Educator'}
@@ -267,9 +323,31 @@ export default function AdminUsersScreen() {
                       {inv.require_background_check ? ' · Clearance required' : ''}
                     </Text>
                     {inv.full_name ? <Text style={styles.inviteAddress}>{inv.email}</Text> : null}
+                    </View>
+                    <Badge label="Invited" color={colors.amber} bg={colors.amberLight} />
                   </View>
-                  <Badge label="Invited" color={colors.amber} bg={colors.amberLight} />
-                </TouchableOpacity>
+                  <View style={styles.inviteActions}>
+                    <TouchableOpacity
+                      onPress={() => handleRevokeInvite(inv)}
+                      disabled={busyInviteId === inv.id}
+                      style={styles.revokeButton}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Cancel invitation for ${inv.full_name || inv.email}`}
+                    >
+                      <Text style={styles.revokeText}>Cancel invite</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={() => handleResendInvite(inv)}
+                      disabled={busyInviteId === inv.id}
+                      style={styles.resendButton}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Resend invitation to ${inv.full_name || inv.email}`}
+                    >
+                      <Ionicons name="refresh-outline" size={15} color={colors.primary} />
+                      <Text style={styles.resendText}>{busyInviteId === inv.id ? 'Working…' : 'Resend'}</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
               ))}
             </View>
           ) : null
@@ -300,27 +378,29 @@ export default function AdminUsersScreen() {
 
             <Text style={styles.modalLabel}>Full name</Text>
             <TextInput
-              style={[styles.modalInput, inviteError && styles.modalInputError]}
+              style={[styles.modalInput, inviteErrors.name && styles.modalInputError]}
               value={inviteName}
-              onChangeText={(v) => { setInviteName(v); setInviteError(null); }}
+              onChangeText={(v) => { setInviteName(v); setInviteErrors(current => ({ ...current, name: null, form: null })); }}
               placeholder="Priya Sharma"
               placeholderTextColor={colors.textMuted}
               autoCapitalize="words"
               autoCorrect={false}
             />
+            {inviteErrors.name ? <Text style={styles.fieldError}>{inviteErrors.name}</Text> : null}
 
             <Text style={styles.modalLabel}>Email</Text>
             <TextInput
-              style={[styles.modalInput, inviteError && styles.modalInputError]}
+              style={[styles.modalInput, inviteErrors.email && styles.modalInputError]}
               value={inviteEmail}
-              onChangeText={(v) => { setInviteEmail(v); setInviteError(null); }}
+              onChangeText={(v) => { setInviteEmail(v); setInviteErrors(current => ({ ...current, email: null, form: null })); }}
               placeholder="educator@email.com"
               placeholderTextColor={colors.textMuted}
               keyboardType="email-address"
               autoCapitalize="none"
               autoCorrect={false}
             />
-            {inviteError && <Text style={styles.modalError}>{inviteError}</Text>}
+            {inviteErrors.email ? <Text style={styles.fieldError}>{inviteErrors.email}</Text> : null}
+            {inviteErrors.form ? <Text style={styles.modalError}>{inviteErrors.form}</Text> : null}
 
             <Text style={styles.modalLabel}>Job title</Text>
             <TextInput
@@ -377,43 +457,48 @@ export default function AdminUsersScreen() {
             <Button
               label="Cancel"
               variant="ghost"
-              onPress={() => { setInviteOpen(false); setInviteError(null); }}
+              onPress={() => { setInviteOpen(false); setInviteErrors({}); }}
               style={{ marginTop: spacing.sm }}
             />
             </View>
           </ScrollView>
         </KeyboardAvoidingView>
       </Modal>
-    </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
-  header: {
-    padding: spacing.xl, paddingTop: spacing.xl + spacing.md,
-    backgroundColor: colors.surface,
-    borderBottomWidth: 1, borderBottomColor: colors.border,
-  },
-  headerTitle: { fontSize: 24, fontWeight: '700', color: colors.textPrimary },
-  headerSub: { fontSize: 13, color: colors.textSecondary, marginTop: 3 },
+  header: { paddingHorizontal: spacing.xl, paddingTop: spacing.md, paddingBottom: spacing.md },
+  headerTitle: { fontSize: 25, fontFamily: fonts.black, color: colors.textPrimary },
+  headerSub: { fontSize: 12.5, fontFamily: fonts.regular, color: colors.textMuted, marginTop: 3 },
   headerRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   inviteBtn: {
-    backgroundColor: colors.primary, borderRadius: radius.full,
-    paddingHorizontal: spacing.md, paddingVertical: spacing.sm,
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: colors.primary, borderRadius: radius.md,
+    minHeight: 42, paddingHorizontal: spacing.md, paddingVertical: spacing.sm,
   },
-  inviteBtnText: { fontSize: 13, fontWeight: '600', color: colors.white },
+  inviteBtnText: { fontSize: 13, fontFamily: fonts.bold, color: colors.white },
+  searchWrap: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginHorizontal: spacing.lg, paddingHorizontal: spacing.md, minHeight: 46, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, backgroundColor: colors.surface },
+  searchInput: { flex: 1, color: colors.textPrimary, fontFamily: fonts.regular, fontSize: 14, paddingVertical: 0 },
   invitesSection: { marginBottom: spacing.md },
   invitesTitle: {
     fontSize: 13, fontWeight: '600', color: colors.textSecondary,
     marginBottom: spacing.sm, textTransform: 'uppercase', letterSpacing: 0.5,
   },
   inviteCard: {
-    flexDirection: 'row', alignItems: 'center', gap: spacing.md,
     backgroundColor: colors.amberLight, borderRadius: radius.lg,
     borderWidth: 1, borderColor: colors.amber + '44',
     padding: spacing.lg, marginBottom: spacing.sm,
   },
+  inviteTopRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  inviteAvatar: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface },
+  inviteActions: { flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', gap: spacing.sm, marginTop: spacing.md, paddingTop: spacing.md, borderTopWidth: 1, borderTopColor: colors.amber + '33' },
+  revokeButton: { minHeight: 38, alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.md, borderRadius: radius.md },
+  revokeText: { color: colors.danger, fontFamily: fonts.bold, fontSize: 12 },
+  resendButton: { minHeight: 38, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingHorizontal: spacing.md, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, backgroundColor: colors.surface },
+  resendText: { color: colors.primary, fontFamily: fonts.bold, fontSize: 12 },
   inviteEmail: { fontSize: 14, fontWeight: '600', color: colors.textPrimary },
   inviteMeta: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
   inviteAddress: { fontSize: 11.5, color: colors.textMuted, marginTop: 2 },
@@ -437,6 +522,7 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
   },
   modalInputError: { borderColor: colors.danger },
+  fieldError: { fontSize: 12, color: colors.danger, fontFamily: fonts.bold, marginTop: -spacing.sm, marginBottom: spacing.md },
   modalError: { fontSize: 12, color: colors.danger, fontWeight: '500', marginTop: -spacing.sm, marginBottom: spacing.md },
   roomChips: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.sm },
   roomChip: {

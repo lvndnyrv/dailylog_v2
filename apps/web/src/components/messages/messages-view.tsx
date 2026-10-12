@@ -370,10 +370,19 @@ export function MessagesView({
               return (
                 <div
                   key={broadcast.id}
-                  className="flex flex-col gap-1 rounded-xl border border-[#EDF3FB] px-3.5 py-3"
+                  className={`flex flex-col gap-1 rounded-xl border px-3.5 py-3 ${
+                    broadcast.priority === "urgent"
+                      ? "border-danger bg-[#FFF7F7]"
+                      : "border-[#EDF3FB]"
+                  }`}
                 >
                   <span className="flex items-baseline gap-2">
                     <span className="text-[13px] font-bold text-ink">{broadcast.title}</span>
+                    {broadcast.priority === "urgent" && (
+                      <span className="rounded-full bg-[#FDE7E7] px-2 py-px text-[10px] font-extrabold uppercase tracking-wide text-danger">
+                        Urgent
+                      </span>
+                    )}
                     {broadcast.pinned && (
                       <span className="rounded-full bg-warning-bg px-2 py-px text-[10px] font-bold text-warning-text">
                         Pinned

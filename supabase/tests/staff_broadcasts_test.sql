@@ -23,6 +23,8 @@ declare
   v_parent uuid := '00000000-0000-4000-a000-000000000023';
   v_daycare uuid := '10000000-0000-4000-a000-000000000001';
   v_announcement uuid;
+  v_scheduled uuid;
+  v_cancelled uuid;
   v_metric record;
 begin
   perform pg_temp.impersonate('authenticated', v_owner);
@@ -61,7 +63,89 @@ begin
      or v_metric.push_queued <> v_metric.recipient_count then
     raise exception 'FAIL: staff delivery/read metrics are inaccurate';
   end if;
+
+  -- Exercise the publication boundary with a view-only educator. The seeded
+  -- role can author broadcasts, so a rollback-only personal override removes
+  -- edit access without changing the live fixture.
+  perform pg_temp.impersonate('postgres');
+  update public.staff_permission_overrides
+     set permissions = jsonb_set(
+           permissions,
+           '{broadcasts}',
+           coalesce(permissions -> 'broadcasts', '{}'::jsonb)
+             || '{"edit":false,"approve":false}'::jsonb,
+           true
+         ),
+         updated_by = v_owner,
+         updated_at = now()
+   where profile_id = v_educator
+     and classroom_id is null;
+  if not found then
+    insert into public.staff_permission_overrides (
+      daycare_id, profile_id, classroom_id, permissions, updated_by
+    ) values (
+      v_daycare, v_educator, null,
+      '{"broadcasts":{"edit":false,"approve":false}}'::jsonb,
+      v_owner
+    );
+  end if;
+
+  perform pg_temp.impersonate('authenticated', v_owner);
+  insert into public.announcements (
+    daycare_id, author_id, title, body, audience_type, scheduled_for, published_at
+  ) values (
+    v_daycare, v_owner, 'Scheduled staff update', 'Hidden until publication',
+    'staff', now() + interval '1 hour', null
+  ) returning id into v_scheduled;
+
+  if not exists (select 1 from public.announcements where id = v_scheduled) then
+    raise exception 'FAIL: broadcast editor could not review the scheduled staff update';
+  end if;
+
+  perform pg_temp.impersonate('authenticated', v_educator);
+  if exists (select 1 from public.announcements where id = v_scheduled) then
+    raise exception 'FAIL: educator saw a scheduled staff update before publication';
+  end if;
+
+  perform pg_temp.impersonate('authenticated', v_owner);
+  update public.announcements
+     set scheduled_for = now() - interval '1 minute'
+   where id = v_scheduled;
+  perform pg_temp.impersonate('postgres');
+  if public.process_due_announcements() <> 1 then
+    raise exception 'FAIL: scheduled staff update was not published';
+  end if;
+  if not exists (
+    select 1 from public.notification_outbox delivery
+     where delivery.recipient_id = v_educator
+       and delivery.kind = 'announcement'
+       and delivery.dedupe_key = 'announcement:' || v_scheduled
+       and delivery.payload ->> 'announcementId' = v_scheduled::text
+       and delivery.payload ->> 'audienceType' = 'staff'
+       and delivery.payload ->> 'screen' = 'Announcements'
+  ) then
+    raise exception 'FAIL: published staff update did not queue a routable educator push';
+  end if;
+
+  perform pg_temp.impersonate('authenticated', v_educator);
+  if not exists (select 1 from public.announcements where id = v_scheduled) then
+    raise exception 'FAIL: educator could not see the published staff update';
+  end if;
+
+  perform pg_temp.impersonate('authenticated', v_owner);
+  insert into public.announcements (
+    daycare_id, author_id, title, body, audience_type,
+    scheduled_for, published_at, cancelled_at
+  ) values (
+    v_daycare, v_owner, 'Cancelled staff update', 'Must never appear', 'staff',
+    now() + interval '1 hour', null, now()
+  ) returning id into v_cancelled;
+
+  perform pg_temp.impersonate('authenticated', v_educator);
+  if exists (select 1 from public.announcements where id = v_cancelled) then
+    raise exception 'FAIL: educator saw a cancelled staff update';
+  end if;
 end $$;
 
 rollback;
-select 'PASS: staff-only broadcasts stay private, notify the team, and report reads' as result;
+select 'PASS: staff broadcasts stay private until publication, notify the team, deep-link, and report reads' as result;

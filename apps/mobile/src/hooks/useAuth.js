@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
+import { AppState } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../lib/supabase';
 
@@ -15,6 +16,7 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
   const [recovery, setRecovery] = useState(false);
   const [profileFailed, setProfileFailed] = useState(false); // true only after confirmed failure
+  const [profileFailure, setProfileFailure] = useState(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -26,6 +28,7 @@ export function AuthProvider({ children }) {
           setUser(null);
           setProfile(null);
           setProfileFailed(false);
+          setProfileFailure(null);
           setLoading(false);
         }
         return;
@@ -35,6 +38,7 @@ export function AuthProvider({ children }) {
         setUser(session.user);
         setLoading(true);
         setProfileFailed(false);
+        setProfileFailure(null);
       }
 
       // Prevent duplicate fetches
@@ -42,12 +46,14 @@ export function AuthProvider({ children }) {
       fetchingProfile = true;
 
       let data = null;
+      let failure = null;
       try {
         const res = await supabase
           .from('profiles')
           .select('*')
           .eq('id', session.user.id)
           .maybeSingle();
+        if (res.error) throw res.error;
         data = res.data;
 
         if (!data) {
@@ -56,7 +62,14 @@ export function AuthProvider({ children }) {
           data = await fillMissingSafeProfileMetadata(data, session.user);
         }
       } catch (e) {
-        // Network error — don't show failure screen, retry later
+        failure = {
+          kind: 'unavailable',
+          message: e instanceof Error ? e.message : 'Profile lookup failed',
+        };
+      }
+
+      if (!data && !failure) {
+        failure = { kind: 'missing', message: 'Profile not found' };
       }
 
       fetchingProfile = false;
@@ -68,6 +81,7 @@ export function AuthProvider({ children }) {
       if (isMounted) {
         setProfile(data ?? null);
         setProfileFailed(!data);
+        setProfileFailure(failure);
         setLoading(false);
       }
     }
@@ -81,6 +95,7 @@ export function AuthProvider({ children }) {
           setProfile(null);
           setRecovery(false);
           setProfileFailed(false);
+          setProfileFailure(null);
           setLoading(false);
         }
         return;
@@ -98,6 +113,46 @@ export function AuthProvider({ children }) {
       subscription.unsubscribe();
     };
   }, []);
+
+  useEffect(() => {
+    if (!user?.id) return undefined;
+
+    const refreshOwnProfile = async () => {
+      const { data } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', user.id)
+        .maybeSingle();
+      if (data) {
+        setProfile(data);
+        setProfileFailed(false);
+        setProfileFailure(null);
+      }
+    };
+
+    const channel = supabase
+      .channel(`own-profile-access-${user.id}`)
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'profiles', filter: `id=eq.${user.id}` },
+        ({ new: nextProfile }) => {
+          if (nextProfile?.id === user.id) {
+            setProfile(nextProfile);
+            setProfileFailed(false);
+          }
+        },
+      )
+      .subscribe();
+
+    const appStateSubscription = AppState.addEventListener('change', nextState => {
+      if (nextState === 'active') refreshOwnProfile();
+    });
+
+    return () => {
+      appStateSubscription.remove();
+      supabase.removeChannel(channel);
+    };
+  }, [user?.id]);
 
   // Fallback used when the DB trigger hasn't created a profile yet
   // (e.g. OTP-invited parents on an un-migrated database).
@@ -172,9 +227,14 @@ export function AuthProvider({ children }) {
 
       setProfile(data ?? null);
       setProfileFailed(!data);
+      setProfileFailure(data ? null : { kind: 'missing', message: 'Profile not found' });
       return { data: data ?? null, error: data ? null : new Error('Profile not found') };
     } catch (error) {
       setProfileFailed(true);
+      setProfileFailure({
+        kind: 'unavailable',
+        message: error instanceof Error ? error.message : 'Profile lookup failed',
+      });
       return { data: null, error };
     } finally {
       if (!silent) setLoading(false);
@@ -294,19 +354,16 @@ export function AuthProvider({ children }) {
     await supabase.auth.signOut();
   }
 
-  async function deleteAccount() {
-    const { error } = await supabase.rpc('delete_my_account');
-    // The account no longer exists — don't suggest it at next login.
-    await clearRememberedAccount();
-    await supabase.auth.signOut();
-    return { error };
+  async function requestAccountDeletion() {
+    const { data, error } = await supabase.rpc('request_my_account_deletion');
+    return { data, error };
   }
 
   return (
     <AuthContext.Provider
       value={{
-        user, profile, loading, recovery, profileFailed,
-        signIn, signUp, signOut, deleteAccount, fetchProfile,
+        user, profile, loading, recovery, profileFailed, profileFailure,
+        signIn, signUp, signOut, requestAccountDeletion, fetchProfile,
         resetPassword, updatePassword, clearRecovery,
         getRememberedAccount, clearRememberedAccount,
       }}

@@ -8,9 +8,11 @@ import { Notice } from "@/components/ui/notice";
 
 export function SignInForm({
   resetDone,
+  linkExpired,
   destination,
 }: {
   resetDone: boolean;
+  linkExpired: boolean;
   destination: string;
 }) {
   const [state, action, pending] = useActionState<ActionState, FormData>(
@@ -28,6 +30,11 @@ export function SignInForm({
       {resetDone && (
         <Notice tone="success">
           <b>Password updated.</b> Sign in with your new password.
+        </Notice>
+      )}
+      {linkExpired && (
+        <Notice tone="error">
+          That sign-in link expired or was already used. Request a fresh link and try again.
         </Notice>
       )}
       {state.error && <Notice tone="error">{state.error}</Notice>}

@@ -9,10 +9,11 @@ import {
   getStaffInvite,
 } from "@dailylog/db/queries";
 import { revalidatePath } from "next/cache";
-import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { getServerSupabase } from "@/lib/supabase/server";
+import { validateUpload } from "@/lib/uploads";
 import { roleDestination } from "./redirect";
+import { trustedRequestOrigin } from "./trusted-origin";
 
 export interface ActionState {
   error?: string;
@@ -60,6 +61,10 @@ const NOT_CONFIGURED: ActionState = {
   error: "Supabase isn't configured yet — add .env.local first.",
 };
 
+function validEmail(value: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
+
 export async function signInAction(
   _prev: ActionState,
   formData: FormData,
@@ -76,6 +81,7 @@ export async function signInAction(
   }
 
   const profile = await getMyProfile(supabase);
+  if (!profile || profile.archived_at) redirect("/account-issue");
   const destination = safeDestination(formData.get("next"), roleDestination(profile?.role));
   redirect(await securedDestination(supabase, profile?.role, destination));
 }
@@ -87,16 +93,22 @@ export async function magicLinkAction(
 ): Promise<ActionState> {
   if (!configured()) return NOT_CONFIGURED;
   const supabase = await getServerSupabase();
-  const origin = (await headers()).get("origin") ?? "";
+  const origin = await trustedRequestOrigin();
+  if (!origin) return { error: "Could not create a secure sign-in link. Refresh and try again." };
 
   const email = String(formData.get("email") ?? "").trim();
-  if (!email) return { error: "Enter your work email first, then request the link." };
+  if (!validEmail(email)) {
+    return { error: "Enter a valid work email first, then request the link." };
+  }
+  const destination = safeDestination(formData.get("next"), "/");
+  const callback = new URL("/auth/callback", origin);
+  callback.searchParams.set("next", destination);
 
-  const { error } = await supabase.auth.signInWithOtp({
+  await supabase.auth.signInWithOtp({
     email,
-    options: { emailRedirectTo: `${origin}/`, shouldCreateUser: false },
+    options: { emailRedirectTo: callback.toString(), shouldCreateUser: false },
   });
-  if (error) return { error: error.message };
+  // Always show the same result so this form cannot reveal registered emails.
   return { sent: true };
 }
 
@@ -106,13 +118,18 @@ export async function forgotAction(
 ): Promise<ActionState> {
   if (!configured()) return NOT_CONFIGURED;
   const supabase = await getServerSupabase();
-  const origin = (await headers()).get("origin") ?? "";
+  const origin = await trustedRequestOrigin();
+  if (!origin) return { error: "Could not create a secure reset link. Refresh and try again." };
+  const email = String(formData.get("email") ?? "").trim();
+  if (!validEmail(email)) return { error: "Enter a valid work email." };
+  const callback = new URL("/auth/callback", origin);
+  callback.searchParams.set("next", "/reset");
 
-  const { error } = await supabase.auth.resetPasswordForEmail(
-    String(formData.get("email") ?? "").trim(),
-    { redirectTo: `${origin}/reset` },
+  await supabase.auth.resetPasswordForEmail(
+    email,
+    { redirectTo: callback.toString() },
   );
-  if (error) return { error: error.message };
+  // Always show the same result so this form cannot reveal registered emails.
   return { sent: true };
 }
 
@@ -198,6 +215,7 @@ export async function acceptInviteAction(
   }
 
   const profile = await getMyProfile(supabase);
+  if (!profile || profile.archived_at) redirect("/account-issue");
   const destination = roleDestination(profile?.role);
   redirect(await securedDestination(supabase, profile?.role, destination, true));
 }
@@ -251,7 +269,12 @@ export async function startCenterAction(
       },
     },
   });
-  if (error) return { error: error.message };
+  if (error) {
+    return {
+      error:
+        "We could not create this approved account. If this email already has a DailyLog account, sign in or reset its password.",
+    };
+  }
   if (!data.session) {
     return {
       error:
@@ -272,11 +295,9 @@ export async function startCenterAction(
         approved_center_name: null,
       },
     });
-  } catch (err) {
+  } catch {
     return {
-      error: err instanceof Error
-        ? err.message
-        : "The approved center could not be created. Your code was not consumed; try again.",
+      error: "The approved center could not be created. Your code was not consumed; try again.",
     };
   }
 
@@ -314,16 +335,12 @@ export async function updateProfileAction(
 
   const avatarEntry = formData.get("avatar");
   const avatar = typeof avatarEntry === "string" || !avatarEntry?.size ? null : avatarEntry;
-  const avatarExtensions: Record<string, string> = {
-    "image/jpeg": "jpg",
-    "image/png": "png",
-    "image/webp": "webp",
-  };
-  if (avatar && !avatarExtensions[avatar.type]) {
-    return { error: "Choose a JPG, PNG, or WebP image." };
-  }
   if (avatar && avatar.size > 5 * 1024 * 1024) {
     return { error: "Choose an image smaller than 5 MB." };
+  }
+  const validatedAvatar = avatar ? await validateUpload(avatar, "profile-image") : null;
+  if (avatar && !validatedAvatar) {
+    return { error: "Choose a valid JPG, PNG, or WebP image." };
   }
 
   let uploadedPath: string | null = null;
@@ -339,12 +356,12 @@ export async function updateProfileAction(
     if (currentProfileError) return { error: currentProfileError.message };
     previousAvatarUrl = currentProfile.avatar_url;
 
-    uploadedPath = `${user.id}/avatar-${crypto.randomUUID()}.${avatarExtensions[avatar.type]}`;
+    uploadedPath = `${user.id}/avatar-${crypto.randomUUID()}.${validatedAvatar!.extension}`;
     const { error: uploadError } = await supabase.storage
       .from("profile-avatars")
       .upload(uploadedPath, avatar, {
         cacheControl: "3600",
-        contentType: avatar.type,
+        contentType: validatedAvatar!.mimeType,
         upsert: false,
       });
     if (uploadError) return { error: uploadError.message };

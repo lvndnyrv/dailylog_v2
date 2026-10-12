@@ -27,6 +27,7 @@ export interface RosterChild {
   enrolled_on: string | null;
   classroom: { id: string; name: string } | null;
   guardians: RosterGuardian[];
+  pending_invite_count: number;
 }
 
 const ROSTER_SELECT = `id, first_name, last_name, date_of_birth, photo_url,
@@ -36,14 +37,31 @@ const ROSTER_SELECT = `id, first_name, last_name, date_of_birth, photo_url,
     parent:profiles(id, full_name, email))`;
 
 export async function listRoster(client: Client): Promise<RosterChild[]> {
-  const { data, error } = await client
-    .from('children')
-    .select(ROSTER_SELECT)
-    .is('archived_at', null)
-    .order('first_name');
+  const [{ data, error }, { data: invites, error: inviteError }] = await Promise.all([
+    client
+      .from('children')
+      .select(ROSTER_SELECT)
+      .is('archived_at', null)
+      .order('first_name'),
+    client
+      .from('child_invite_codes')
+      .select('child_id')
+      .is('used_at', null)
+      .gt('expires_at', new Date().toISOString()),
+  ]);
 
   if (error) throw error;
-  return (data ?? []) as unknown as RosterChild[];
+  if (inviteError) throw inviteError;
+  const inviteCounts = new Map<string, number>();
+  for (const invite of invites ?? []) {
+    inviteCounts.set(invite.child_id, (inviteCounts.get(invite.child_id) ?? 0) + 1);
+  }
+  return ((data ?? []) as unknown as Omit<RosterChild, 'pending_invite_count'>[]).map(
+    (child) => ({
+      ...child,
+      pending_invite_count: inviteCounts.get(child.id) ?? 0,
+    }),
+  );
 }
 
 export interface MedicalRegisterRow {
@@ -250,7 +268,8 @@ export async function getChildProfile(client: Client, childId: string) {
       .from('child_invite_codes')
       .select('id, email, relationship, code, expires_at, created_at')
       .eq('child_id', childId)
-      .is('used_at', null),
+      .is('used_at', null)
+      .gt('expires_at', new Date().toISOString()),
     client
       .from('documents')
       .select('id, title, category, storage_path, mime_type, size_bytes, created_at')

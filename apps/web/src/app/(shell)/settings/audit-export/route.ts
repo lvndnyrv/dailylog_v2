@@ -1,3 +1,5 @@
+import { getMyProfile } from "@dailylog/db/queries";
+import { isAdminRole } from "@dailylog/shared";
 import { getServerSupabase } from "@/lib/supabase/server";
 
 function csv(value: unknown): string {
@@ -7,12 +9,23 @@ function csv(value: unknown): string {
 
 export async function GET() {
   const supabase = await getServerSupabase();
+  const profile = await getMyProfile(supabase);
+  if (!profile || profile.archived_at || !isAdminRole(profile.role)) {
+    return new Response("Not found", {
+      status: 404,
+      headers: { "Cache-Control": "private, no-store" },
+    });
+  }
   const { data, error } = await supabase
     .from("audit_log")
     .select("created_at,action,entity_type,entity_id,actor:profiles(full_name,email)")
     .order("created_at", { ascending: false })
     .limit(5000);
-  if (error) return new Response(error.message, { status: 500 });
+  if (error)
+    return new Response("Audit export is temporarily unavailable", {
+      status: 500,
+      headers: { "Cache-Control": "private, no-store" },
+    });
 
   const rows = ["timestamp,actor,email,action,record_type,record_id"];
   for (const entry of data ?? []) {
@@ -33,7 +46,9 @@ export async function GET() {
     headers: {
       "Content-Type": "text/csv; charset=utf-8",
       "Content-Disposition": `attachment; filename="dailylog-audit-${date}.csv"`,
-      "Cache-Control": "no-store",
+      "Cache-Control": "private, no-store",
+      "Referrer-Policy": "no-referrer",
+      "X-Content-Type-Options": "nosniff",
     },
   });
 }

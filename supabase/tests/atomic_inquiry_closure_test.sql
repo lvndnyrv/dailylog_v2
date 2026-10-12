@@ -22,6 +22,7 @@ declare
   room_id uuid;
   target_id uuid;
   enrolled_id uuid;
+  enrolled_child_id uuid;
   slot_id uuid;
   payload jsonb;
   closed_at timestamptz;
@@ -74,17 +75,27 @@ begin
     now() + interval '103 days 48 minutes', room_id, target_id, 'booked'
   ) returning id into slot_id;
 
+  -- Completed enrollments now require the child, room and first day to remain
+  -- one coherent activation record. Use a dedicated matching child instead of
+  -- borrowing an arbitrary seeded child from another room.
+  insert into public.children (
+    daycare_id, classroom_id, first_name, last_name, date_of_birth, enrolled_on
+  ) values (
+    center, room_id, 'Enrolled', 'Closure',
+    (public.center_today() - interval '4 years')::date,
+    public.center_today()
+  ) returning id into enrolled_child_id;
+
   insert into public.enrollments (
     daycare_id, classroom_id, child_first_name, child_last_name,
     child_date_of_birth, guardian_name, guardian_email, stage,
     desired_start_date, waitlist_status, offer_status, child_id
+  ) values (
+    center, room_id, 'Enrolled', 'Closure',
+    (public.center_today() - interval '4 years')::date,
+    'Enrolled Guardian', 'enrolled-closure@dailylog.invalid',
+    'enrolled', public.center_today(), 'not_waitlisted', 'accepted', enrolled_child_id
   )
-  select center, room_id, child.first_name, child.last_name,
-    child.date_of_birth, 'Enrolled Guardian', 'enrolled-closure@dailylog.invalid',
-    'enrolled', public.center_today(), 'not_waitlisted', 'accepted', child.id
-  from public.children child
-  where child.daycare_id = center and child.archived_at is null
-  limit 1
   returning id into enrolled_id;
   if enrolled_id is null then
     raise exception 'FAIL: closure test needs one seeded active child';

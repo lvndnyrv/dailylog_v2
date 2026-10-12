@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View,
 } from 'react-native';
@@ -7,6 +7,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { format } from 'date-fns';
 import { getChildConsents } from '../../hooks/useStaffVisibility';
+import { supabase } from '../../lib/supabase';
 import { EmptyState } from '../../components/ui';
 import { colors, fonts, radius, spacing } from '../../theme';
 
@@ -39,7 +40,18 @@ export default function ChildConsentsScreen({ navigation, route }) {
     }
   }, [childId]);
 
-  useFocusEffect(useCallback(() => { load(); }, [load]));
+  useFocusEffect(useCallback(() => { load(); }, [load, route.params?.linkedAt]));
+
+  useEffect(() => {
+    if (!childId) return undefined;
+    const channel = supabase
+      .channel(`child-consents:${childId}`)
+      .on('postgres_changes', {
+        event: '*', schema: 'public', table: 'consents', filter: `child_id=eq.${childId}`,
+      }, load)
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [childId, load]);
 
   const items = data?.items || [];
   const restricted = items.filter((item) => item.status !== 'allowed');

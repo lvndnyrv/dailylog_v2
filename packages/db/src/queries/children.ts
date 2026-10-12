@@ -27,6 +27,7 @@ export interface RosterChild {
   enrolled_on: string | null;
   classroom: { id: string; name: string } | null;
   guardians: RosterGuardian[];
+  pending_invite_count: number;
 }
 
 const ROSTER_SELECT = `id, first_name, last_name, date_of_birth, photo_url,
@@ -36,14 +37,31 @@ const ROSTER_SELECT = `id, first_name, last_name, date_of_birth, photo_url,
     parent:profiles(id, full_name, email))`;
 
 export async function listRoster(client: Client): Promise<RosterChild[]> {
-  const { data, error } = await client
-    .from('children')
-    .select(ROSTER_SELECT)
-    .is('archived_at', null)
-    .order('first_name');
+  const [{ data, error }, { data: invites, error: inviteError }] = await Promise.all([
+    client
+      .from('children')
+      .select(ROSTER_SELECT)
+      .is('archived_at', null)
+      .order('first_name'),
+    client
+      .from('child_invite_codes')
+      .select('child_id')
+      .is('used_at', null)
+      .gt('expires_at', new Date().toISOString()),
+  ]);
 
   if (error) throw error;
-  return (data ?? []) as unknown as RosterChild[];
+  if (inviteError) throw inviteError;
+  const inviteCounts = new Map<string, number>();
+  for (const invite of invites ?? []) {
+    inviteCounts.set(invite.child_id, (inviteCounts.get(invite.child_id) ?? 0) + 1);
+  }
+  return ((data ?? []) as unknown as Omit<RosterChild, 'pending_invite_count'>[]).map(
+    (child) => ({
+      ...child,
+      pending_invite_count: inviteCounts.get(child.id) ?? 0,
+    }),
+  );
 }
 
 export interface MedicalRegisterRow {
@@ -54,7 +72,14 @@ export interface MedicalRegisterRow {
   medical_notes: string | null;
   emergency_contacts: unknown;
   classroom: { id: string; name: string } | null;
-  medications: { id: string; name: string; active: boolean }[];
+  medications: {
+    id: string;
+    name: string;
+    active: boolean;
+    signed_at: string | null;
+    consented_at: string | null;
+    ended_at: string | null;
+  }[];
 }
 
 export async function listMedicalRegister(client: Client): Promise<MedicalRegisterRow[]> {
@@ -63,13 +88,43 @@ export async function listMedicalRegister(client: Client): Promise<MedicalRegist
     .select(
       `id, first_name, last_name, allergies, medical_notes, emergency_contacts,
        classroom:classrooms(id, name),
-       medications:medication_authorizations(id, name, active)`,
+       medications:medication_authorizations(
+         id, name, active, signed_at, consented_at, ended_at
+       )`,
     )
     .is('archived_at', null)
     .order('first_name');
 
   if (error) throw error;
   return (data ?? []) as unknown as MedicalRegisterRow[];
+}
+
+export interface ConsentRegisterRow {
+  id: string;
+  first_name: string;
+  last_name: string;
+  classroom: { id: string; name: string } | null;
+  consents: {
+    id: string;
+    kind: string;
+    granted: boolean;
+    updated_at: string | null;
+  }[];
+}
+
+export async function listConsentRegister(client: Client): Promise<ConsentRegisterRow[]> {
+  const { data, error } = await client
+    .from('children')
+    .select(
+      `id, first_name, last_name,
+       classroom:classrooms(id, name),
+       consents(id, kind, granted, updated_at)`,
+    )
+    .is('archived_at', null)
+    .order('first_name');
+
+  if (error) throw error;
+  return (data ?? []) as unknown as ConsentRegisterRow[];
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -83,6 +138,32 @@ export interface ChildPickup {
   phone: string | null;
   pin: string;
   is_primary: boolean;
+  approval_status: 'pending' | 'approved' | 'rejected';
+  requested_at: string | null;
+  reviewed_at: string | null;
+  review_note: string | null;
+}
+
+export interface PickupSecurityEvent {
+  id: string;
+  attempted_name: string | null;
+  notes: string | null;
+  status: 'open' | 'resolved';
+  created_at: string;
+  resolved_at: string | null;
+  reporter: { full_name: string } | null;
+  resolver: { full_name: string } | null;
+}
+
+export interface MedicationDoseRecord {
+  id: string;
+  administered_at: string;
+  dosage_given: string | null;
+  route_given: string | null;
+  notes: string | null;
+  authorization: { name: string } | null;
+  administered_by_profile: { full_name: string } | null;
+  witness_profile: { full_name: string } | null;
 }
 
 export interface PendingParentInvite {
@@ -104,8 +185,45 @@ export interface ChildDocument {
   created_at: string | null;
 }
 
+export interface ParentDocumentRequestReviewRow {
+  id: string;
+  kind: string;
+  title: string;
+  message: string | null;
+  due_on: string | null;
+  status: string;
+  requested_at: string;
+  submitted_at: string | null;
+  completed_at: string | null;
+  rejection_reason: string | null;
+  latest_document: {
+    id: string;
+    title: string;
+    mime_type: string | null;
+    size_bytes: number | null;
+    created_at: string | null;
+  } | null;
+  submissions: {
+    id: string;
+    status: string;
+    submitted_at: string;
+    reviewed_at: string | null;
+    rejection_reason: string | null;
+  }[];
+}
+
 export async function getChildProfile(client: Client, childId: string) {
-  const [childRes, pickupsRes, medsRes, consentsRes, invitesRes, documentsRes] = await Promise.all([
+  const [
+    childRes,
+    pickupsRes,
+    medsRes,
+    medicationLogsRes,
+    consentsRes,
+    invitesRes,
+    documentsRes,
+    documentRequestsRes,
+    pickupSecurityRes,
+  ] = await Promise.all([
     client
       .from('children')
       .select(
@@ -118,15 +236,30 @@ export async function getChildProfile(client: Client, childId: string) {
       .single(),
     client
       .from('child_pickups')
-      .select('id, full_name, relationship, phone, pin, is_primary')
+      .select(
+        'id, full_name, relationship, phone, pin, is_primary, approval_status, requested_at, reviewed_at, review_note',
+      )
       .eq('child_id', childId)
       .is('archived_at', null)
       .order('is_primary', { ascending: false }),
     client
       .from('medication_authorizations')
-      .select('id, parent_id, name, dosage, schedule, notes, active, parent:profiles(full_name)')
+      .select(
+        'id, parent_id, name, dosage, schedule, notes, active, signed_at, consented_at, ended_at, parent:profiles!medication_authorizations_parent_id_fkey(full_name)',
+      )
       .eq('child_id', childId)
       .order('active', { ascending: false }),
+    client
+      .from('medication_logs')
+      .select(
+        `id, administered_at, dosage_given, route_given, notes,
+         authorization:medication_authorizations(name),
+         administered_by_profile:profiles!medication_logs_administered_by_fkey(full_name),
+         witness_profile:profiles!medication_logs_witness_id_fkey(full_name)`,
+      )
+      .eq('child_id', childId)
+      .order('administered_at', { ascending: false })
+      .limit(10),
     client
       .from('consents')
       .select('id, kind, version, granted, granted_at')
@@ -135,23 +268,60 @@ export async function getChildProfile(client: Client, childId: string) {
       .from('child_invite_codes')
       .select('id, email, relationship, code, expires_at, created_at')
       .eq('child_id', childId)
-      .is('used_at', null),
+      .is('used_at', null)
+      .gt('expires_at', new Date().toISOString()),
     client
       .from('documents')
       .select('id, title, category, storage_path, mime_type, size_bytes, created_at')
       .eq('child_id', childId)
       .is('archived_at', null)
       .order('created_at', { ascending: false }),
+    client
+      .from('parent_document_requests')
+      .select(
+        `id, kind, title, message, due_on, status, requested_at, submitted_at,
+         completed_at, rejection_reason,
+         latest_document:documents!parent_document_requests_latest_document_id_fkey(
+           id, title, mime_type, size_bytes, created_at
+         ),
+         submissions:parent_document_submissions(
+           id, status, submitted_at, reviewed_at, rejection_reason
+         )`,
+      )
+      .eq('child_id', childId)
+      .neq('status', 'cancelled')
+      .order('requested_at', { ascending: false }),
+    client
+      .from('pickup_security_events')
+      .select(
+        `id, attempted_name, notes, status, created_at, resolved_at,
+         reporter:profiles!pickup_security_events_reported_by_fkey(full_name),
+         resolver:profiles!pickup_security_events_resolved_by_fkey(full_name)`,
+      )
+      .eq('child_id', childId)
+      .order('created_at', { ascending: false })
+      .limit(10),
   ]);
 
   if (childRes.error) throw childRes.error;
+  if (pickupsRes.error) throw pickupsRes.error;
+  if (medsRes.error) throw medsRes.error;
+  if (medicationLogsRes.error) throw medicationLogsRes.error;
+  if (consentsRes.error) throw consentsRes.error;
+  if (invitesRes.error) throw invitesRes.error;
+  if (documentsRes.error) throw documentsRes.error;
+  if (documentRequestsRes.error) throw documentRequestsRes.error;
+  if (pickupSecurityRes.error) throw pickupSecurityRes.error;
   return {
     child: childRes.data,
     pickups: (pickupsRes.data ?? []) as ChildPickup[],
     medications: medsRes.data ?? [],
+    medicationLogs: (medicationLogsRes.data ?? []) as unknown as MedicationDoseRecord[],
     consents: consentsRes.data ?? [],
     pendingInvites: (invitesRes.data ?? []) as PendingParentInvite[],
     documents: (documentsRes.data ?? []) as ChildDocument[],
+    documentRequests: (documentRequestsRes.data ?? []) as unknown as ParentDocumentRequestReviewRow[],
+    pickupSecurityEvents: (pickupSecurityRes.data ?? []) as unknown as PickupSecurityEvent[],
   };
 }
 
@@ -199,8 +369,8 @@ export async function addPickup(
   const { data, error } = await client.rpc('create_pickup', {
     p_child_id: values.child_id,
     p_full_name: values.full_name,
-    p_relationship: values.relationship ?? null,
-    p_phone: values.phone ?? null,
+    ...(values.relationship != null ? { p_relationship: values.relationship } : {}),
+    ...(values.phone != null ? { p_phone: values.phone } : {}),
   });
   if (error) throw error;
   return data;
@@ -212,6 +382,42 @@ export async function removePickup(client: Client, pickupId: string): Promise<vo
     .update({ archived_at: new Date().toISOString() })
     .eq('id', pickupId);
   if (error) throw error;
+}
+
+export async function reviewParentPickup(
+  client: Client,
+  pickupId: string,
+  decision: 'approved' | 'rejected',
+  note?: string | null,
+): Promise<void> {
+  const { error } = await client.rpc('review_parent_authorized_pickup', {
+    p_pickup_id: pickupId,
+    p_decision: decision,
+    ...(note != null ? { p_note: note } : {}),
+  });
+  if (error) throw error;
+}
+
+export async function resolvePickupSecurityEvent(
+  client: Client,
+  eventId: string,
+  childId: string,
+  resolvedBy: string,
+): Promise<void> {
+  const { data, error } = await client
+    .from('pickup_security_events')
+    .update({
+      status: 'resolved',
+      resolved_by: resolvedBy,
+      resolved_at: new Date().toISOString(),
+    })
+    .eq('id', eventId)
+    .eq('child_id', childId)
+    .eq('status', 'open')
+    .select('id')
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) throw new Error('This pickup alert has already been resolved or is no longer available.');
 }
 
 export async function saveMedicationAuthorization(
@@ -270,7 +476,7 @@ export async function createParentInvite(
   const { data, error } = await client.rpc('create_parent_invite', {
     p_child_id: childId,
     p_email: email,
-    p_relationship: relationship ?? null,
+    ...(relationship != null ? { p_relationship: relationship } : {}),
   });
   if (error) throw error;
   return data;

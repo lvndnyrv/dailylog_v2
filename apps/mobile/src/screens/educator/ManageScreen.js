@@ -4,16 +4,19 @@ import {
   Alert, Linking, Modal, KeyboardAvoidingView, Platform
 } from 'react-native';
 import { useIsFocused } from '@react-navigation/native';
-import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
+import { KeyboardAwareScrollView } from '../../components/KeyboardAwareScrollView';
 
 import { useAuth } from '../../hooks/useAuth';
 import { useClassroom } from '../../hooks/useClassroom';
+import { useRoomRatios } from '../../hooks/useRoomRatios';
 import { supabase } from '../../lib/supabase';
-import { colors, spacing, radius } from '../../theme';
+import { colors, fonts, spacing, radius } from '../../theme';
 import { Button, Input, LoadingScreen, Divider } from '../../components/ui';
 import { ChildAvatar } from '../../components/ChildAvatar';
 import { ClassroomSwitcher } from '../../components/ClassroomSwitcher';
 import { DatePickerField } from '../../components/DatePickerField';
+import { Ionicons } from '@expo/vector-icons';
+import { showToast } from '../../components/Toast';
 
 
 // ─── ADD CHILD BOTTOM SHEET ───────────────────────────────────────────────────
@@ -23,7 +26,6 @@ function AddChildSheet({ visible, onClose, classroomId, onAdded, onCompleteProfi
   const [dob, setDob]             = useState('');
   const [saving, setSaving]       = useState(false);
   const [errors, setErrors]       = useState({});
-  const [addedChild, setAddedChild] = useState(null); // success state
 
   function validate() {
     const errs = {};
@@ -35,6 +37,10 @@ function AddChildSheet({ visible, onClose, classroomId, onAdded, onCompleteProfi
 
   async function handleAdd() {
     if (!validate()) return;
+    if (!classroomId) {
+      Alert.alert('Choose a classroom', 'Select a classroom before adding a child.');
+      return;
+    }
     setSaving(true);
     const { data, error } = await supabase.from('children').insert({
       classroom_id: classroomId,
@@ -46,138 +52,144 @@ function AddChildSheet({ visible, onClose, classroomId, onAdded, onCompleteProfi
     if (error) {
       Alert.alert('Error', error.message);
     } else {
-      onAdded();
-      setAddedChild(data);
+      await onAdded?.();
+      setFirstName('');
+      setLastName('');
+      setDob('');
+      setErrors({});
+      onClose();
+      onCompleteProfile(data);
     }
   }
 
   function handleClose() {
     setFirstName(''); setLastName(''); setDob(''); setErrors({});
-    setAddedChild(null);
     onClose();
   }
 
-  function handleCompleteProfile() {
-    const child = addedChild;
-    handleClose();
-    onCompleteProfile(child);
-  }
-
   return (
-    <Modal visible={visible} transparent animationType="slide">
+    <Modal
+      visible={visible}
+      transparent
+      animationType="slide"
+      onRequestClose={handleClose}
+    >
       <KeyboardAvoidingView
         style={styles.sheetOverlay}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
         <TouchableOpacity style={styles.sheetDismiss} activeOpacity={1} onPress={handleClose} />
         <View style={styles.sheetContainer}>
-          {!addedChild ? (
-            <>
-              <View style={styles.sheetHeader}>
-                <Text style={styles.sheetTitle}>Add a child</Text>
-                <TouchableOpacity onPress={handleClose}>
-                  <Text style={styles.sheetClose}>✕</Text>
-                </TouchableOpacity>
-              </View>
-              <Input
-                label="First name (required)"
-                value={firstName}
-                onChangeText={(v) => { setFirstName(v); if (errors.firstName) setErrors(e => ({ ...e, firstName: null })); }}
-                placeholder="e.g. Emma"
-                error={errors.firstName}
-              />
-              <Input
-                label="Last name (required)"
-                value={lastName}
-                onChangeText={(v) => { setLastName(v); if (errors.lastName) setErrors(e => ({ ...e, lastName: null })); }}
-                placeholder="e.g. Smith"
-                error={errors.lastName}
-              />
-              <DatePickerField
-                label="Date of birth (optional)"
-                value={dob}
-                onChange={setDob}
-              />
-              <Button label="Add child" onPress={handleAdd} loading={saving} style={{ marginTop: spacing.sm }} />
-            </>
-          ) : (
-            <View style={styles.successState}>
-              <Text style={styles.successIcon}>✓</Text>
-              <Text style={styles.successTitle}>{addedChild.first_name} has been added!</Text>
-              <Text style={styles.successSub}>
-                Complete their profile to add medical info, allergies, emergency contacts, and link parents.
-              </Text>
-              <Button
-                label="Complete profile →"
-                onPress={handleCompleteProfile}
-                style={{ marginTop: spacing.xl, alignSelf: 'stretch' }}
-              />
-              <TouchableOpacity onPress={handleClose} style={styles.laterBtn}>
-                <Text style={styles.laterBtnText}>I'll do it later</Text>
-              </TouchableOpacity>
-            </View>
-          )}
+          <View style={styles.sheetGrabber} />
+          <View style={styles.sheetHeader}>
+            <Text style={styles.sheetTitle}>Add a child</Text>
+            <TouchableOpacity
+              onPress={handleClose}
+              style={styles.sheetCloseButton}
+              accessibilityRole="button"
+              accessibilityLabel="Close add child sheet"
+            >
+              <Ionicons name="close" size={19} color={colors.textMuted} />
+            </TouchableOpacity>
+          </View>
+          <Input
+            label="First name"
+            value={firstName}
+            onChangeText={(v) => { setFirstName(v); if (errors.firstName) setErrors(e => ({ ...e, firstName: null })); }}
+            placeholder="e.g. Emma"
+            autoCapitalize="words"
+            error={errors.firstName}
+          />
+          <Input
+            label="Last name"
+            value={lastName}
+            onChangeText={(v) => { setLastName(v); if (errors.lastName) setErrors(e => ({ ...e, lastName: null })); }}
+            placeholder="e.g. Smith"
+            autoCapitalize="words"
+            error={errors.lastName}
+          />
+          <DatePickerField
+            label="Date of birth (optional)"
+            value={dob}
+            onChange={setDob}
+          />
+          <Button
+            label="Add child"
+            onPress={handleAdd}
+            loading={saving}
+            style={{ marginTop: spacing.sm }}
+          />
         </View>
       </KeyboardAvoidingView>
     </Modal>
   );
 }
 
+function childProfileIsIncomplete(child, parentLinks) {
+  const detailsComplete = Boolean(child.first_name?.trim() && child.last_name?.trim());
+  const classroomComplete = Boolean(child.classroom_id);
+  const medicalComplete = Boolean(child.allergies?.length || child.medical_notes?.trim());
+  const contactsComplete = Array.isArray(child.emergency_contacts)
+    && child.emergency_contacts.length > 0;
+  const parentComplete = parentLinks.some((link) => link.child?.id === child.id);
+
+  return !(
+    detailsComplete
+    && classroomComplete
+    && medicalComplete
+    && contactsComplete
+    && parentComplete
+  );
+}
+
 // ─── INVITE PARENT FORM ───────────────────────────────────────────────────────
-function InviteParentForm({ classroomId, children }) {
+function InviteParentForm({ daycareId, children }) {
   const [email, setEmail]     = useState('');
   const [childId, setChildId] = useState(children[0]?.id || '');
+  const [relationship, setRelationship] = useState('Parent');
+  const [errors, setErrors] = useState({});
   const [sending, setSending] = useState(false);
 
   async function handleInvite() {
-    if (!email.trim()) {
-      Alert.alert('Required', "Please enter the parent's email address.");
-      return;
-    }
-    if (!childId) {
-      Alert.alert('Required', 'Please select a child to link this parent to.');
-      return;
-    }
+    const normalizedEmail = email.trim().toLowerCase();
+    const normalizedRelationship = relationship.trim();
+    const nextErrors = {};
+    if (!childId) nextErrors.child = 'Choose a child.';
+    if (!normalizedEmail) nextErrors.email = 'Email is required.';
+    else if (!/\S+@\S+\.\S+/.test(normalizedEmail)) nextErrors.email = 'Enter a valid email address.';
+    if (!normalizedRelationship) nextErrors.relationship = 'Relationship is required.';
+    setErrors(nextErrors);
+    if (Object.keys(nextErrors).length) return;
     setSending(true);
-
-    const { data: existing } = await supabase
-      .from('profiles')
-      .select('id, full_name')
-      .eq('email', email.trim().toLowerCase())
-      .single();
-
-    if (existing) {
-      const { error } = await supabase
-        .from('parent_children')
-        .upsert(
-          { parent_id: existing.id, child_id: childId },
-          // DO NOTHING (not DO UPDATE): Phase 2 restricts UPDATE on
-          // parent_children to consent_given_at only.
-          { onConflict: 'parent_id,child_id', ignoreDuplicates: true }
-        );
+    const { data: code, error } = await supabase.rpc('create_parent_invite', {
+      p_child_id: childId,
+      p_email: normalizedEmail,
+      p_relationship: normalizedRelationship,
+    });
+    if (error) {
       setSending(false);
-      if (error) { Alert.alert('Error', error.message); return; }
-      const child = children.find(c => c.id === childId);
-      Alert.alert('Linked ✓', `${existing.full_name} has been linked to ${child?.first_name}.`);
-      setEmail('');
-    } else {
-      const { error } = await supabase.auth.signInWithOtp({
-        email: email.trim().toLowerCase(),
-        options: {
-          data: { pending_child_id: childId, role: 'parent' },
-          shouldCreateUser: true,
-          emailRedirectTo: 'dailylog://auth',
-        },
-      });
-      setSending(false);
-      if (error) { Alert.alert('Error', error.message); return; }
-      const child = children.find(c => c.id === childId);
-      Alert.alert(
-        'Invite sent ✓',
-        `An invitation email has been sent to ${email.trim()}.\n\nOnce they sign up, link them to ${child?.first_name} from this screen.`
-      );
-      setEmail('');
+      setErrors({ form: error.message });
+      return;
     }
+    const { error: emailError } = await supabase.rpc('enqueue_email_notification', {
+      p_daycare_id: daycareId,
+      p_recipient_email: normalizedEmail,
+      p_kind: 'parent_invite',
+      p_title: "You're invited to your child's DailyLog",
+      p_body: `Create or sign in to your DailyLog parent account, then enter this one-time code: ${code}`,
+      p_payload: { type: 'parent_invite', inviteCode: code, childId },
+      p_dedupe_key: `parent-invite:${code}`,
+    });
+    setSending(false);
+    setEmail('');
+    setRelationship('Parent');
+    setErrors({});
+    Alert.alert(
+      emailError ? 'Invite created' : 'Invite sent',
+      emailError
+        ? `The email could not be queued. Share this 7-day code securely:\n\n${code}`
+        : `${normalizedEmail} will receive a single-use code.\n\nCode: ${code}`,
+    );
   }
 
   return (
@@ -189,8 +201,8 @@ function InviteParentForm({ classroomId, children }) {
         {children.map(c => (
           <TouchableOpacity
             key={c.id}
-            onPress={() => setChildId(c.id)}
-            style={[styles.childPickerBtn, c.id === childId && styles.childPickerBtnSelected]}
+            onPress={() => { setChildId(c.id); if (errors.child) setErrors(current => ({ ...current, child: null })); }}
+            style={[styles.childPickerBtn, c.id === childId && styles.childPickerBtnSelected, errors.child && !childId && styles.childPickerBtnError]}
           >
             <Text style={[styles.childPickerText, c.id === childId && { color: colors.primary, fontWeight: '600' }]}>
               {c.first_name}
@@ -198,6 +210,7 @@ function InviteParentForm({ classroomId, children }) {
           </TouchableOpacity>
         ))}
       </View>
+      {errors.child ? <Text style={styles.formError}>{errors.child}</Text> : null}
 
       {/* Child invite code — parents can self-link with this */}
       {childId && (() => {
@@ -214,19 +227,32 @@ function InviteParentForm({ classroomId, children }) {
       })()}
 
       <Input
-        label="Or invite by email"
+        label="Family email *"
         value={email}
-        onChangeText={setEmail}
+        onChangeText={value => { setEmail(value); if (errors.email || errors.form) setErrors(current => ({ ...current, email: null, form: null })); }}
         placeholder="parent@email.com"
         keyboardType="email-address"
+        autoCapitalize="none"
+        autoCorrect={false}
+        error={errors.email}
       />
-      <Button label="Send invite" onPress={handleInvite} loading={sending} />
+      <Input
+        label="Relationship *"
+        value={relationship}
+        onChangeText={value => { setRelationship(value); if (errors.relationship || errors.form) setErrors(current => ({ ...current, relationship: null, form: null })); }}
+        placeholder="Parent, guardian, grandmother…"
+        autoCapitalize="words"
+        error={errors.relationship}
+      />
+      {errors.form ? <Text style={styles.formError}>{errors.form}</Text> : null}
+      <Button label="Send 7-day invite" onPress={handleInvite} loading={sending} />
+      <Text style={styles.secureInviteHint}>Email-bound · single-use · accepting it records the family link</Text>
     </View>
   );
 }
 
 // ─── MAIN SCREEN ──────────────────────────────────────────────────────────────
-export default function ManageScreen({ navigation }) {
+export default function ManageScreen({ navigation, route }) {
   const { profile }                   = useAuth();
   const { active: activeClassroom, classrooms } = useClassroom();
   const [children, setChildren]       = useState([]);
@@ -235,10 +261,17 @@ export default function ManageScreen({ navigation }) {
   const [tab, setTab]                 = useState('children');
   const [searchQuery, setSearchQuery] = useState('');
   const [showAddChild, setShowAddChild] = useState(false);
+  const { rooms: ratioRooms } = useRoomRatios();
+  const roomsOverRatio = ratioRooms.filter((room) => room.is_over_ratio);
 
   async function load(isInitial = false) {
     const roomId = activeClassroom?.id || profile?.classroom_id;
-    if (!roomId) return;
+    if (!roomId) {
+      setChildren([]);
+      setParents([]);
+      setLoading(false);
+      return;
+    }
     if (isInitial) setLoading(true);
 
     const { data: kids } = await supabase
@@ -253,9 +286,11 @@ export default function ManageScreen({ navigation }) {
     if (kids?.length) {
       const { data: links } = await supabase
         .from('parent_children')
-        .select('parent:profiles(id, full_name, email, phone), child:children(id, first_name)')
+        .select('is_primary, relationship, pickup_authorized, parent:profiles(id, full_name, email, phone), child:children(id, first_name)')
         .in('child_id', kids.map(k => k.id));
       setParents(links || []);
+    } else {
+      setParents([]);
     }
 
 
@@ -289,11 +324,20 @@ export default function ManageScreen({ navigation }) {
     );
   }
 
-  async function unlinkParent(parentId, childId) {
-    Alert.alert("Unlink parent", "Remove this parent's access to this child?", [
+  async function unlinkParent(parentId, childId, isPrimary) {
+    const child = children.find(item => item.id === childId);
+    Alert.alert("Unlink family member", `${isPrimary ? 'This is the primary guardian. A remaining guardian will be promoted automatically.\n\n' : ''}Remove access to ${child?.first_name || 'this child'}?`, [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Unlink', style: 'destructive', onPress: async () => {
-        await supabase.from('parent_children').delete().eq('parent_id', parentId).eq('child_id', childId);
+        const { error } = await supabase.rpc('admin_unlink_parent_child', {
+          p_child_id: childId,
+          p_parent_id: parentId,
+        });
+        if (error) {
+          Alert.alert('Could not unlink family member', error.message);
+          return;
+        }
+        showToast('Family access removed', 'success');
         load();
       }},
     ]);
@@ -309,22 +353,95 @@ export default function ManageScreen({ navigation }) {
       extraScrollHeight={20}
       keyboardShouldPersistTaps="handled"
     >
-      <Text style={styles.pageTitle}>Manage classroom</Text>
+      {route?.name === 'AdminRoom' ? (
+        <View style={styles.drillInHeader}>
+          <TouchableOpacity
+            style={styles.drillInBack}
+            onPress={() => navigation.goBack()}
+            accessibilityRole="button"
+            accessibilityLabel="Back to classrooms"
+          >
+            <Ionicons name="chevron-back" size={20} color={colors.textPrimary} />
+          </TouchableOpacity>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.pageTitle}>{route.params?.roomName || 'Classroom'}</Text>
+            <Text style={styles.drillInSubtitle}>Room roster, families and daily tools</Text>
+          </View>
+        </View>
+      ) : (
+        <Text style={styles.pageTitle}>Classroom</Text>
+      )}
 
       <ClassroomSwitcher />
+
+      <TouchableOpacity
+        style={styles.teamMessagesBtn}
+        onPress={() => navigation.navigate('StaffMessages')}
+        activeOpacity={0.72}
+        accessibilityRole="button"
+        accessibilityLabel="Open private team messages"
+      >
+        <View style={styles.teamMessagesIcon}>
+          <Ionicons name="chatbubbles-outline" size={20} color={colors.primary} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.teamMessagesTitle}>Team messages</Text>
+          <Text style={styles.teamMessagesSub}>Private conversations with administrators and educators</Text>
+        </View>
+        <Ionicons name="chevron-forward" size={19} color={colors.primary} />
+      </TouchableOpacity>
 
       {/* Announcements shortcut */}
       <TouchableOpacity
         style={styles.announcementsBtn}
         onPress={() => navigation.navigate('Announcements')}
         activeOpacity={0.7}
+        accessibilityRole="button"
+        accessibilityLabel="Open announcements"
       >
-        <Text style={styles.announcementsBtnIcon}>📢</Text>
+        <View style={styles.shortcutIcon}>
+          <Ionicons name="megaphone-outline" size={20} color={colors.primary} />
+        </View>
         <View style={{ flex: 1 }}>
           <Text style={styles.announcementsBtnTitle}>Announcements</Text>
           <Text style={styles.announcementsBtnSub}>Broadcast to all parents or one room</Text>
         </View>
-        <Text style={styles.announcementsBtnChevron}>›</Text>
+        <Ionicons name="chevron-forward" size={19} color={colors.primary} />
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        style={styles.announcementsBtn}
+        onPress={() => navigation.navigate('ClassroomConsents', { classroom: activeClassroom })}
+        disabled={!activeClassroom}
+        activeOpacity={0.7}
+        accessibilityRole="button"
+        accessibilityLabel="Open classroom consents"
+      >
+        <View style={styles.shortcutIcon}>
+          <Ionicons name="shield-checkmark-outline" size={20} color={colors.primary} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.announcementsBtnTitle}>Classroom consents</Text>
+          <Text style={styles.announcementsBtnSub}>See photo, trip, water and sunscreen permissions</Text>
+        </View>
+        <Ionicons name="chevron-forward" size={19} color={colors.primary} />
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        style={styles.announcementsBtn}
+        onPress={() => navigation.navigate('CenterClosures')}
+        activeOpacity={0.7}
+        accessibilityRole="button"
+        accessibilityLabel="Open center closures and calendar"
+      >
+        <View style={styles.shortcutIcon}>
+          <Ionicons name="calendar-outline" size={20} color={colors.amber} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.announcementsBtnTitle}>Center calendar</Text>
+          <Text style={styles.announcementsBtnSub}>Closed days and family reminders published by administrators</Text>
+        </View>
+        <Ionicons name="chevron-forward" size={19} color={colors.primary} />
       </TouchableOpacity>
 
       {/* Classroom Settings Card */}
@@ -340,17 +457,73 @@ export default function ManageScreen({ navigation }) {
         >
           <View style={styles.classroomCardInfo}>
             <Text style={styles.classroomCardName}>{activeClassroom.name}</Text>
-            {activeClassroom.age_group && (
-              <Text style={styles.classroomCardAge}>{activeClassroom.age_group}</Text>
-            )}
             <Text style={styles.classroomCardMeta}>
-              {children.length} {children.length === 1 ? 'child' : 'children'} enrolled
+              {activeClassroom.age_group || 'Age group not set'} · {children.length}{' '}
+              {children.length === 1 ? 'child' : 'children'} enrolled
             </Text>
           </View>
-          <Text style={styles.classroomChevron}>›</Text>
+          <Ionicons name="chevron-forward" size={19} color={colors.textFaint} />
         </TouchableOpacity>
       )}
 
+      <TouchableOpacity
+        style={styles.mealMenuBtn}
+        onPress={() => navigation.navigate('MealMenu')}
+        activeOpacity={0.72}
+        accessibilityRole="button"
+        accessibilityLabel="Open meal menu"
+      >
+        <View style={styles.mealMenuIcon}>
+          <Ionicons name="restaurant-outline" size={19} color={colors.primary} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.mealMenuTitle}>Meal menu</Text>
+          <Text style={styles.mealMenuSub}>Plan once and pre-fill every child’s meal log</Text>
+        </View>
+        <Ionicons name="chevron-forward" size={18} color={colors.textFaint} />
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        style={styles.incidentBtn}
+        onPress={() => navigation.navigate('IncidentHub')}
+        activeOpacity={0.72}
+        accessibilityRole="button"
+        accessibilityLabel="Open incident reports"
+      >
+        <View style={styles.incidentIcon}>
+          <Ionicons name="shield-checkmark-outline" size={19} color={colors.amber} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.incidentTitle}>Incident reports</Text>
+          <Text style={styles.incidentSub}>Create, finish drafts, and follow director sign-off</Text>
+        </View>
+        <Ionicons name="chevron-forward" size={18} color={colors.textFaint} />
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        style={[styles.ratioBtn, roomsOverRatio.length > 0 && styles.ratioBtnOver]}
+        onPress={() => navigation.navigate('RoomRatios')}
+        activeOpacity={0.72}
+        accessibilityRole="button"
+        accessibilityLabel="Open room ratios"
+      >
+        <View style={[styles.ratioIcon, roomsOverRatio.length > 0 && styles.ratioIconOver]}>
+          <Ionicons
+            name={roomsOverRatio.length > 0 ? 'warning-outline' : 'people-outline'}
+            size={19}
+            color={roomsOverRatio.length > 0 ? colors.coral : colors.success}
+          />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.ratioTitle}>Room ratios</Text>
+          <Text style={[styles.ratioSub, roomsOverRatio.length > 0 && styles.ratioSubOver]}>
+            {roomsOverRatio.length > 0
+              ? `${roomsOverRatio.length} ${roomsOverRatio.length === 1 ? 'room needs' : 'rooms need'} coverage`
+              : 'All rooms are currently in ratio'}
+          </Text>
+        </View>
+        <Ionicons name="chevron-forward" size={18} color={colors.textFaint} />
+      </TouchableOpacity>
 
       {/* Tabs */}
       <View style={styles.tabs}>
@@ -362,8 +535,8 @@ export default function ManageScreen({ navigation }) {
           >
             <Text style={[styles.tabText, tab === t && styles.tabTextSelected]}>
               {t === 'children'
-                ? `👧 Children (${children.length})`
-                : `👨‍👩‍👧 Parents (${parents.length})`}
+                ? `Children (${children.length})`
+                : `Parents (${parents.length})`}
             </Text>
           </TouchableOpacity>
         ))}
@@ -377,28 +550,26 @@ export default function ManageScreen({ navigation }) {
             onPress={() => setShowAddChild(true)}
             activeOpacity={0.7}
           >
-            <Text style={styles.addChildBtnIcon}>＋</Text>
+            <Ionicons name="add" size={19} color={colors.primary} />
             <Text style={styles.addChildBtnText}>Add new child</Text>
           </TouchableOpacity>
 
-          {children.length > 5 && (
-            <View style={styles.searchBar}>
-              <Text style={styles.searchIcon}>🔍</Text>
-              <TextInput
-                style={styles.searchInput}
-                value={searchQuery}
-                onChangeText={setSearchQuery}
-                placeholder="Search by name..."
-                placeholderTextColor={colors.textMuted}
-                autoCorrect={false}
-              />
-              {searchQuery.length > 0 && (
-                <TouchableOpacity onPress={() => setSearchQuery('')} style={styles.searchClear}>
-                  <Text style={styles.searchClearText}>✕</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          )}
+          <View style={styles.searchBar}>
+            <Ionicons name="search-outline" size={18} color={colors.textFaint} />
+            <TextInput
+              style={styles.searchInput}
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              placeholder="Search by name…"
+              placeholderTextColor={colors.textFaint}
+              autoCorrect={false}
+            />
+            {searchQuery.length > 0 && (
+              <TouchableOpacity onPress={() => setSearchQuery('')} style={styles.searchClear}>
+                <Ionicons name="close" size={13} color={colors.textSecondary} />
+              </TouchableOpacity>
+            )}
+          </View>
           {children.length > 0 && (
             <View style={styles.listCard}>
               {children
@@ -408,7 +579,7 @@ export default function ManageScreen({ navigation }) {
                   return `${child.first_name} ${child.last_name}`.toLowerCase().includes(q);
                 })
                 .map((child, i) => {
-                const isIncomplete = !child.allergies?.length && !child.emergency_contacts?.length;
+                const isIncomplete = childProfileIsIncomplete(child, parents);
                 return (
                 <View key={child.id}>
                   {i > 0 && <Divider />}
@@ -423,11 +594,10 @@ export default function ManageScreen({ navigation }) {
                       {child.date_of_birth ? (
                         <Text style={styles.listSub}>Born {child.date_of_birth}</Text>
                       ) : isIncomplete ? (
-                        <Text style={styles.listIncomplete}>⚠ Profile incomplete</Text>
+                        <Text style={styles.listIncomplete}>Profile incomplete</Text>
                       ) : null}
                     </View>
-                    {isIncomplete && <View style={styles.incompleteDot} />}
-                    <Text style={styles.chevron}>›</Text>
+                    <Ionicons name="chevron-forward" size={19} color={colors.textFaint} />
                   </TouchableOpacity>
                 </View>
                 );
@@ -437,24 +607,22 @@ export default function ManageScreen({ navigation }) {
         </>
       ) : (
         <>
-          {parents.length > 5 && (
-            <View style={styles.searchBar}>
-              <Text style={styles.searchIcon}>🔍</Text>
-              <TextInput
-                style={styles.searchInput}
-                value={searchQuery}
-                onChangeText={setSearchQuery}
-                placeholder="Search parents or children..."
-                placeholderTextColor={colors.textMuted}
-                autoCorrect={false}
-              />
-              {searchQuery.length > 0 && (
-                <TouchableOpacity onPress={() => setSearchQuery('')} style={styles.searchClear}>
-                  <Text style={styles.searchClearText}>✕</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          )}
+          <View style={styles.searchBar}>
+            <Ionicons name="search-outline" size={18} color={colors.textFaint} />
+            <TextInput
+              style={styles.searchInput}
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              placeholder="Search parents or children…"
+              placeholderTextColor={colors.textFaint}
+              autoCorrect={false}
+            />
+            {searchQuery.length > 0 && (
+              <TouchableOpacity onPress={() => setSearchQuery('')} style={styles.searchClear}>
+                <Ionicons name="close" size={13} color={colors.textSecondary} />
+              </TouchableOpacity>
+            )}
+          </View>
           {parents.length > 0 && (
             <View style={styles.listCard}>
               {parents
@@ -492,7 +660,7 @@ export default function ManageScreen({ navigation }) {
                       )}
                     </View>
                     <TouchableOpacity
-                      onPress={() => unlinkParent(link.parent?.id, link.child?.id)}
+                      onPress={() => unlinkParent(link.parent?.id, link.child?.id, link.is_primary)}
                       style={styles.removeBtn}
                     >
                       <Text style={styles.removeBtnText}>Unlink</Text>
@@ -503,7 +671,7 @@ export default function ManageScreen({ navigation }) {
             </View>
           )}
           {children.length > 0
-            ? <InviteParentForm classroomId={profile.classroom_id} children={children} />
+            ? <InviteParentForm daycareId={profile.daycare_id} children={children} />
             : <Text style={styles.emptyNote}>Add children first before inviting parents.</Text>
           }
         </>
@@ -525,94 +693,208 @@ export default function ManageScreen({ navigation }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
-  content: { padding: spacing.xl },
-  pageTitle: { fontSize: 24, fontWeight: '700', color: colors.textPrimary, marginBottom: spacing.xs },
+  content: {
+    paddingHorizontal: spacing.xxl,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.xxxl,
+  },
+  pageTitle: {
+    fontSize: 23,
+    lineHeight: 29,
+    fontFamily: fonts.black,
+    color: colors.textPrimary,
+  },
+  drillInHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    marginBottom: spacing.xs,
+  },
+  drillInBack: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  drillInSubtitle: {
+    fontSize: 12.5,
+    lineHeight: 18,
+    fontFamily: fonts.regular,
+    color: colors.textSecondary,
+    marginTop: 1,
+  },
+
+  teamMessagesBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.md,
+    backgroundColor: colors.surface, borderRadius: radius.lg,
+    borderWidth: 1.5, borderColor: colors.border,
+    padding: spacing.md, marginTop: spacing.lg,
+  },
+  teamMessagesIcon: {
+    width: 38, height: 38, borderRadius: 19,
+    backgroundColor: colors.primaryLight, alignItems: 'center', justifyContent: 'center',
+  },
+  teamMessagesTitle: { fontSize: 14.5, fontFamily: fonts.bold, color: colors.textPrimary },
+  teamMessagesSub: { fontSize: 12, lineHeight: 17, fontFamily: fonts.regular, color: colors.textSecondary, marginTop: 1 },
+
+  mealMenuBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.md,
+    backgroundColor: colors.surface, borderRadius: radius.lg,
+    borderWidth: 1.5, borderColor: colors.border,
+    padding: spacing.md, marginTop: spacing.md,
+  },
+  mealMenuIcon: {
+    width: 38, height: 38, borderRadius: radius.md,
+    backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center',
+  },
+  mealMenuTitle: { fontSize: 14, fontFamily: fonts.bold, color: colors.textPrimary },
+  mealMenuSub: {
+    fontSize: 12,
+    lineHeight: 17,
+    fontFamily: fonts.regular,
+    color: colors.textSecondary,
+    marginTop: 1,
+  },
+  incidentBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.md,
+    backgroundColor: colors.surface, borderRadius: radius.lg,
+    borderWidth: 1.5, borderColor: colors.border,
+    padding: spacing.md, marginTop: spacing.sm,
+  },
+  incidentIcon: {
+    width: 38, height: 38, borderRadius: radius.md,
+    backgroundColor: colors.amberLight, alignItems: 'center', justifyContent: 'center',
+  },
+  incidentTitle: { fontSize: 14, fontFamily: fonts.bold, color: colors.textPrimary },
+  incidentSub: {
+    fontSize: 12,
+    lineHeight: 17,
+    fontFamily: fonts.regular,
+    color: colors.textSecondary,
+    marginTop: 1,
+  },
+  ratioBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.md,
+    backgroundColor: colors.surface, borderRadius: radius.lg,
+    borderWidth: 1.5, borderColor: colors.border,
+    padding: spacing.md, marginTop: spacing.sm,
+  },
+  ratioBtnOver: { borderColor: '#F0C9BB' },
+  ratioIcon: {
+    width: 38, height: 38, borderRadius: radius.md,
+    backgroundColor: colors.successLight, alignItems: 'center', justifyContent: 'center',
+  },
+  ratioIconOver: { backgroundColor: colors.coralLight },
+  ratioTitle: { fontSize: 14, fontFamily: fonts.bold, color: colors.textPrimary },
+  ratioSub: {
+    fontSize: 12, lineHeight: 17, fontFamily: fonts.regular,
+    color: colors.success, marginTop: 1,
+  },
+  ratioSubOver: { color: colors.coral },
 
   // Announcements shortcut
   announcementsBtn: {
     flexDirection: 'row', alignItems: 'center', gap: spacing.md,
-    backgroundColor: colors.amberLight, borderRadius: radius.lg,
-    borderWidth: 1, borderColor: colors.amber + '44',
-    padding: spacing.lg, marginTop: spacing.lg, marginBottom: spacing.lg,
+    backgroundColor: colors.primaryLight, borderRadius: radius.lg,
+    padding: spacing.md, marginTop: spacing.lg,
   },
-  announcementsBtnIcon: { fontSize: 22 },
-  announcementsBtnTitle: { fontSize: 15, fontWeight: '600', color: colors.textPrimary },
-  announcementsBtnSub: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
-  announcementsBtnChevron: { fontSize: 22, color: colors.textMuted },
+  shortcutIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  announcementsBtnTitle: {
+    fontSize: 14.5,
+    fontFamily: fonts.bold,
+    color: colors.textPrimary,
+  },
+  announcementsBtnSub: {
+    fontSize: 12.5,
+    lineHeight: 17,
+    fontFamily: fonts.regular,
+    color: colors.textSecondary,
+    marginTop: 1,
+  },
   codeCard: {
     flexDirection: 'row', alignItems: 'center', gap: spacing.md,
     backgroundColor: colors.primaryLight, borderRadius: radius.lg,
     borderWidth: 1, borderColor: colors.primary + '33',
     padding: spacing.lg, marginBottom: spacing.lg,
   },
-  codeLabel: { fontSize: 12, fontWeight: '600', color: colors.textSecondary },
-  codeValue: { fontSize: 22, fontWeight: '800', color: colors.primary, letterSpacing: 3, marginTop: 2 },
-  codeHint: { fontSize: 11, color: colors.textSecondary, textAlign: 'right', lineHeight: 15 },
+  codeLabel: { fontSize: 12, fontFamily: fonts.bold, color: colors.textSecondary },
+  codeValue: { fontSize: 22, fontFamily: fonts.black, color: colors.primary, letterSpacing: 3, marginTop: 2 },
+  codeHint: { fontSize: 11, fontFamily: fonts.regular, color: colors.textSecondary, textAlign: 'right', lineHeight: 15 },
   tabs: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.lg, marginTop: spacing.lg },
   tab: {
     flex: 1, paddingVertical: spacing.sm, borderRadius: radius.lg,
     borderWidth: 1.5, borderColor: colors.border,
     backgroundColor: colors.surface, alignItems: 'center',
   },
-  tabSelected: { borderColor: colors.primary, backgroundColor: colors.primaryLight },
-  tabText: { fontSize: 13, fontWeight: '500', color: colors.textSecondary },
-  tabTextSelected: { color: colors.primary },
+  tabSelected: { borderColor: colors.primary, backgroundColor: colors.primary },
+  tabText: { fontSize: 13.5, fontFamily: fonts.bold, color: colors.textSecondary },
+  tabTextSelected: { color: colors.white },
 
   // Add child button
   addChildBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    gap: spacing.sm, backgroundColor: colors.primaryLight,
-    borderRadius: radius.lg, borderWidth: 1.5, borderColor: colors.primary + '44',
+    gap: spacing.sm, backgroundColor: colors.surface,
+    borderRadius: radius.lg, borderWidth: 1.8, borderColor: colors.primary,
     paddingVertical: spacing.md, marginBottom: spacing.lg,
   },
-  addChildBtnIcon: { fontSize: 16, color: colors.primary, fontWeight: '700' },
-  addChildBtnText: { fontSize: 14, fontWeight: '600', color: colors.primary },
-
-  // Success state after adding child
-  successState: { alignItems: 'center', paddingVertical: spacing.xl, paddingHorizontal: spacing.sm },
-  successIcon: {
-    fontSize: 36, color: colors.primary, fontWeight: '700',
-    width: 56, height: 56, lineHeight: 56, textAlign: 'center',
-    backgroundColor: colors.primaryLight, borderRadius: 28,
-    overflow: 'hidden', marginBottom: spacing.md,
-  },
-  successTitle: { fontSize: 17, fontWeight: '700', color: colors.textPrimary, marginBottom: spacing.sm },
-  successSub: { fontSize: 13, color: colors.textSecondary, textAlign: 'center', lineHeight: 19, paddingHorizontal: spacing.sm },
-  laterBtn: { marginTop: spacing.lg, paddingVertical: spacing.md },
-  laterBtnText: { fontSize: 14, color: colors.textMuted, fontWeight: '500' },
+  addChildBtnText: { fontSize: 14.5, fontFamily: fonts.bold, color: colors.primary },
 
   // Incomplete profile indicators
-  listIncomplete: { fontSize: 12, color: colors.amber, fontWeight: '500', marginTop: 2 },
-  incompleteDot: {
-    width: 8, height: 8, borderRadius: 4,
-    backgroundColor: colors.amber, marginRight: spacing.xs,
-  },
+  listIncomplete: { fontSize: 12.5, color: colors.amber, fontFamily: fonts.bold, marginTop: 2 },
 
   // Bottom sheet
   sheetOverlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.45)' },
   sheetDismiss: { flex: 1 },
   sheetContainer: {
-    backgroundColor: colors.surface,
-    borderTopLeftRadius: 24, borderTopRightRadius: 24,
-    padding: spacing.xl, paddingBottom: 40,
+    backgroundColor: colors.bg,
+    borderTopLeftRadius: 28, borderTopRightRadius: 28,
+    paddingHorizontal: spacing.xxl,
+    paddingTop: spacing.md,
+    paddingBottom: 40,
+  },
+  sheetGrabber: {
+    width: 44,
+    height: 5,
+    borderRadius: radius.full,
+    backgroundColor: colors.border,
+    alignSelf: 'center',
+    marginBottom: spacing.md,
   },
   sheetHeader: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     marginBottom: spacing.lg,
   },
-  sheetTitle: { fontSize: 18, fontWeight: '600', color: colors.textPrimary },
-  sheetClose: { fontSize: 20, color: colors.textMuted, fontWeight: '600', padding: spacing.sm },
+  sheetTitle: { fontSize: 21, fontFamily: fonts.black, color: colors.textPrimary },
+  sheetCloseButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: colors.primarySoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 
   searchBar: {
     flexDirection: 'row', alignItems: 'center',
+    gap: spacing.sm,
     marginBottom: spacing.md,
-    backgroundColor: colors.surface, borderRadius: radius.full,
-    borderWidth: 1, borderColor: colors.border,
-    paddingHorizontal: spacing.md, height: 40,
+    backgroundColor: colors.surface, borderRadius: radius.lg,
+    borderWidth: 1.5, borderColor: colors.border,
+    paddingHorizontal: spacing.md, height: 46,
   },
-  searchIcon: { fontSize: 14, marginRight: spacing.sm },
   searchInput: {
-    flex: 1, fontSize: 14, color: colors.textPrimary,
+    flex: 1, fontSize: 14, fontFamily: fonts.regular, color: colors.textPrimary,
     paddingVertical: 0,
   },
   searchClear: {
@@ -630,11 +912,10 @@ const styles = StyleSheet.create({
     width: 44, height: 44, borderRadius: 22,
     backgroundColor: colors.primaryLight, alignItems: 'center', justifyContent: 'center',
   },
-  avatarText: { fontSize: 15, fontWeight: '700', color: colors.primary },
+  avatarText: { fontSize: 15, fontFamily: fonts.bold, color: colors.primary },
   listInfo: { flex: 1 },
-  listName: { fontSize: 15, fontWeight: '600', color: colors.textPrimary },
-  listSub: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
-  chevron: { fontSize: 22, color: colors.textMuted },
+  listName: { fontSize: 14.5, fontFamily: fonts.bold, color: colors.textPrimary },
+  listSub: { fontSize: 12.5, fontFamily: fonts.regular, color: colors.textSecondary, marginTop: 2 },
   callRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 },
   callIcon: { fontSize: 12 },
   callText: { fontSize: 13, color: colors.primary, fontWeight: '500', textDecorationLine: 'underline' },
@@ -658,23 +939,26 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
   },
   childPickerBtnSelected: { borderColor: colors.primary, backgroundColor: colors.primaryLight },
+  childPickerBtnError: { borderColor: colors.danger },
   childPickerText: { fontSize: 14, color: colors.textSecondary },
+  formError: { color: colors.danger, fontFamily: fonts.regular, fontSize: 12, marginTop: -spacing.sm, marginBottom: spacing.md },
+  secureInviteHint: { color: colors.textMuted, fontFamily: fonts.regular, fontSize: 11.5, lineHeight: 16, textAlign: 'center', marginTop: spacing.sm },
   emptyNote: { fontSize: 14, color: colors.textMuted, textAlign: 'center', padding: spacing.xl },
 
   // Classroom settings card
   classroomCard: {
     backgroundColor: colors.surface, borderRadius: radius.lg,
-    borderWidth: 1, borderColor: colors.border,
-    padding: spacing.lg, marginTop: spacing.md,
+    borderWidth: 1.5, borderColor: colors.border,
+    padding: spacing.lg, marginTop: spacing.lg,
     flexDirection: 'row', alignItems: 'center',
   },
   classroomCardHeader: {
     flexDirection: 'row', alignItems: 'center',
   },
   classroomCardInfo: { flex: 1 },
-  classroomCardName: { fontSize: 17, fontWeight: '700', color: colors.textPrimary },
-  classroomCardAge: { fontSize: 13, color: colors.textSecondary, marginTop: 3 },
-  classroomCardMeta: { fontSize: 12, color: colors.textMuted, marginTop: 4 },
+  classroomCardName: { fontSize: 17, fontFamily: fonts.black, color: colors.textPrimary },
+  classroomCardAge: { fontSize: 13, fontFamily: fonts.regular, color: colors.textSecondary, marginTop: 3 },
+  classroomCardMeta: { fontSize: 13, fontFamily: fonts.regular, color: colors.textSecondary, marginTop: 3 },
   classroomCardActions: { flexDirection: 'row', gap: spacing.sm, alignItems: 'center' },
   classroomChevron: { fontSize: 24, color: colors.textMuted, marginLeft: spacing.sm },
   classroomEditTitle: { fontSize: 15, fontWeight: '600', color: colors.textPrimary, marginBottom: spacing.md },

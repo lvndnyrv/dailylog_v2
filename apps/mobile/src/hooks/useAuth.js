@@ -1,10 +1,9 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
+import { AppState } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../lib/supabase';
 
 const AuthContext = createContext({});
-
-const VALID_ROLES = ['educator', 'parent', 'admin'];
 
 // Remembered account (last successful sign-in) — survives logout on purpose,
 // so returning users only need to enter their password.
@@ -17,6 +16,7 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
   const [recovery, setRecovery] = useState(false);
   const [profileFailed, setProfileFailed] = useState(false); // true only after confirmed failure
+  const [profileFailure, setProfileFailure] = useState(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -28,6 +28,7 @@ export function AuthProvider({ children }) {
           setUser(null);
           setProfile(null);
           setProfileFailed(false);
+          setProfileFailure(null);
           setLoading(false);
         }
         return;
@@ -37,6 +38,7 @@ export function AuthProvider({ children }) {
         setUser(session.user);
         setLoading(true);
         setProfileFailed(false);
+        setProfileFailure(null);
       }
 
       // Prevent duplicate fetches
@@ -44,19 +46,30 @@ export function AuthProvider({ children }) {
       fetchingProfile = true;
 
       let data = null;
+      let failure = null;
       try {
         const res = await supabase
           .from('profiles')
           .select('*')
           .eq('id', session.user.id)
           .maybeSingle();
+        if (res.error) throw res.error;
         data = res.data;
 
         if (!data) {
           data = await ensureProfileFromMetadata();
+        } else {
+          data = await fillMissingSafeProfileMetadata(data, session.user);
         }
       } catch (e) {
-        // Network error — don't show failure screen, retry later
+        failure = {
+          kind: 'unavailable',
+          message: e instanceof Error ? e.message : 'Profile lookup failed',
+        };
+      }
+
+      if (!data && !failure) {
+        failure = { kind: 'missing', message: 'Profile not found' };
       }
 
       fetchingProfile = false;
@@ -68,6 +81,7 @@ export function AuthProvider({ children }) {
       if (isMounted) {
         setProfile(data ?? null);
         setProfileFailed(!data);
+        setProfileFailure(failure);
         setLoading(false);
       }
     }
@@ -81,6 +95,7 @@ export function AuthProvider({ children }) {
           setProfile(null);
           setRecovery(false);
           setProfileFailed(false);
+          setProfileFailure(null);
           setLoading(false);
         }
         return;
@@ -99,6 +114,46 @@ export function AuthProvider({ children }) {
     };
   }, []);
 
+  useEffect(() => {
+    if (!user?.id) return undefined;
+
+    const refreshOwnProfile = async () => {
+      const { data } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', user.id)
+        .maybeSingle();
+      if (data) {
+        setProfile(data);
+        setProfileFailed(false);
+        setProfileFailure(null);
+      }
+    };
+
+    const channel = supabase
+      .channel(`own-profile-access-${user.id}`)
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'profiles', filter: `id=eq.${user.id}` },
+        ({ new: nextProfile }) => {
+          if (nextProfile?.id === user.id) {
+            setProfile(nextProfile);
+            setProfileFailed(false);
+          }
+        },
+      )
+      .subscribe();
+
+    const appStateSubscription = AppState.addEventListener('change', nextState => {
+      if (nextState === 'active') refreshOwnProfile();
+    });
+
+    return () => {
+      appStateSubscription.remove();
+      supabase.removeChannel(channel);
+    };
+  }, [user?.id]);
+
   // Fallback used when the DB trigger hasn't created a profile yet
   // (e.g. OTP-invited parents on an un-migrated database).
   async function ensureProfileFromMetadata() {
@@ -107,21 +162,22 @@ export function AuthProvider({ children }) {
     if (!u) return null;
 
     const meta = u.user_metadata || {};
-    const role = VALID_ROLES.includes(meta.role) ? meta.role : 'parent';
 
+    // Never trust client metadata for authorization. Legitimate staff
+    // elevation happens through start_center / invite / join-code RPCs.
     await supabase.from('profiles').upsert(
       {
         id: u.id,
         email: u.email,
         full_name: meta.full_name?.trim() || u.email?.split('@')[0] || 'User',
-        role,
+        role: 'parent',
         phone: meta.phone || '',
       },
       { onConflict: 'id', ignoreDuplicates: true }
     );
 
     // Process a pending child link from an educator invite
-    if (meta.pending_child_id && role === 'parent') {
+    if (meta.pending_child_id) {
       await supabase.from('parent_children').upsert(
         { parent_id: u.id, child_id: meta.pending_child_id },
         { onConflict: 'parent_id,child_id', ignoreDuplicates: true }
@@ -132,19 +188,57 @@ export function AuthProvider({ children }) {
     return data;
   }
 
-  async function fetchProfile(userId) {
-    let { data } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', userId)
-      .maybeSingle();
+  async function fillMissingSafeProfileMetadata(currentProfile, authUser) {
+    const meta = authUser?.user_metadata || {};
+    const updates = {};
 
-    if (!data) {
-      data = await ensureProfileFromMetadata();
+    if (!currentProfile.full_name?.trim() && meta.full_name?.trim()) {
+      updates.full_name = meta.full_name.trim();
     }
+    if (!currentProfile.phone?.trim() && meta.phone?.trim()) {
+      updates.phone = meta.phone.trim();
+    }
+    if (!Object.keys(updates).length) return currentProfile;
 
-    setProfile(data ?? null);
-    setLoading(false);
+    const { data } = await supabase
+      .from('profiles')
+      .update(updates)
+      .eq('id', currentProfile.id)
+      .select('*')
+      .single();
+
+    return data || { ...currentProfile, ...updates };
+  }
+
+  async function fetchProfile(userId, options = {}) {
+    const silent = options.silent === true;
+    if (!silent) setLoading(true);
+    try {
+      const profileResult = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', userId)
+        .maybeSingle();
+
+      if (profileResult.error) throw profileResult.error;
+
+      let data = profileResult.data;
+      if (!data) data = await ensureProfileFromMetadata();
+
+      setProfile(data ?? null);
+      setProfileFailed(!data);
+      setProfileFailure(data ? null : { kind: 'missing', message: 'Profile not found' });
+      return { data: data ?? null, error: data ? null : new Error('Profile not found') };
+    } catch (error) {
+      setProfileFailed(true);
+      setProfileFailure({
+        kind: 'unavailable',
+        message: error instanceof Error ? error.message : 'Profile lookup failed',
+      });
+      return { data: null, error };
+    } finally {
+      if (!silent) setLoading(false);
+    }
   }
 
   async function signIn(email, password) {
@@ -198,12 +292,10 @@ export function AuthProvider({ children }) {
     }
   }
 
-  async function signUp(email, password, fullName, role, phone = '', activationCode = '') {
-    // Metadata is consumed by the handle_new_user DB trigger, which
-    // creates the profile server-side (works even when email
-    // confirmation is enabled and there is no session yet).
-    // role='admin' additionally requires a valid activation_code —
-    // the trigger downgrades to 'parent' otherwise (server-enforced).
+  async function signUp(email, password, fullName, role, phone = '', options = {}) {
+    // Metadata is consumed by the handle_new_user DB trigger, which creates a
+    // parent profile server-side. Role/setup metadata is only a UX intent
+    // marker; authorization is assigned by trusted center/invite RPCs.
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
@@ -212,7 +304,10 @@ export function AuthProvider({ children }) {
           full_name: fullName,
           role,
           phone,
-          ...(activationCode ? { activation_code: activationCode } : {}),
+          setup_center_pending: Boolean(options.setupCenter),
+          ...(options.registrationCode
+            ? { center_registration_code: options.registrationCode }
+            : {}),
         },
       },
     });
@@ -221,6 +316,13 @@ export function AuthProvider({ children }) {
     // If we already have a session, make sure the profile exists now
     // (covers databases where the trigger migration hasn't run).
     if (data?.session && data?.user) {
+      await supabase
+        .from('profiles')
+        .update({
+          full_name: fullName,
+          ...(phone ? { phone } : {}),
+        })
+        .eq('id', data.user.id);
       await fetchProfile(data.user.id);
       return { error: null, needsEmailConfirm: false };
     }
@@ -252,19 +354,16 @@ export function AuthProvider({ children }) {
     await supabase.auth.signOut();
   }
 
-  async function deleteAccount() {
-    const { error } = await supabase.rpc('delete_my_account');
-    // The account no longer exists — don't suggest it at next login.
-    await clearRememberedAccount();
-    await supabase.auth.signOut();
-    return { error };
+  async function requestAccountDeletion() {
+    const { data, error } = await supabase.rpc('request_my_account_deletion');
+    return { data, error };
   }
 
   return (
     <AuthContext.Provider
       value={{
-        user, profile, loading, recovery, profileFailed,
-        signIn, signUp, signOut, deleteAccount, fetchProfile,
+        user, profile, loading, recovery, profileFailed, profileFailure,
+        signIn, signUp, signOut, requestAccountDeletion, fetchProfile,
         resetPassword, updatePassword, clearRecovery,
         getRememberedAccount, clearRememberedAccount,
       }}

@@ -1,35 +1,38 @@
 export const colors = {
-  primary: '#1D9E75',
-  primaryLight: '#E1F5EE',
-  primaryDark: '#0F6E56',
+  primary: '#2F7CD8',
+  primaryLight: '#E3EDFA',
+  primarySoft: '#EDF3FB',
+  primaryDark: '#1E5FB0',
 
-  purple: '#534AB7',
-  purpleLight: '#EEEDFE',
+  purple: '#7258B5',
+  purpleLight: '#F0EBFA',
 
-  amber: '#BA7517',
-  amberLight: '#FAEEDA',
+  amber: '#B0782B',
+  amberLight: '#FBF3E4',
 
   coral: '#D85A30',
   coralLight: '#FAECE7',
 
-  danger: '#E24B4A',
-  dangerLight: '#FCEBEB',
+  danger: '#C84B4B',
+  dangerLight: '#FCEAEA',
 
-  warning: '#EF9F27',
-  warningLight: '#FAEEDA',
+  warning: '#B0782B',
+  warningLight: '#FBF3E4',
 
-  success: '#1D9E75',
-  successLight: '#E1F5EE',
+  success: '#218A5B',
+  successLight: '#E4F4EC',
 
   // Neutrals
-  bg: '#F8F7F4',
+  bg: '#F4F8FD',
   surface: '#FFFFFF',
-  border: '#E2E0D8',
-  borderStrong: '#C5C3BB',
+  border: '#D6E1F0',
+  borderSoft: '#E4ECF6',
+  borderStrong: '#B9CBE2',
 
-  textPrimary: '#1A1A18',
-  textSecondary: '#6B6A64',
-  textMuted: '#9B9A94',
+  textPrimary: '#17335B',
+  textSecondary: '#41546F',
+  textMuted: '#5B6B82',
+  textFaint: '#8FA6C4',
 
   white: '#FFFFFF',
 };
@@ -56,12 +59,18 @@ export const radius = {
 // use radius.md app-wide, not radius.full pills, including future restyles.
 export const buttonRadius = radius.md;
 
+export const fonts = {
+  regular: 'Lato_400Regular',
+  bold: 'Lato_700Bold',
+  black: 'Lato_900Black',
+};
+
 export const typography = {
-  h1: { fontSize: 24, fontWeight: '600', color: colors.textPrimary },
-  h2: { fontSize: 20, fontWeight: '600', color: colors.textPrimary },
-  h3: { fontSize: 17, fontWeight: '500', color: colors.textPrimary },
-  body: { fontSize: 15, fontWeight: '400', color: colors.textPrimary },
-  bodySmall: { fontSize: 13, fontWeight: '400', color: colors.textSecondary },
-  caption: { fontSize: 12, fontWeight: '400', color: colors.textMuted },
-  label: { fontSize: 13, fontWeight: '500', color: colors.textSecondary },
+  h1: { fontSize: 24, fontFamily: fonts.black, color: colors.textPrimary },
+  h2: { fontSize: 20, fontFamily: fonts.bold, color: colors.textPrimary },
+  h3: { fontSize: 17, fontFamily: fonts.bold, color: colors.textPrimary },
+  body: { fontSize: 15, fontFamily: fonts.regular, color: colors.textPrimary },
+  bodySmall: { fontSize: 13, fontFamily: fonts.regular, color: colors.textSecondary },
+  caption: { fontSize: 12, fontFamily: fonts.regular, color: colors.textMuted },
+  label: { fontSize: 13, fontFamily: fonts.bold, color: colors.textPrimary },
 };

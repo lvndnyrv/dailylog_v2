@@ -16,11 +16,14 @@ export function Modal({
   const cardRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    cardRef.current?.focus();
+  }, []);
+
+  useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
     };
     document.addEventListener("keydown", onKey);
-    cardRef.current?.focus();
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
 

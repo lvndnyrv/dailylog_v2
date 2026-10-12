@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, Linking, Platform } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
 import { supabase } from '../lib/supabase';
 import { Button } from './ui';
@@ -27,15 +28,11 @@ export function ForceUpdateGate({ children }) {
   useEffect(() => {
     async function check() {
       try {
-        const { data } = await supabase
-          .from('app_config')
-          .select('value')
-          .eq('key', 'min_app_version')
-          .maybeSingle();
-        if (!data?.value) return;
+        const { data, error } = await supabase.rpc('get_mobile_release_config');
+        if (error || !data?.minimumVersion) return;
 
         const current = Constants?.expoConfig?.version || '0.0.0';
-        if (compareVersions(current, data.value) < 0) setBlocked(true);
+        if (compareVersions(current, data.minimumVersion) < 0) setBlocked(true);
       } catch (e) {
         // Fail open — never block on a network error
       }
@@ -50,7 +47,9 @@ export function ForceUpdateGate({ children }) {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.icon}>⬆️</Text>
+      <View style={styles.icon}>
+        <Ionicons name="arrow-up-circle-outline" size={44} color={colors.primary} />
+      </View>
       <Text style={styles.title}>Update required</Text>
       <Text style={styles.body}>
         This version of DailyLog is no longer supported. Please update to
@@ -74,7 +73,10 @@ const styles = StyleSheet.create({
     flex: 1, backgroundColor: colors.bg,
     alignItems: 'center', justifyContent: 'center', padding: spacing.xxl,
   },
-  icon: { fontSize: 56, marginBottom: spacing.lg },
+  icon: {
+    width: 82, height: 82, borderRadius: 41, marginBottom: spacing.lg,
+    alignItems: 'center', justifyContent: 'center', backgroundColor: colors.primaryLight,
+  },
   title: { fontSize: 22, fontWeight: '700', color: colors.textPrimary, marginBottom: spacing.md },
   body: {
     fontSize: 15, color: colors.textSecondary, textAlign: 'center',

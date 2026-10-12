@@ -257,6 +257,49 @@ on conflict (id) do update set
   stage_changed_at = excluded.stage_changed_at,
   created_at = excluded.created_at;
 
+-- Zoé is the completed-enrollment example. Keep the seed internally valid so
+-- educator visibility, attendance and tuition activation can be exercised from
+-- a real child record instead of an impossible pipeline-only state.
+insert into children (
+  id, daycare_id, classroom_id, first_name, last_name, date_of_birth,
+  allergies, emergency_contacts, enrolled_on, setup_state
+)
+select
+  '43000000-0000-4000-a000-000000000002', enrollment.daycare_id,
+  enrollment.classroom_id, enrollment.child_first_name,
+  coalesce(enrollment.child_last_name, 'Fontaine'), enrollment.child_date_of_birth,
+  case
+    when nullif(btrim(enrollment.application_data->>'allergy'), '') is null then '{}'::text[]
+    else array[enrollment.application_data->>'allergy']
+  end,
+  '[]'::jsonb, enrollment.desired_start_date,
+  jsonb_build_object('enrollment_documents_pending', false)
+from enrollments enrollment
+where enrollment.id = '41000000-0000-4000-a000-000000000012'
+on conflict (id) do update set
+  daycare_id = excluded.daycare_id,
+  classroom_id = excluded.classroom_id,
+  first_name = excluded.first_name,
+  last_name = excluded.last_name,
+  date_of_birth = excluded.date_of_birth,
+  allergies = excluded.allergies,
+  emergency_contacts = excluded.emergency_contacts,
+  enrolled_on = excluded.enrolled_on,
+  archived_at = null;
+
+update enrollments
+set child_id = '43000000-0000-4000-a000-000000000002',
+    application_submitted_at = coalesce(application_submitted_at, stage_changed_at - interval '3 days'),
+    agreement_version = coalesce(agreement_version, 'seed-demo-v1'),
+    agreement_signed_at = coalesce(agreement_signed_at, stage_changed_at - interval '2 days'),
+    offer_accepted_at = coalesce(offer_accepted_at, stage_changed_at - interval '1 day'),
+    deposit_status = 'paid',
+    deposit_paid_at = coalesce(deposit_paid_at, stage_changed_at - interval '1 day'),
+    parent_workflow_step = 'enrolled',
+    onboarding_steps = (coalesce(onboarding_steps, '{}'::jsonb) - 'room_schedule')
+      || jsonb_build_object('offer_complete', true, 'account_linked', false)
+where id = '41000000-0000-4000-a000-000000000012';
+
 -- Tour slots 2h: two booked slots and two open slots for manual booking.
 insert into enrollment_tour_slots (
   id, daycare_id, starts_at, ends_at, classroom_id, host_id,

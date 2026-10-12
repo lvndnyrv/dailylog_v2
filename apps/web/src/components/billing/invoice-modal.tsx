@@ -100,6 +100,32 @@ export function InvoiceModal({
         </div>
       )}
 
+      {invoice.reminders.length > 0 && (
+        <div>
+          <span className={label}>PAYMENT REMINDERS</span>
+          <div className="mt-1 flex flex-col gap-1">
+            {invoice.reminders
+              .slice()
+              .sort((a, b) => b.sent_at.localeCompare(a.sent_at))
+              .map((reminder) => (
+                <div key={reminder.id} className="flex items-baseline justify-between text-[12.5px]">
+                  <span className="text-muted">
+                    {new Date(reminder.sent_at).toLocaleDateString("en-CA", {
+                      month: "short",
+                      day: "numeric",
+                      hour: "numeric",
+                      minute: "2-digit",
+                    })}
+                  </span>
+                  <span className="font-semibold capitalize text-primary">
+                    {reminder.tone} reminder · {reminder.status}
+                  </span>
+                </div>
+              ))}
+          </div>
+        </div>
+      )}
+
       {invoice.status === "open" && (
         <form action={action} className="flex flex-col gap-3 rounded-[13px] bg-canvas p-3.5">
           <input type="hidden" name="invoice_id" value={invoice.id} />

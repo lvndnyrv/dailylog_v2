@@ -5,7 +5,7 @@ import { useActionState, useEffect, useMemo, useState } from "react";
 import { Avatar } from "@/components/ui/avatar";
 import { Modal } from "@/components/ui/modal";
 import { Notice } from "@/components/ui/notice";
-import { dateInTimeZone } from "@/lib/center-date";
+import { addDateDays, dateInTimeZone } from "@/lib/center-date";
 import {
   grantDelegationAction,
   revokeDelegationAction,
@@ -19,15 +19,6 @@ const AREA_OPTIONS = [
   { key: "broadcasts", label: "Broadcasts" },
   { key: "billing", label: "Billing" },
 ] as const;
-
-function addDays(value: Date, days: number): string {
-  const next = new Date(value);
-  next.setDate(next.getDate() + days);
-  const year = next.getFullYear();
-  const month = String(next.getMonth() + 1).padStart(2, "0");
-  const day = String(next.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
 
 function dateLabel(value: string, timeZone: string, includeYear = false): string {
   return new Intl.DateTimeFormat("en-CA", {
@@ -54,12 +45,16 @@ export function StaffDelegations({
   delegations,
   staff,
   timeZone,
+  defaultDelegationDays,
+  initialDelegateProfileId,
 }: {
   delegations: StaffDelegationRow[];
   staff: StaffRow[];
   timeZone: string;
+  defaultDelegationDays: number;
+  initialDelegateProfileId: string | null;
 }) {
-  const [granting, setGranting] = useState(false);
+  const [granting, setGranting] = useState(Boolean(initialDelegateProfileId));
   const [openLog, setOpenLog] = useState<string | null>(null);
   const active = delegations.filter(delegationIsActive);
   const past = delegations.filter((item) => !delegationIsActive(item));
@@ -155,7 +150,13 @@ export function StaffDelegations({
       </div>
 
       {granting && (
-        <GrantDelegationModal candidates={candidates} onClose={() => setGranting(false)} />
+        <GrantDelegationModal
+          candidates={candidates}
+          defaultDelegationDays={defaultDelegationDays}
+          initialCandidateProfileId={initialDelegateProfileId}
+          timeZone={timeZone}
+          onClose={() => setGranting(false)}
+        />
       )}
     </div>
   );
@@ -218,21 +219,37 @@ function ActiveDelegation({ item, timeZone }: { item: StaffDelegationRow; timeZo
 
 function GrantDelegationModal({
   candidates,
+  defaultDelegationDays,
+  initialCandidateProfileId,
+  timeZone,
   onClose,
 }: {
   candidates: StaffRow[];
+  defaultDelegationDays: number;
+  initialCandidateProfileId: string | null;
+  timeZone: string;
   onClose: () => void;
 }) {
   const [accessLevel, setAccessLevel] = useState<"specific_areas" | "full_admin">(
     "specific_areas",
   );
   const [areas, setAreas] = useState<string[]>(["attendance", "enrollment"]);
-  const [endsOn, setEndsOn] = useState(() => addDays(new Date(), 14));
+  const [endsOn, setEndsOn] = useState(() =>
+    addDateDays(dateInTimeZone(new Date(), timeZone), defaultDelegationDays),
+  );
   const [state, action, pending] = useActionState<DelegationActionState, FormData>(
     grantDelegationAction,
     {},
   );
-  const firstCandidate = useMemo(() => candidates[0]?.profile?.id ?? "", [candidates]);
+  const today = dateInTimeZone(new Date(), timeZone);
+  const dateAfter = (days: number) => addDateDays(today, days);
+  const firstCandidate = useMemo(
+    () =>
+      candidates.some((member) => member.profile?.id === initialCandidateProfileId)
+        ? initialCandidateProfileId ?? ""
+        : candidates[0]?.profile?.id ?? "",
+    [candidates, initialCandidateProfileId],
+  );
 
   useEffect(() => {
     if (state.ok) onClose();
@@ -347,23 +364,23 @@ function GrantDelegationModal({
             name="ends_on"
             required
             value={endsOn}
-            min={addDays(new Date(), 1)}
+            min={dateAfter(1)}
             onChange={(event) => setEndsOn(event.target.value)}
             className="rounded-[12px] border-[1.5px] border-[#D6E1F0] bg-[#F9FBFE] px-3.5 py-2.5 text-[13.5px] font-bold text-ink outline-none focus:border-[var(--primary)]"
           />
           <span className="flex gap-1.5 pt-0.5">
-            {[7, 14].map((days) => (
+            {[7, defaultDelegationDays].filter((days, index, values) => values.indexOf(days) === index).map((days) => (
               <button
                 key={days}
                 type="button"
-                onClick={() => setEndsOn(addDays(new Date(), days))}
+                onClick={() => setEndsOn(dateAfter(days))}
                 className={`rounded-full px-3 py-1 text-[11.5px] font-bold ${
-                  endsOn === addDays(new Date(), days)
+                  endsOn === dateAfter(days)
                     ? "bg-ink text-white"
                     : "border-[1.5px] border-[#D6E1F0] bg-white text-body"
                 }`}
               >
-                {days === 7 ? "1 week" : "2 weeks"}
+                {days === 7 ? "1 week" : days === 14 ? "2 weeks" : `${days} days`}
               </button>
             ))}
             <span className="rounded-full border-[1.5px] border-[#D6E1F0] bg-white px-3 py-1 text-[11.5px] font-bold text-body">

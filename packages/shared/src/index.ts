@@ -32,6 +32,7 @@ export const CONSENT_KINDS = [
   'Photo & media consent',
   'Field-trip permission',
   'Sunscreen application',
+  'Water / splash play',
 ] as const;
 export type ConsentKind = (typeof CONSENT_KINDS)[number];
 
@@ -154,8 +155,18 @@ export function childSetupChecklist(child: {
     child.setup_state && typeof child.setup_state === 'object' && !Array.isArray(child.setup_state)
       ? (child.setup_state as Record<string, unknown>)
       : {};
+  // Older records may carry stale `false` flags even after the underlying
+  // section was completed. A positive review flag is authoritative, while
+  // real saved data must also count as complete.
   const reviewed = (key: SetupItem['key'], fallback: boolean) =>
-    typeof setupState[key] === 'boolean' ? (setupState[key] as boolean) : fallback;
+    setupState[key] === true || fallback;
+  const medicalReviewed =
+    setupState.medical_reviewed === true ||
+    setupState.no_known_medical_needs === true ||
+    reviewed(
+      'medical',
+      Boolean((child.allergies?.length ?? 0) > 0 || child.medical_notes),
+    );
   const items: SetupItem[] = [
     {
       key: 'basics',
@@ -173,10 +184,7 @@ export function childSetupChecklist(child: {
       key: 'medical',
       label: 'Medical info',
       hint: 'Allergies, notes, medications',
-      done: reviewed(
-        'medical',
-        Boolean((child.allergies?.length ?? 0) > 0 || child.medical_notes),
-      ),
+      done: medicalReviewed,
     },
     {
       key: 'emergency',

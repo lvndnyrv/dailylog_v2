@@ -1,10 +1,12 @@
 import {
   getMyDaycare,
   listFloaters,
+  listPendingStaffInvites,
   listRoomCombinations,
   listRoomCoverageAssignments,
   listRoomsLive,
   listRoomTransitionPlans,
+  listRoomTransitionWaitRequests,
   listRoomTransitions,
   listStaff,
   listStaffShifts,
@@ -22,13 +24,14 @@ import { getServerSupabase } from "@/lib/supabase/server";
 export default async function RoomsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ modal?: string }>;
+  searchParams: Promise<{ modal?: string; coverageDate?: string; coverageAssignment?: string }>;
 }) {
   const params = await searchParams;
   const supabase = await getServerSupabase();
   const daycare = await getMyDaycare(supabase);
   const timeZone = daycare?.timezone ?? "America/Toronto";
-  const today = dateInTimeZone(new Date(), timeZone);
+  const now = new Date();
+  const today = dateInTimeZone(now, timeZone);
   const rangeStart = `${addDateDays(today, -1)}T00:00:00Z`;
   const rangeEnd = `${addDateDays(today, 2)}T00:00:00Z`;
 
@@ -37,23 +40,27 @@ export default async function RoomsPage({
     floaters,
     transitions,
     transitionPlans,
+    transitionWaits,
     combinations,
     coverageAssignments,
     shifts,
     timeEntries,
     timeOff,
     staff,
+    pendingInvites,
   ] = await Promise.all([
     listRoomsLive(supabase),
     listFloaters(supabase),
     listRoomTransitions(supabase, 3),
     listRoomTransitionPlans(supabase),
+    listRoomTransitionWaitRequests(supabase),
     listRoomCombinations(supabase),
     listRoomCoverageAssignments(supabase, rangeStart, rangeEnd),
     listStaffShifts(supabase, rangeStart, rangeEnd),
     listStaffTimeEntries(supabase, rangeStart, rangeEnd),
     listStaffTimeOffRequests(supabase, today, today),
     listStaff(supabase),
+    listPendingStaffInvites(supabase),
   ]);
 
   return (
@@ -66,13 +73,13 @@ export default async function RoomsPage({
           <>
             <Link
               href="/rooms?modal=rules"
-              className="rounded-full border-[1.5px] border-[#D6E1F0] bg-card px-[18px] py-2.5 text-[13px] font-bold text-ink hover:bg-canvas"
+              className="whitespace-nowrap rounded-full border-[1.5px] border-[#D6E1F0] bg-card px-[18px] py-2.5 text-[13px] font-bold text-ink hover:bg-canvas"
             >
               Edit ratio rules
             </Link>
             <Link
               href="/rooms?modal=add"
-              className="rounded-full bg-primary px-[20px] py-2.5 text-[13px] font-bold text-white hover:bg-primary-hover"
+              className="whitespace-nowrap rounded-full bg-primary px-[20px] py-2.5 text-[13px] font-bold text-white hover:bg-primary-hover"
             >
               + Add a room
             </Link>
@@ -83,30 +90,39 @@ export default async function RoomsPage({
         key={params.modal ?? "overview"}
         rooms={rooms}
         floaters={floaters}
+        pendingFloaterInvites={pendingInvites.filter(
+          (invite) => invite.role === "educator" && invite.classroom === null,
+        )}
         transitions={transitions}
         transitionPlans={transitionPlans}
+        transitionWaits={transitionWaits}
         combinations={combinations}
         coverageAssignments={coverageAssignments}
         shifts={shifts}
         timeEntries={timeEntries}
         timeOff={timeOff}
         educators={staff
-          .filter((member) => member.profile?.role === "educator")
+          .filter((member) => member.status === "active" && member.profile?.role === "educator")
           .map((member) => ({
             id: member.profile!.id,
             staffMemberId: member.id,
             fullName: member.profile!.full_name,
             role: member.profile!.role,
             roomId: member.profile!.classroom?.id ?? null,
+            roomName: member.profile!.classroom?.name ?? null,
           }))}
         date={today}
+        nowIso={now.toISOString()}
         timeZone={timeZone}
+        openingHours={{ start: daycare?.opens_at ?? "07:00", end: daycare?.closes_at ?? "18:00" }}
         alertSettings={{
           afterMinutes: daycare?.ratio_alert_after_minutes ?? 10,
           notifyFloaters: daycare?.ratio_notify_floaters ?? true,
           blockCheckins: daycare?.ratio_block_checkins ?? false,
         }}
         initialModal={params.modal}
+        initialCoverageDate={params.coverageDate}
+        focusCoverageAssignmentId={params.coverageAssignment}
       />
     </>
   );

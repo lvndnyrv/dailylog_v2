@@ -4,16 +4,24 @@ import type {
   StaffRow,
   StaffShiftRow,
   StaffTimeEntryRow,
+  StaffTimeOffCoverageImpactRow,
   StaffTimeOffRequestRow,
 } from "@dailylog/db/queries";
 import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
 import { Avatar } from "@/components/ui/avatar";
 import { Modal } from "@/components/ui/modal";
-import { addDateDays, dateInTimeZone, monthRange } from "@/lib/center-date";
+import {
+  addDateDays,
+  dateInTimeZone,
+  dateTimeLocalInTimeZone,
+  monthRange,
+  zonedLocalToIso,
+} from "@/lib/center-date";
 import {
   approveTimeEntriesAction,
   fixTimeEntryAction,
+  requestTimeEntryCorrectionAction,
   reviewTimeOffAction,
 } from "@/lib/staff/actions";
 
@@ -62,11 +70,6 @@ function timeLabel(value: string, timeZone: string): string {
   }).format(new Date(value));
 }
 
-function toLocalInput(value: Date): string {
-  const offset = value.getTimezoneOffset() * 60000;
-  return new Date(value.getTime() - offset).toISOString().slice(0, 16);
-}
-
 function requestDays(request: StaffTimeOffRequestRow): number {
   return Math.round(
     (new Date(`${request.ends_on}T12:00:00Z`).getTime() -
@@ -87,6 +90,7 @@ export function StaffTimekeeping({
   shifts,
   entries,
   requests,
+  coverageImpacts,
   timeZone,
   weekStart,
   month,
@@ -97,6 +101,7 @@ export function StaffTimekeeping({
   shifts: StaffShiftRow[];
   entries: StaffTimeEntryRow[];
   requests: StaffTimeOffRequestRow[];
+  coverageImpacts: StaffTimeOffCoverageImpactRow[];
   timeZone: string;
   weekStart: string;
   month: string;
@@ -371,6 +376,7 @@ export function StaffTimekeeping({
         <TimeOffCalendar
           month={month}
           requests={requests}
+          coverageImpacts={coverageImpacts}
           shifts={shifts}
           timeZone={timeZone}
           onSelect={setSelectedRequest}
@@ -388,6 +394,18 @@ export function StaffTimekeeping({
             setActionError(null);
           }}
           onApprove={() => approve(selectedSheet.reviewableIds, true)}
+          onRequestCorrection={(entryId, note) => {
+            setActionError(null);
+            startTransition(async () => {
+              const result = await requestTimeEntryCorrectionAction({ entryId, note });
+              if (result.error) {
+                setActionError(result.error);
+                return;
+              }
+              setSelectedSheet(null);
+              router.refresh();
+            });
+          }}
           onFixed={() => {
             setSelectedSheet(null);
             router.refresh();
@@ -397,6 +415,15 @@ export function StaffTimekeeping({
       {selectedRequest && (
         <TimeOffDecisionModal
           request={selectedRequest}
+          impacts={coverageImpacts.filter((impact) => impact.request_id === selectedRequest.id)}
+          conflictingShifts={shifts.filter(
+            (shift) =>
+              shift.staff?.id === selectedRequest.staff?.id &&
+              dateInTimeZone(shift.starts_at, timeZone) >= selectedRequest.starts_on &&
+              dateInTimeZone(shift.starts_at, timeZone) <= selectedRequest.ends_on &&
+              shift.status !== "cancelled",
+          )}
+          timeZone={timeZone}
           busy={isPending}
           onClose={() => setSelectedRequest(null)}
           onDecision={(decision, notes) => {
@@ -481,6 +508,7 @@ function TimesheetDetailModal({
   error,
   onClose,
   onApprove,
+  onRequestCorrection,
   onFixed,
 }: {
   sheet: Sheet;
@@ -489,6 +517,7 @@ function TimesheetDetailModal({
   error: string | null;
   onClose: () => void;
   onApprove: () => void;
+  onRequestCorrection: (entryId: string, note: string) => void;
   onFixed: () => void;
 }) {
   return (
@@ -521,7 +550,16 @@ function TimesheetDetailModal({
                 {entry.clocked_out_at ? hours(minutesBetween(entry.clocked_in_at, entry.clocked_out_at, entry.break_minutes)) : "—"}
               </span>
             </div>
-            {entry.status === "open" && <OpenEntryFix entry={entry} onFixed={onFixed} />}
+            {entry.status === "open" && (
+              <OpenEntryFix entry={entry} timeZone={timeZone} onFixed={onFixed} />
+            )}
+            {["submitted", "rejected"].includes(entry.status) && (
+              <TimeEntryReview
+                entry={entry}
+                busy={busy}
+                onRequestCorrection={onRequestCorrection}
+              />
+            )}
           </div>
         ))}
         {sheet.entries.length === 0 && (
@@ -545,8 +583,67 @@ function TimesheetDetailModal({
   );
 }
 
-function OpenEntryFix({ entry, onFixed }: { entry: StaffTimeEntryRow; onFixed: () => void }) {
-  const [clockOut, setClockOut] = useState(toLocalInput(new Date()));
+function TimeEntryReview({
+  entry,
+  busy,
+  onRequestCorrection,
+}: {
+  entry: StaffTimeEntryRow;
+  busy: boolean;
+  onRequestCorrection: (entryId: string, note: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [note, setNote] = useState(entry.status === "rejected" ? entry.notes ?? "" : "");
+  return (
+    <div className="mt-2.5 rounded-xl border border-[#EFD9B5] bg-warning-bg p-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="flex-1 text-[11.5px] font-semibold text-warning-text">
+          {entry.status === "rejected" ? `Correction requested${entry.notes ? ` · ${entry.notes}` : ""}` : "Ready for review"}
+        </span>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => setEditing((value) => !value)}
+          className="text-[11.5px] font-bold text-danger disabled:opacity-60"
+        >
+          Request correction
+        </button>
+      </div>
+      {editing && (
+        <div className="mt-2 flex items-end gap-2">
+          <label className="flex-1 text-[10.5px] font-bold text-ink">
+            NOTE TO EDUCATOR
+            <textarea
+              value={note}
+              onChange={(event) => setNote(event.target.value)}
+              placeholder="What should be corrected?"
+              className="mt-1 min-h-16 w-full resize-none rounded-lg border border-[#D6E1F0] bg-card px-2.5 py-2 text-[12px] font-normal outline-none focus:border-primary"
+            />
+          </label>
+          <button
+            type="button"
+            disabled={busy || note.trim().length < 3}
+            onClick={() => onRequestCorrection(entry.id, note)}
+            className="rounded-btn bg-danger px-3 py-2 text-[11.5px] font-bold text-white disabled:opacity-50"
+          >
+            Send back
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function OpenEntryFix({
+  entry,
+  timeZone,
+  onFixed,
+}: {
+  entry: StaffTimeEntryRow;
+  timeZone: string;
+  onFixed: () => void;
+}) {
+  const [clockOut, setClockOut] = useState(dateTimeLocalInTimeZone(new Date(), timeZone));
   const [breakMinutes, setBreakMinutes] = useState(entry.break_minutes || 30);
   const [notes, setNotes] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -571,9 +668,10 @@ function OpenEntryFix({ entry, onFixed }: { entry: StaffTimeEntryRow; onFixed: (
         onClick={() => {
           setError(null);
           startTransition(async () => {
+            const [date, time] = clockOut.split("T");
             const result = await fixTimeEntryAction({
               entryId: entry.id,
-              clockedOutAt: new Date(clockOut).toISOString(),
+              clockedOutAt: zonedLocalToIso(date, time, timeZone),
               breakMinutes,
               notes,
             });
@@ -593,12 +691,14 @@ function OpenEntryFix({ entry, onFixed }: { entry: StaffTimeEntryRow; onFixed: (
 function TimeOffCalendar({
   month,
   requests,
+  coverageImpacts,
   shifts,
   timeZone,
   onSelect,
 }: {
   month: string;
   requests: StaffTimeOffRequestRow[];
+  coverageImpacts: StaffTimeOffCoverageImpactRow[];
   shifts: StaffShiftRow[];
   timeZone: string;
   onSelect: (request: StaffTimeOffRequestRow) => void;
@@ -625,6 +725,9 @@ function TimeOffCalendar({
         shift.status !== "cancelled",
     );
 
+  const requestImpact = (request: StaffTimeOffRequestRow) =>
+    coverageImpacts.filter((impact) => impact.request_id === request.id);
+
   return (
     <div className="flex flex-col gap-[18px]">
       {pending.length > 0 && (
@@ -642,7 +745,11 @@ function TimeOffCalendar({
                 </span>
                 <span className="block text-[11.5px] text-muted">
                   {request.staff?.profile?.classroom?.name ?? "No room"} · {request.kind}
-                  {needsCoverageReview(request) ? " · coverage review needed" : " · no published shift conflict"}
+                  {requestImpact(request).length > 0
+                    ? ` · ${Math.max(...requestImpact(request).map((impact) => impact.staff_gap))} educator short in ${[...new Set(requestImpact(request).map((impact) => impact.room_name))].join(", ")}`
+                    : needsCoverageReview(request)
+                      ? " · forecast remains covered ✓"
+                      : " · no published shift conflict"}
                 </span>
               </span>
               <button type="button" onClick={() => onSelect(request)} className="rounded-btn border-[1.5px] border-[#D6E1F0] bg-card px-3.5 py-2 text-[11.5px] font-bold text-ink hover:bg-canvas">
@@ -702,12 +809,18 @@ function TimeOffCalendar({
 
 function TimeOffDecisionModal({
   request,
+  impacts,
+  conflictingShifts,
+  timeZone,
   busy,
   error,
   onClose,
   onDecision,
 }: {
   request: StaffTimeOffRequestRow;
+  impacts: StaffTimeOffCoverageImpactRow[];
+  conflictingShifts: StaffShiftRow[];
+  timeZone: string;
   busy: boolean;
   error: string | null;
   onClose: () => void;
@@ -715,6 +828,7 @@ function TimeOffDecisionModal({
 }) {
   const [notes, setNotes] = useState(request.decision_notes ?? "");
   const pending = request.status === "pending";
+  const maxGap = impacts.length ? Math.max(...impacts.map((impact) => impact.staff_gap)) : 0;
   return (
     <Modal onClose={onClose} width={450}>
       <div className="flex items-start gap-3">
@@ -726,9 +840,43 @@ function TimeOffDecisionModal({
         </span>
         <button type="button" onClick={onClose} aria-label="Close" className="grid size-8 place-items-center rounded-full bg-canvas text-muted">×</button>
       </div>
-      <div className="rounded-[14px] border border-[#EFD9B5] bg-warning-bg px-4 py-3 text-[12px] leading-relaxed text-warning-text">
-        Check the room schedule before approving. DailyLog flags published shifts, but forecast ratio coverage requires child schedule data.
-      </div>
+      {conflictingShifts.length === 0 ? (
+        <div className="rounded-[14px] border border-[#CBE5D7] bg-[#E4F3EC] px-4 py-3 text-[12px] font-semibold leading-relaxed text-success">
+          No published shift conflicts with this request.
+        </div>
+      ) : impacts.length === 0 ? (
+        <div className="rounded-[14px] border border-[#CBE5D7] bg-[#E4F3EC] px-4 py-3 text-[12px] leading-relaxed text-success">
+          <b>Coverage remains within ratio ✓</b><br />
+          The current child schedule and published staffing stay covered if this request is approved.
+        </div>
+      ) : (
+        <div className="rounded-[14px] border border-[#E9BFC0] bg-danger-bg px-4 py-3 text-[12px] leading-relaxed text-danger">
+          <b>{[...new Set(impacts.map((impact) => impact.room_name))].join(", ")} would be {maxGap} {maxGap === 1 ? "educator" : "educators"} short.</b>
+          <span className="mt-1 block text-[11.5px] font-medium">
+            Arrange coverage before approving, or decline with an alternate date.
+          </span>
+        </div>
+      )}
+      {impacts.length > 0 && (
+        <div className="overflow-hidden rounded-[14px] border border-[#D6E1F0]">
+          {impacts.slice(0, 5).map((impact) => (
+            <div key={`${impact.work_date}:${impact.room_id}:${impact.starts_at}`} className="flex items-center gap-3 border-b border-[#EDF3FB] px-3.5 py-2.5 last:border-0">
+              <span className="min-w-0 flex-1">
+                <span className="block text-[12px] font-bold text-ink">{impact.room_name} · {dateLabel(impact.work_date)}</span>
+                <span className="block text-[11px] text-muted">
+                  {timeLabel(impact.starts_at, timeZone)}–{timeLabel(impact.ends_at, timeZone)} · {impact.expected_children} children
+                </span>
+              </span>
+              <span className="rounded-full bg-danger-bg px-2.5 py-1 text-[10.5px] font-bold text-danger">
+                {impact.scheduled_staff}/{impact.required_staff} staff
+              </span>
+            </div>
+          ))}
+          {impacts.length > 5 && (
+            <p className="border-t border-[#EDF3FB] px-3.5 py-2 text-[11px] text-faint">+ {impacts.length - 5} more affected intervals</p>
+          )}
+        </div>
+      )}
       <label className="text-[12px] font-bold text-ink">
         Note to staff <span className="font-normal text-faint">(optional)</span>
         <textarea disabled={!pending} value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Add context or suggest another date…" className="mt-1.5 min-h-20 w-full resize-none rounded-xl border-[1.5px] border-[#D6E1F0] bg-[#F9FBFE] px-3.5 py-2.5 text-[13px] font-normal outline-none focus:border-primary disabled:text-muted" />

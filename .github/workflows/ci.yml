@@ -23,3 +23,7 @@ jobs:
       - run: pnpm typecheck
 
       - run: pnpm lint
+
+      - run: pnpm check:mobile-dependencies
+
+      - run: pnpm audit:production

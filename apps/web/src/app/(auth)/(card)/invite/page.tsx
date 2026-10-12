@@ -54,6 +54,12 @@ export default async function InvitePage({
           <dt className="text-muted">Signing in as</dt>
           <dd className="font-bold text-ink">{invite.email}</dd>
         </div>
+        {invite.job_title && (
+          <div className="flex justify-between text-[12.5px]">
+            <dt className="text-muted">Job title</dt>
+            <dd className="font-bold text-ink">{invite.job_title}</dd>
+          </div>
+        )}
         {invite.classroom_name && (
           <div className="flex justify-between text-[12.5px]">
             <dt className="text-muted">Room</dt>
@@ -72,6 +78,13 @@ export default async function InvitePage({
           </div>
         )}
       </dl>
+
+      {invite.require_background_check && (
+        <p className="rounded-[13px] bg-warning-bg px-[15px] py-3 text-[12px] leading-normal text-warning-text">
+          Background-check clearance is required. Your director will confirm it before
+          assigning independent duties.
+        </p>
+      )}
 
       <InviteForm code={code} email={invite.email} />
 

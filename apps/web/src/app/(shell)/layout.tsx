@@ -34,10 +34,10 @@ export default async function ShellLayout({ children }: { children: React.ReactN
   if (!user) redirect("/sign-in");
 
   const profile = await getMyProfile(supabase);
-  if (!isAdminRole(profile?.role)) redirect("/use-the-app");
-  if (!profile) redirect("/sign-in");
+  if (!profile || profile.archived_at) redirect("/account-issue");
+  if (!isAdminRole(profile.role)) redirect("/use-the-app");
 
-  const [daycare, locations, badges, notifications, notificationPreferences, deliverySettings] = await Promise.all([
+  const [daycare, locations, badges, notifications, notificationPreferences, deliverySettings, assurance] = await Promise.all([
     getMyDaycare(supabase),
     listMyDaycareLocations(supabase).catch(() => []),
     getNavBadges(supabase),
@@ -46,7 +46,17 @@ export default async function ShellLayout({ children }: { children: React.ReactN
     // a moment before the Group 15 migration reaches PostgREST.
     listMyNotificationPreferences(supabase).catch(() => []),
     getMyNotificationDeliverySettings(supabase).catch(() => null),
+    supabase.auth.mfa.getAuthenticatorAssuranceLevel(),
   ]);
+
+  const hasVerifiedFactor = user.factors?.some((factor) => factor.status === "verified") ?? false;
+  const assuranceLevel = assurance.data?.currentLevel ?? "aal1";
+  if (hasVerifiedFactor && assuranceLevel !== "aal2") {
+    redirect("/two-step?next=/dashboard");
+  }
+  if (daycare?.require_admin_mfa && !hasVerifiedFactor) {
+    redirect("/two-step?mode=setup&required=1&next=/dashboard");
+  }
 
   return (
     <NotificationCenterProvider
@@ -55,7 +65,7 @@ export default async function ShellLayout({ children }: { children: React.ReactN
       initialPreferences={notificationPreferences}
       initialDeliverySettings={deliverySettings}
     >
-      <div className="flex min-h-dvh bg-canvas">
+      <div className="flex min-h-dvh flex-col bg-canvas md:flex-row">
         <Sidebar
           daycareName={locations.find((location) => location.is_active)?.group_name ?? daycare?.name ?? "Your center"}
           locations={locations}
@@ -66,7 +76,7 @@ export default async function ShellLayout({ children }: { children: React.ReactN
             role: profile.role,
             phone: profile.phone,
             avatar_url: profile.avatar_url,
-            mfa_enabled: user.factors?.some((factor) => factor.status === "verified") ?? false,
+            mfa_enabled: hasVerifiedFactor,
           }}
           badges={badges}
         />

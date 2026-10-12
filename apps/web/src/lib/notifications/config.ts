@@ -2,6 +2,7 @@ export const NOTIFICATION_PREFERENCE_KINDS = [
   "ratio_alert",
   "incident_report",
   "cert_expiry",
+  "compliance_due",
   "overdue_billing",
   "new_device_sign_in",
   "waitlist_enrollment",

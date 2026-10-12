@@ -8,6 +8,8 @@ export interface StaffShiftRow {
   starts_at: string;
   ends_at: string;
   unpaid_break_minutes: number;
+  planned_break_starts_at?: string | null;
+  planned_break_ends_at?: string | null;
   status: string;
   notes: string | null;
   staff: {
@@ -58,7 +60,35 @@ export interface StaffTimeOffRequestRow {
   } | null;
 }
 
-const SHIFT_SELECT = `id, starts_at, ends_at, unpaid_break_minutes, status, notes,
+export interface StaffTimeOffCoverageImpactRow {
+  request_id: string;
+  work_date: string;
+  room_id: string;
+  room_name: string;
+  starts_at: string;
+  ends_at: string;
+  expected_children: number;
+  scheduled_staff: number;
+  required_staff: number;
+  staff_gap: number;
+  unknown_bookings: number;
+  uncertain_staff: number;
+}
+
+export interface RoomDemandForecastRow {
+  room_id: string;
+  starts_at: string;
+  ends_at: string;
+  expected_children: number;
+  unknown_bookings: number;
+  scheduled_staff: number;
+  pending_staff: number;
+  required_staff: number;
+  ratio: number;
+  uncertain_staff: number;
+}
+
+const SHIFT_SELECT = `id, starts_at, ends_at, unpaid_break_minutes, planned_break_starts_at, planned_break_ends_at, status, notes,
   staff:staff_members(id, profile:profiles(id, full_name,
     classroom:classrooms!profiles_classroom_id_fkey(id, name))), classroom:classrooms(id, name)`;
 const TIME_SELECT = `id, clocked_in_at, clocked_out_at, break_minutes, source, status, notes,
@@ -109,8 +139,33 @@ export async function listStaffTimeOffRequests(
   return (data ?? []) as unknown as StaffTimeOffRequestRow[];
 }
 
+export async function listStaffTimeOffCoverageImpacts(
+  client: Client,
+  requestIds: string[],
+): Promise<StaffTimeOffCoverageImpactRow[]> {
+  if (requestIds.length === 0) return [];
+  const { data, error } = await client.rpc('get_staff_time_off_coverage_impacts', {
+    p_request_ids: requestIds,
+  });
+  if (error) throw error;
+  return (data ?? []) as StaffTimeOffCoverageImpactRow[];
+}
+
+export async function listRoomDemandForecast(
+  client: Client,
+  date: string,
+): Promise<RoomDemandForecastRow[]> {
+  const { data, error } = await client.rpc('get_room_demand_forecast', {
+    p_date: date,
+  });
+  if (error) throw error;
+  return (data ?? []) as RoomDemandForecastRow[];
+}
+
 export async function clockIn(client: Client, classroomId?: string | null): Promise<string> {
-  const { data, error } = await client.rpc('clock_in', { p_classroom_id: classroomId ?? null });
+  const { data, error } = await client.rpc('clock_in', {
+    ...(classroomId != null ? { p_classroom_id: classroomId } : {}),
+  });
   if (error) throw error;
   return data;
 }

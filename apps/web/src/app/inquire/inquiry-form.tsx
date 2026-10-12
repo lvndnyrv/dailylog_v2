@@ -22,10 +22,23 @@ export function InquiryForm({
 
   if (state.ok) {
     return (
-      <Notice tone="success">
-        <b>Thanks — your inquiry is in!</b> Check your email for confirmation. The
-        center will send available tour times within one business day.
-      </Notice>
+      <div className="flex flex-col gap-3">
+        <Notice tone="success">
+          <b>Thanks — your inquiry is in!</b> Continue in DailyLog to see the next
+          step, live tour times, and any future waitlist updates.
+        </Notice>
+        {state.journeyCode && (
+          <a
+            href={`dailylog://inquiry?code=${encodeURIComponent(state.journeyCode)}`}
+            className="rounded-full bg-primary px-4 py-3 text-center text-[13px] font-bold text-white hover:bg-primary-hover"
+          >
+            Open in DailyLog
+          </a>
+        )}
+        <p className="text-center text-[10.5px] leading-normal text-faint">
+          We also emailed this secure family link so you can return later.
+        </p>
+      </div>
     );
   }
 
@@ -41,7 +54,7 @@ export function InquiryForm({
         <Field label="Phone" name="guardian_phone" autoComplete="tel" />
       </div>
       <div className="grid grid-cols-[1.3fr_1fr] gap-2.5">
-        <Field label="Child's first name" name="child_first_name" required />
+        <Field label="Child's full name" name="child_full_name" autoComplete="name" required />
         <Field label="Birthday" name="child_date_of_birth" type="month" />
       </div>
 

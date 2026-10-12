@@ -1,6 +1,7 @@
 "use client";
 
 import { Check, LockKeyhole, Shield } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useActionState, useEffect, useRef, useState } from "react";
 import { updateProfileAction, type ActionState } from "@/lib/auth/actions";
@@ -14,11 +15,6 @@ const AVATAR_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 
 function defaultDisplayName(fullName: string): string {
   return fullName.trim().split(/\s+/)[0] ?? fullName;
-}
-
-function maskedPhone(phone: string | null): string | null {
-  const digits = phone?.replace(/\D/g, "") ?? "";
-  return digits.length >= 4 ? `Text to ••• ••• ${digits.slice(-4)}` : null;
 }
 
 // Admin profile modal 14d — mirrors the handoff while reflecting real account
@@ -44,16 +40,14 @@ export function ProfileModal({
   const fileRef = useRef<HTMLInputElement>(null);
   const [avatarPreviewUrl, setAvatarPreviewUrl] = useState<string>();
   const [photoError, setPhotoError] = useState<string>();
-  const [securityOpen, setSecurityOpen] = useState(false);
   const [state, action, pending] = useActionState<ActionState, FormData>(
     updateProfileAction,
     {},
   );
 
   const roleLabel = profile.role === "owner_admin" ? "Owner admin" : "Admin";
-  const phoneLabel = maskedPhone(profile.phone);
   const mfaDescription = profile.mfa_enabled
-    ? `${phoneLabel ?? "A verified second factor"} protects this account.`
+    ? "A verified authenticator app protects this account."
     : "No second factor is enrolled for this account.";
 
   useEffect(() => {
@@ -188,21 +182,13 @@ export function ProfileModal({
             </span>
             <span className="block text-[11.5px] text-muted">{mfaDescription}</span>
           </span>
-          <button
-            type="button"
+          <Link
+            href={profile.mfa_enabled ? "/two-step?mode=manage" : "/two-step?mode=setup&next=/settings"}
             className="text-[12.5px] font-bold text-primary hover:text-primary-hover"
-            onClick={() => setSecurityOpen((open) => !open)}
           >
             {profile.mfa_enabled ? "Manage" : "Set up"}
-          </button>
+          </Link>
         </div>
-
-        {securityOpen && (
-          <div className="rounded-xl border-[1.5px] border-[#D6E1F0] bg-canvas px-[13px] py-[11px] text-[11.5px] leading-normal text-muted">
-            Two-step enrollment and recovery are completed in the dedicated account-security flow
-            (design 10b). This row reports the live Supabase factor status.
-          </div>
-        )}
 
         {state.sent && (
           <Notice tone="success">

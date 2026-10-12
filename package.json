@@ -8,12 +8,15 @@
     "lint": "pnpm -r --if-present lint",
     "dev:web": "pnpm --filter @dailylog/web dev",
     "dev:mobile": "pnpm --filter @dailylog/mobile start",
+    "audit:production": "node scripts/check-production-audit.mjs",
+    "check:mobile-dependencies": "pnpm --filter @dailylog/mobile check:dependencies",
     "db:start": "supabase start",
     "db:reset": "supabase db reset",
     "gen:types": "supabase gen types typescript --local > packages/db/src/types.gen.ts",
     "validate:mobile-release": "pnpm --filter @dailylog/mobile validate:release"
   },
   "devDependencies": {
+    "@expo/config-plugins": "56.0.14",
     "typescript": "^5.9.3"
   }
 }

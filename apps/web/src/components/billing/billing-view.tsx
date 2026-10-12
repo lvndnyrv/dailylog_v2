@@ -1,6 +1,6 @@
 "use client";
 
-import type { BillingPlan, BillingSummary, InvoiceRow } from "@dailylog/db/queries";
+import type { BillingPlan, BillingSummary, ChildTuitionRateRow, InvoiceRow } from "@dailylog/db/queries";
 import { Download, Mail, MoreHorizontal, X } from "lucide-react";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { Avatar } from "@/components/ui/avatar";
@@ -25,26 +25,35 @@ export interface ChildOption {
   name: string;
   guardianId: string | null;
   guardianName: string | null;
+  tuitionRate: { amountCents: number; roomName: string; effectiveFrom: string } | null;
 }
 
 export function BillingView({
   summary,
   invoices,
   plans,
+  tuitionRates,
   childrenRows,
   openNew = false,
+  openInvoiceId,
 }: {
   summary: BillingSummary | null;
   invoices: InvoiceRow[];
   plans: BillingPlan[];
+  tuitionRates: ChildTuitionRateRow[];
   childrenRows: ChildOption[];
   openNew?: boolean;
+  openInvoiceId?: string;
 }) {
   const [tab, setTab] = useState<Tab>("invoices");
   const [filter, setFilter] = useState<Filter>("all");
   const [modal, setModal] = useState<
     "none" | "new" | "plan" | { invoice: InvoiceRow }
-  >(openNew ? "new" : "none");
+  >(() => {
+    if (openNew) return "new";
+    const invoice = invoices.find((row) => row.id === openInvoiceId);
+    return invoice ? { invoice } : "none";
+  });
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [lastSelectedIndex, setLastSelectedIndex] = useState<number | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
@@ -329,6 +338,7 @@ export function BillingView({
       )}
 
       {tab === "plans" && (
+        <div className="flex flex-col gap-4">
         <div className="overflow-hidden rounded-2xl border-[1.5px] border-[#D6E1F0] bg-card">
           <div className={`grid grid-cols-[2fr_1fr_1fr] gap-2.5 border-b-[1.5px] border-[#EDF3FB] bg-[#F8FBFE] px-[18px] py-3 ${th}`}>
             <span>PLAN</span>
@@ -350,6 +360,25 @@ export function BillingView({
               No plans yet — add your tuition rates.
             </p>
           )}
+        </div>
+        <div className="overflow-hidden rounded-2xl border-[1.5px] border-[#D6E1F0] bg-card">
+          <div className="border-b-[1.5px] border-[#EDF3FB] bg-[#F8FBFE] px-[18px] py-3">
+            <h3 className="text-[13px] font-extrabold text-ink">Child rate changes</h3>
+            <p className="mt-0.5 text-[11px] text-muted">Room-move rates are scheduled with the plan and become effective only when the move is completed. Existing invoices never change.</p>
+          </div>
+          <div className={`grid grid-cols-[1.4fr_1fr_1fr_.8fr] gap-2.5 border-b border-[#EDF3FB] px-[18px] py-2.5 ${th}`}>
+            <span>CHILD</span><span>ROOM</span><span>EFFECTIVE</span><span>RATE</span>
+          </div>
+          {tuitionRates.map((rate) => (
+            <div key={rate.id} className="grid grid-cols-[1.4fr_1fr_1fr_.8fr] items-center gap-2.5 border-b border-[#EDF3FB] px-[18px] py-3 last:border-b-0">
+              <span className="text-[12.5px] font-bold text-ink">{rate.child ? `${rate.child.first_name} ${rate.child.last_name}` : "Child"}</span>
+              <span className="truncate text-[12px] text-muted">{rate.classroom?.name ?? "—"}</span>
+              <span className="text-[12px] text-muted">{rate.status === "scheduled" ? `Scheduled · ${rate.effective_from}` : rate.effective_to ? `Ended · ${rate.effective_to}` : `Effective · ${rate.effective_from}`}</span>
+              <span className="text-[12.5px] font-bold text-ink">{dollars(rate.amount_cents)}</span>
+            </div>
+          ))}
+          {tuitionRates.length === 0 && <p className="px-5 py-6 text-center text-[12px] text-faint">No child-specific rate changes yet.</p>}
+        </div>
         </div>
       )}
 

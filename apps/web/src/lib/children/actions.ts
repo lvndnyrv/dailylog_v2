@@ -9,6 +9,8 @@ import {
   enqueueEmailNotification,
   getMyProfile,
   removePickup,
+  resolvePickupSecurityEvent,
+  reviewParentPickup,
   saveMedicationAuthorization,
   setChildConsent,
   unlinkParent,
@@ -17,6 +19,7 @@ import {
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { getServerSupabase } from "@/lib/supabase/server";
+import { validateUpload } from "@/lib/uploads";
 
 export interface ChildActionState {
   error?: string;
@@ -25,6 +28,16 @@ export interface ChildActionState {
   emailQueued?: boolean;
   pin?: string;
 }
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const PARENT_DOCUMENT_KINDS: Record<string, string> = {
+  immunization: "Updated immunization record",
+  allergy_medical: "Allergy & medical form",
+  birth_certificate: "Birth certificate",
+  custody: "Custody document",
+  emergency_contact: "Emergency contact form",
+  other: "Requested family document",
+};
 
 function str(formData: FormData, key: string): string {
   return String(formData.get(key) ?? "").trim();
@@ -111,18 +124,38 @@ export async function updateChildAction(
     !Array.isArray(currentChild.setup_state)
       ? (currentChild.setup_state as Record<string, unknown>)
       : {};
+  const allergies = list(formData, "allergies");
+  const medicalNotes = str(formData, "medical_notes") || null;
+  const noKnownMedicalNeeds = str(formData, "no_known_medical_needs") === "true";
+  const medicalReviewTouched = str(formData, "medical_review_touched") === "true";
+  const medicalReviewed = Boolean(
+    allergies.length > 0 ||
+      medicalNotes ||
+      noKnownMedicalNeeds ||
+      (!medicalReviewTouched &&
+        (setupState.medical_reviewed === true || setupState.medical === true)),
+  );
+  const existingMedicalReviewedAt =
+    typeof setupState.medical_reviewed_at === "string"
+      ? setupState.medical_reviewed_at
+      : null;
+  if (noKnownMedicalNeeds && (allergies.length > 0 || medicalNotes)) {
+    return {
+      error: "Clear allergies and medical notes before marking no known medical needs.",
+    };
+  }
 
   const existingPhoto = str(formData, "existing_photo_url") || null;
   const removePhoto = str(formData, "remove_photo") === "true";
   const photo = formData.get("photo");
   let photoPath: string | null | undefined = removePhoto ? null : undefined;
   if (photo instanceof File && photo.size > 0) {
-    if (!photo.type.startsWith("image/")) return { error: "Choose an image file." };
     if (photo.size > 5 * 1024 * 1024) return { error: "Profile photos must be 5 MB or smaller." };
-    const extension = photo.name.split(".").pop()?.toLowerCase().replace(/[^a-z0-9]/g, "") || "jpg";
-    photoPath = `${childId}/profile-${crypto.randomUUID()}.${extension}`;
+    const validatedPhoto = await validateUpload(photo, "profile-image");
+    if (!validatedPhoto) return { error: "Choose a valid JPG, PNG, or WebP image." };
+    photoPath = `${childId}/profile-${crypto.randomUUID()}.${validatedPhoto.extension}`;
     const { error } = await supabase.storage.from("child-avatars").upload(photoPath, photo, {
-      contentType: photo.type,
+      contentType: validatedPhoto.mimeType,
       upsert: false,
     });
     if (error) return { error: error.message };
@@ -138,11 +171,24 @@ export async function updateChildAction(
       enrolled_on: str(formData, "enrolled_on") || null,
       classroom_id: str(formData, "classroom_id") || null,
       home_address: str(formData, "home_address") || null,
-      allergies: list(formData, "allergies"),
-      medical_notes: str(formData, "medical_notes") || null,
+      allergies,
+      medical_notes: medicalNotes,
       dietary_needs: str(formData, "dietary_needs") || null,
       emergency_contacts: emergencyContacts,
-      setup_state: { ...setupState, weekly_schedule: weeklySchedule },
+      setup_state: {
+        ...setupState,
+        basics: Boolean(firstName && lastName && str(formData, "date_of_birth")),
+        medical: medicalReviewed,
+        medical_reviewed: medicalReviewed,
+        no_known_medical_needs: noKnownMedicalNeeds,
+        medical_reviewed_at: medicalReviewTouched
+          ? medicalReviewed
+            ? new Date().toISOString()
+            : null
+          : existingMedicalReviewedAt,
+        emergency: emergencyContacts.length > 0,
+        weekly_schedule: weeklySchedule,
+      },
       ...(photoPath !== undefined ? { photo_url: photoPath } : {}),
     });
   } catch (err) {
@@ -217,6 +263,8 @@ export async function duplicateChildAction(formData: FormData): Promise<void> {
         basics: true,
         photo: false,
         medical: false,
+        medical_reviewed: false,
+        no_known_medical_needs: false,
         emergency: false,
         parents: false,
         ...(sourceSetup.weekly_schedule ? { weekly_schedule: sourceSetup.weekly_schedule } : {}),
@@ -263,6 +311,35 @@ export async function removePickupAction(formData: FormData): Promise<void> {
   revalidatePath(`/children/${childId}`);
 }
 
+export async function reviewPickupAction(formData: FormData): Promise<void> {
+  const supabase = await getServerSupabase();
+  const childId = str(formData, "child_id");
+  const decision = str(formData, "decision");
+  if (decision !== "approved" && decision !== "rejected") {
+    throw new Error("Choose approve or reject.");
+  }
+  await reviewParentPickup(
+    supabase,
+    str(formData, "pickup_id"),
+    decision,
+    str(formData, "review_note") || null,
+  );
+  revalidatePath(`/children/${childId}`);
+}
+
+export async function resolvePickupSecurityEventAction(formData: FormData): Promise<void> {
+  const supabase = await getServerSupabase();
+  const profile = await getMyProfile(supabase);
+  const childId = str(formData, "child_id");
+  const eventId = str(formData, "event_id");
+  if (!profile || !UUID.test(childId) || !UUID.test(eventId)) {
+    throw new Error("Pickup security event not found.");
+  }
+  await resolvePickupSecurityEvent(supabase, eventId, childId, profile.id);
+  revalidatePath(`/children/${childId}`);
+  revalidatePath("/notifications");
+}
+
 export async function saveMedicationAction(
   _prev: ChildActionState,
   formData: FormData,
@@ -273,19 +350,21 @@ export async function saveMedicationAction(
   const childId = str(formData, "child_id");
   const name = str(formData, "name");
   const dosage = str(formData, "dosage");
+  const parentId = str(formData, "parent_id");
   if (!name || !dosage) return { error: "Medication name and dosage are required." };
+  if (!parentId) return { error: "Choose the linked parent who must review and sign." };
 
   try {
     await saveMedicationAuthorization(supabase, {
       id: str(formData, "medication_id") || undefined,
       daycare_id: profile.daycare_id,
       child_id: childId,
-      parent_id: str(formData, "parent_id") || null,
+      parent_id: parentId,
       name,
       dosage,
       schedule: str(formData, "schedule") || null,
       notes: str(formData, "notes") || null,
-      active: str(formData, "status") === "active",
+      active: false,
     });
   } catch (err) {
     return { error: err instanceof Error ? err.message : "Could not save the medication." };
@@ -311,14 +390,12 @@ export async function uploadChildDocumentAction(
     return { error: "Choose a document to upload." };
   }
   if (file.size > 10 * 1024 * 1024) return { error: "Documents must be 10 MB or smaller." };
-  if (file.type !== "application/pdf" && !file.type.startsWith("image/")) {
-    return { error: "Upload a PDF or image document." };
-  }
+  const validatedFile = await validateUpload(file, "document");
+  if (!validatedFile) return { error: "Upload a valid PDF, JPG, or PNG document." };
 
-  const extension = file.name.split(".").pop()?.toLowerCase().replace(/[^a-z0-9]/g, "") || "pdf";
-  const path = `${childId}/${category}-${crypto.randomUUID()}.${extension}`;
+  const path = `${childId}/${category}-${crypto.randomUUID()}.${validatedFile.extension}`;
   const { error: uploadError } = await supabase.storage.from("documents").upload(path, file, {
-    contentType: file.type,
+    contentType: validatedFile.mimeType,
     upsert: false,
   });
   if (uploadError) return { error: uploadError.message };
@@ -341,7 +418,7 @@ export async function uploadChildDocumentAction(
     title,
     category,
     storage_path: path,
-    mime_type: file.type,
+    mime_type: validatedFile.mimeType,
     size_bytes: file.size,
     uploaded_by: profile.id,
   });
@@ -352,6 +429,82 @@ export async function uploadChildDocumentAction(
 
   revalidatePath(`/children/${childId}`);
   return { ok: true };
+}
+
+export async function createParentDocumentRequestAction(
+  _prev: ChildActionState,
+  formData: FormData,
+): Promise<ChildActionState> {
+  const childId = str(formData, "child_id");
+  const kind = str(formData, "kind");
+  const message = str(formData, "message");
+  const dueOn = str(formData, "due_on");
+  const customTitle = str(formData, "title");
+
+  if (!UUID.test(childId)) return { error: "Choose a valid child." };
+  if (!PARENT_DOCUMENT_KINDS[kind]) return { error: "Choose a document type." };
+  if (kind === "other" && customTitle.length < 2) {
+    return { error: "Add a title for the requested document." };
+  }
+  if (dueOn && !/^\d{4}-\d{2}-\d{2}$/.test(dueOn)) {
+    return { error: "Choose a valid due date." };
+  }
+
+  try {
+    const supabase = await getServerSupabase();
+    const { error } = await supabase.rpc("create_parent_document_request", {
+      p_child_id: childId,
+      p_kind: kind,
+      p_title: kind === "other" ? customTitle : PARENT_DOCUMENT_KINDS[kind],
+      ...(message ? { p_message: message } : {}),
+      ...(dueOn ? { p_due_on: dueOn } : {}),
+    });
+    if (error) throw error;
+    revalidatePath(`/children/${childId}`);
+    revalidatePath("/dashboard");
+    return { ok: true };
+  } catch (error) {
+    return {
+      error: error instanceof Error ? error.message : "Could not request the document.",
+    };
+  }
+}
+
+export async function reviewParentDocumentSubmissionAction(
+  _prev: ChildActionState,
+  formData: FormData,
+): Promise<ChildActionState> {
+  const childId = str(formData, "child_id");
+  const submissionId = str(formData, "submission_id");
+  const decision = str(formData, "decision");
+  const reason = str(formData, "reason");
+
+  if (!UUID.test(childId) || !UUID.test(submissionId)) {
+    return { error: "This document submission is no longer available." };
+  }
+  if (decision !== "accepted" && decision !== "rejected") {
+    return { error: "Choose accept or request another copy." };
+  }
+  if (decision === "rejected" && !reason) {
+    return { error: "Explain what the family needs to correct." };
+  }
+
+  try {
+    const supabase = await getServerSupabase();
+    const { error } = await supabase.rpc("review_parent_document_submission", {
+      p_submission_id: submissionId,
+      p_decision: decision,
+      ...(reason ? { p_reason: reason } : {}),
+    });
+    if (error) throw error;
+    revalidatePath(`/children/${childId}`);
+    revalidatePath("/dashboard");
+    return { ok: true };
+  } catch (error) {
+    return {
+      error: error instanceof Error ? error.message : "Could not review the document.",
+    };
+  }
 }
 
 export async function resendParentInviteAction(formData: FormData): Promise<void> {
@@ -371,7 +524,7 @@ export async function resendParentInviteAction(formData: FormData): Promise<void
 
   await supabase
     .from("child_invite_codes")
-    .update({ expires_at: new Date(Date.now() + 14 * 86400000).toISOString() })
+    .update({ expires_at: new Date(Date.now() + 7 * 86400000).toISOString() })
     .eq("id", inviteId);
   await enqueueEmailNotification(supabase, {
     daycareId: profile.daycare_id,

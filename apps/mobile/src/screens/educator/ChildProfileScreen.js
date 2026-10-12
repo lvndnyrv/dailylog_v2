@@ -1,21 +1,85 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useState, useEffect } from 'react';
 import {
   View, Text, TouchableOpacity,
   StyleSheet, Alert, Linking, ActivityIndicator, Modal, ScrollView
 } from 'react-native';
-import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
- import * as ImagePicker from 'expo-image-picker';
+import { Ionicons } from '@expo/vector-icons';
+import { useFocusEffect } from '@react-navigation/native';
+import { KeyboardAwareScrollView } from '../../components/KeyboardAwareScrollView';
+import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { supabase } from '../../lib/supabase';
+import { useAuth } from '../../hooks/useAuth';
 import { useClassroom } from '../../hooks/useClassroom';
 import { Input, Button, Divider } from '../../components/ui';
 import { ChildAvatar } from '../../components/ChildAvatar';
 import { DatePickerField } from '../../components/DatePickerField';
-import { colors, spacing, radius } from '../../theme';
+import { showToast } from '../../components/Toast';
+import { colors, fonts, spacing, radius } from '../../theme';
 import { format } from 'date-fns';
+import {
+  getStaffPickupPeople,
+  reviewAuthorizedPickup,
+} from '../../hooks/usePickupVerification';
+
+function formatBirthDate(value) {
+  if (!value) return null;
+  const parsed = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return format(parsed, 'MMM d, yyyy');
+}
 
 export default function ChildProfileScreen({ route, navigation }) {
-  const { child } = route.params;
+  const suppliedChild = route.params?.child || null;
+  const childId = route.params?.childId || suppliedChild?.id || null;
+  const [resolvedChild, setResolvedChild] = useState(suppliedChild);
+  const [loadingChild, setLoadingChild] = useState(!suppliedChild);
+  const [childError, setChildError] = useState('');
+
+  useEffect(() => {
+    if (suppliedChild) {
+      setResolvedChild(suppliedChild);
+      setLoadingChild(false);
+      setChildError('');
+      return;
+    }
+    let active = true;
+    async function loadChild() {
+      if (!childId) {
+        setChildError('This child record could not be identified.');
+        setLoadingChild(false);
+        return;
+      }
+      setLoadingChild(true);
+      setChildError('');
+      const { data, error } = await supabase.from('children').select('*').eq('id', childId).maybeSingle();
+      if (!active) return;
+      setResolvedChild(data || null);
+      setChildError(error?.message || (!data ? 'This child record is no longer available.' : ''));
+      setLoadingChild(false);
+    }
+    loadChild();
+    return () => { active = false; };
+  }, [childId, suppliedChild]);
+
+  if (loadingChild) {
+    return <View style={styles.routeState}><ActivityIndicator color={colors.primary} /><Text style={styles.routeStateText}>Opening child profile…</Text></View>;
+  }
+  if (!resolvedChild) {
+    return (
+      <View style={styles.routeState}>
+        <Ionicons name="alert-circle-outline" size={34} color={colors.danger} />
+        <Text style={styles.routeStateTitle}>Child profile unavailable</Text>
+        <Text style={styles.routeStateText}>{childError}</Text>
+        <Button label="Go back" onPress={() => navigation.goBack()} style={{ marginTop: spacing.lg, alignSelf: 'stretch' }} />
+      </View>
+    );
+  }
+  return <ChildProfileContent key={resolvedChild.id} child={resolvedChild} route={route} navigation={navigation} />;
+}
+
+function ChildProfileContent({ child, route, navigation }) {
+  const { profile } = useAuth();
   const { classrooms, active: activeClassroom } = useClassroom();
 
   const [firstName, setFirstName] = useState(child.first_name || '');
@@ -36,9 +100,28 @@ export default function ChildProfileScreen({ route, navigation }) {
 
   // Invite new parent
   const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteRelationship, setInviteRelationship] = useState('Parent');
+  const [inviteErrors, setInviteErrors] = useState({});
   const [inviting, setInviting]       = useState(false);
+  const [pendingInvites, setPendingInvites] = useState([]);
+  const [busyInviteId, setBusyInviteId] = useState(null);
   const [existingParents, setExistingParents] = useState([]);
   const [showParentPicker, setShowParentPicker] = useState(false);
+  const [selectedExistingParent, setSelectedExistingParent] = useState(null);
+  const [existingRelationship, setExistingRelationship] = useState('Parent');
+  const [existingPickupAllowed, setExistingPickupAllowed] = useState(true);
+  const [existingLinkError, setExistingLinkError] = useState('');
+  const [linkingExisting, setLinkingExisting] = useState(false);
+  const [busyPrimaryId, setBusyPrimaryId] = useState(null);
+
+  // Parent-proposed pickup people and center review.
+  const [pickupPeople, setPickupPeople] = useState([]);
+  const [loadingPickups, setLoadingPickups] = useState(true);
+  const [canReviewPickups, setCanReviewPickups] = useState(false);
+  const [pickupError, setPickupError] = useState('');
+  const [reviewingPickupId, setReviewingPickupId] = useState(null);
+  const [rejectingPickup, setRejectingPickup] = useState(null);
+  const [reviewNote, setReviewNote] = useState('');
 
   // Incidents history
   const [incidents, setIncidents] = useState([]);
@@ -51,10 +134,54 @@ export default function ChildProfileScreen({ route, navigation }) {
   const [newContact, setNewContact]         = useState({ name: '', relation: '', phone: '' });
   const [savingMedical, setSavingMedical]   = useState(false);
 
+  const initialSetupState = child.setup_state && typeof child.setup_state === 'object' && !Array.isArray(child.setup_state)
+    ? child.setup_state
+    : {};
+  const [noKnownMedicalNeeds, setNoKnownMedicalNeeds] = useState(Boolean(initialSetupState.no_known_medical_needs));
+  const [medicalReviewed, setMedicalReviewed] = useState(Boolean(
+    initialSetupState.medical_reviewed
+    || initialSetupState.no_known_medical_needs
+    || (child.allergies || []).length
+    || String(child.medical_notes || '').trim(),
+  ));
+
   const hasChanges =
     firstName.trim() !== (child.first_name   || '') ||
     lastName.trim()  !== (child.last_name    || '') ||
     dob              !== (child.date_of_birth || '');
+
+  const currentClassroom = classrooms.find((room) => room.id === currentClassroomId);
+  const setupState = initialSetupState;
+  const primaryEducatorName = String(setupState.primary_educator_name || '');
+  const cubbyLabel = String(setupState.cubby_label || '');
+  const isPrimaryEducator = String(setupState.primary_educator_id || '') === String(profile?.id || '');
+  const handoffReady = Boolean(primaryEducatorName && cubbyLabel);
+  const canManageFamilyDocuments = ['owner_admin', 'admin'].includes(profile?.role);
+  const profileSections = [
+    {
+      label: 'Details',
+      complete: Boolean(firstName.trim() && lastName.trim()),
+    },
+    {
+      label: 'Classroom',
+      complete: Boolean(currentClassroomId),
+    },
+    {
+      label: 'Medical info',
+      complete: medicalReviewed,
+    },
+    {
+      label: 'Emergency contacts',
+      complete: contacts.length > 0,
+    },
+    {
+      label: 'Linked parents',
+      complete: parents.length > 0,
+    },
+  ];
+  const completedSections = profileSections.filter((section) => section.complete).length;
+  const profilePercent = completedSections * 20;
+  const missingSections = profileSections.filter((section) => !section.complete);
 
   useEffect(() => {
     loadParents();
@@ -62,28 +189,122 @@ export default function ChildProfileScreen({ route, navigation }) {
     loadExistingParents();
   }, []);
 
+  const loadPickupPeople = useCallback(async ({ quiet = false } = {}) => {
+    if (!quiet) setLoadingPickups(true);
+    try {
+      const result = await getStaffPickupPeople(child.id);
+      setPickupPeople(result.people);
+      setCanReviewPickups(result.canReview);
+      setPickupError('');
+    } catch (loadError) {
+      setPickupError(loadError.message || 'Pickup people could not be loaded.');
+    } finally {
+      setLoadingPickups(false);
+    }
+  }, [child.id]);
+
+  useFocusEffect(useCallback(() => {
+    loadPickupPeople();
+  }, [loadPickupPeople, route.params?.linkedAt, route.params?.pickupId]));
+
+  useEffect(() => {
+    const channel = supabase
+      .channel(`staff-child-pickups:${child.id}`)
+      .on('postgres_changes', {
+        event: '*', schema: 'public', table: 'child_pickups', filter: `child_id=eq.${child.id}`,
+      }, () => loadPickupPeople({ quiet: true }))
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [child.id, loadPickupPeople]);
+
+  async function submitPickupReview(person, decision, note = null) {
+    setReviewingPickupId(person.id);
+    setPickupError('');
+    try {
+      await reviewAuthorizedPickup(person.id, decision, note);
+      await loadPickupPeople({ quiet: true });
+      setRejectingPickup(null);
+      setReviewNote('');
+      showToast(
+        decision === 'approved'
+          ? `${person.full_name} approved for pickup`
+          : `${person.full_name} was not approved`,
+        'success',
+      );
+    } catch (reviewError) {
+      setPickupError(reviewError.message || 'This pickup request could not be reviewed.');
+    } finally {
+      setReviewingPickupId(null);
+    }
+  }
+
+  function approvePickup(person) {
+    Alert.alert(
+      'Approve pickup person?',
+      `${person.full_name} will be able to receive a short-lived pickup pass for ${firstName}. Educators must still verify the pass at the door.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Approve', onPress: () => submitPickupReview(person, 'approved') },
+      ],
+    );
+  }
+
+  function openRejectPickup(person) {
+    setReviewNote('');
+    setPickupError('');
+    setRejectingPickup(person);
+  }
+
   // Load all parents in the daycare (for "link existing" picker)
   async function loadExistingParents() {
-    const { data } = await supabase
+    let query = supabase
       .from('profiles')
       .select('id, full_name, email')
       .eq('role', 'parent')
       .order('full_name');
+    if (profile?.daycare_id) query = query.eq('daycare_id', profile.daycare_id);
+    const { data } = await query;
     setExistingParents(data || []);
   }
 
-  async function linkExistingParent(parent) {
-    const { error } = await supabase
-      .from('parent_children')
-      .upsert(
-        { parent_id: parent.id, child_id: child.id },
-        { onConflict: 'parent_id,child_id', ignoreDuplicates: true }
-      );
+  function closeParentPicker() {
+    if (linkingExisting) return;
     setShowParentPicker(false);
+    setSelectedExistingParent(null);
+    setExistingRelationship('Parent');
+    setExistingPickupAllowed(true);
+    setExistingLinkError('');
+  }
+
+  function selectExistingParent(parent) {
+    setSelectedExistingParent(parent);
+    setExistingRelationship('Parent');
+    setExistingPickupAllowed(true);
+    setExistingLinkError('');
+  }
+
+  async function linkExistingParent() {
+    const relationship = existingRelationship.trim();
+    if (!relationship) {
+      setExistingLinkError('Relationship is required.');
+      return;
+    }
+    if (!selectedExistingParent) return;
+    setLinkingExisting(true);
+    const { error } = await supabase.rpc('admin_link_existing_guardian', {
+      p_child_id: child.id,
+      p_parent_id: selectedExistingParent.id,
+      p_relationship: relationship,
+      p_pickup_authorized: existingPickupAllowed,
+    });
+    setLinkingExisting(false);
     if (error) {
-      Alert.alert('Error', error.message);
+      setExistingLinkError(error.message);
     } else {
+      const linkedName = selectedExistingParent.full_name;
+      closeParentPicker();
       await loadParents();
+      showToast(`${linkedName} linked to ${child.first_name}`, 'success');
     }
   }
 
@@ -184,11 +405,21 @@ export default function ChildProfileScreen({ route, navigation }) {
 
   async function loadParents() {
     setLoadingParents(true);
-    const { data } = await supabase
-      .from('parent_children')
-      .select('parent:profiles(id, full_name, email, phone)')
-      .eq('child_id', child.id);
-    setParents((data || []).map(r => r.parent));
+    const [parentRes, inviteRes] = await Promise.all([
+      supabase.from('parent_children')
+        .select('relationship, pickup_authorized, is_primary, parent:profiles(id, full_name, email, phone)')
+        .eq('child_id', child.id),
+      supabase.from('child_invite_codes')
+        .select('id, email, relationship, code, created_at, expires_at')
+        .eq('child_id', child.id)
+        .is('used_at', null)
+        .order('created_at', { ascending: false }),
+    ]);
+    setParents((parentRes.data || []).map(row => {
+      const parent = Array.isArray(row.parent) ? row.parent[0] : row.parent;
+      return parent ? { ...parent, relationship: row.relationship, pickup_authorized: row.pickup_authorized, is_primary: row.is_primary } : null;
+    }).filter(Boolean));
+    setPendingInvites(inviteRes.data || []);
     setLoadingParents(false);
   }
 
@@ -204,46 +435,73 @@ export default function ChildProfileScreen({ route, navigation }) {
   }
 
   // ─── MEDICAL PROFILE ──────────────────────────────────────────────────────
-  async function saveMedical(updates) {
+  async function saveMedical({
+    allergies: nextAllergies = allergies,
+    medicalNotes: nextMedicalNotes = medicalNotes,
+    contacts: nextContacts = contacts,
+    noKnownMedicalNeeds: nextNoKnownMedicalNeeds = noKnownMedicalNeeds,
+  } = {}) {
     setSavingMedical(true);
-    const { error } = await supabase
-      .from('children')
-      .update(updates)
-      .eq('id', child.id);
+    const { data, error } = await supabase.rpc('save_child_care_profile', {
+      p_child_id: child.id,
+      p_allergies: nextAllergies,
+      p_medical_notes: nextMedicalNotes.trim() || null,
+      p_emergency_contacts: nextContacts,
+      p_no_known_medical_needs: nextNoKnownMedicalNeeds,
+    });
     setSavingMedical(false);
-    if (error) Alert.alert('Error', error.message);
+    if (error) {
+      Alert.alert('Could not save medical profile', error.message);
+      return false;
+    }
+    setAllergies(data?.allergies || []);
+    setMedicalNotes(data?.medical_notes || '');
+    setContacts(data?.emergency_contacts || []);
+    setNoKnownMedicalNeeds(Boolean(data?.setup_state?.no_known_medical_needs));
+    setMedicalReviewed(true);
+    return true;
   }
 
-  function addAllergy() {
+  async function addAllergy() {
     const a = newAllergy.trim();
-    if (!a || allergies.includes(a)) { setNewAllergy(''); return; }
+    if (!a || allergies.some((item) => item.toLowerCase() === a.toLowerCase())) { setNewAllergy(''); return; }
     const next = [...allergies, a];
-    setAllergies(next);
-    setNewAllergy('');
-    saveMedical({ allergies: next });
+    if (await saveMedical({ allergies: next, noKnownMedicalNeeds: false })) setNewAllergy('');
   }
 
-  function removeAllergy(a) {
+  async function removeAllergy(a) {
     const next = allergies.filter(x => x !== a);
-    setAllergies(next);
-    saveMedical({ allergies: next });
+    await saveMedical({ allergies: next, noKnownMedicalNeeds: false });
   }
 
-  function addContact() {
+  async function addContact() {
     if (!newContact.name.trim() || !newContact.phone.trim()) {
       Alert.alert('Required', 'Please enter at least a name and phone number.');
       return;
     }
-    const next = [...contacts, { ...newContact, name: newContact.name.trim(), phone: newContact.phone.trim() }];
-    setContacts(next);
-    setNewContact({ name: '', relation: '', phone: '' });
-    saveMedical({ emergency_contacts: next });
+    const next = [...contacts, {
+      name: newContact.name.trim(),
+      relation: newContact.relation.trim(),
+      phone: newContact.phone.trim(),
+    }];
+    if (await saveMedical({ contacts: next })) setNewContact({ name: '', relation: '', phone: '' });
   }
 
-  function removeContact(idx) {
+  async function removeContact(idx) {
     const next = contacts.filter((_, i) => i !== idx);
-    setContacts(next);
-    saveMedical({ emergency_contacts: next });
+    await saveMedical({ contacts: next });
+  }
+
+  async function toggleNoKnownMedicalNeeds() {
+    const next = !noKnownMedicalNeeds;
+    if (next && (allergies.length || medicalNotes.trim())) {
+      Alert.alert(
+        'Medical details already recorded',
+        'Remove the allergies and medical notes before marking that there are no known medical needs.',
+      );
+      return;
+    }
+    await saveMedical({ noKnownMedicalNeeds: next });
   }
 
   async function handleSave() {
@@ -274,71 +532,143 @@ export default function ChildProfileScreen({ route, navigation }) {
   }
 
   async function handleInviteParent() {
-    if (!inviteEmail.trim()) {
-      Alert.alert('Required', "Please enter the parent's email address.");
+    const email = inviteEmail.trim().toLowerCase();
+    const relationship = inviteRelationship.trim();
+    const nextErrors = {};
+    if (!email) nextErrors.email = 'Email is required.';
+    else if (!/\S+@\S+\.\S+/.test(email)) nextErrors.email = 'Enter a valid email address.';
+    if (!relationship) nextErrors.relationship = 'Relationship is required.';
+    setInviteErrors(nextErrors);
+    if (Object.keys(nextErrors).length) return;
+    setInviting(true);
+    const { data: code, error } = await supabase.rpc('create_parent_invite', {
+      p_child_id: child.id,
+      p_email: email,
+      p_relationship: relationship,
+    });
+    if (error) {
+      setInviting(false);
+      setInviteErrors({ form: error.message });
       return;
     }
-    setInviting(true);
+    const { error: emailError } = await supabase.rpc('enqueue_email_notification', {
+      p_daycare_id: profile.daycare_id,
+      p_recipient_email: email,
+      p_kind: 'parent_invite',
+      p_title: "You're invited to your child's DailyLog",
+      p_body: `Create or sign in to your DailyLog parent account, then enter this one-time code: ${code}`,
+      p_payload: { type: 'parent_invite', inviteCode: code, childId: child.id },
+      p_dedupe_key: `parent-invite:${code}`,
+    });
+    setInviting(false);
+    setInviteEmail('');
+    setInviteRelationship('Parent');
+    setInviteErrors({});
+    await loadParents();
+    Alert.alert(
+      emailError ? 'Invite created' : 'Invite sent',
+      emailError
+        ? `The email could not be queued, but this 7-day code can be shared securely:\n\n${code}`
+        : `${email} will receive a 7-day, single-use code.\n\nCode: ${code}`,
+    );
+  }
 
-    // Check if user already exists
-    const { data: existing } = await supabase
-      .from('profiles')
-      .select('id, full_name')
-      .eq('email', inviteEmail.trim().toLowerCase())
-      .single();
-
-    if (existing) {
-      // Already has an account — link directly. DO NOTHING (not DO UPDATE):
-      // Phase 2 restricts UPDATE on parent_children to consent_given_at only.
-      const { error } = await supabase
-        .from('parent_children')
-        .upsert(
-          { parent_id: existing.id, child_id: child.id },
-          { onConflict: 'parent_id,child_id', ignoreDuplicates: true }
-        );
-      setInviting(false);
-      if (error) { Alert.alert('Error', error.message); return; }
-      setInviteEmail('');
-      await loadParents();
-      Alert.alert('Linked ✓', `${existing.full_name} has been linked to ${child.first_name}.`);
-    } else {
-      // Send magic link invite — pending_child_id is processed by the
-      // handle_new_user trigger to auto-link parent → child on signup
-      const { error } = await supabase.auth.signInWithOtp({
-        email: inviteEmail.trim().toLowerCase(),
-        options: {
-          data: { role: 'parent', pending_child_id: child.id },
-          shouldCreateUser: true,
-          emailRedirectTo: 'dailylog://auth',
+  function cancelInvite(invite) {
+    Alert.alert('Cancel family invite?', `${invite.email} will no longer be able to use this code.`, [
+      { text: 'Keep invite', style: 'cancel' },
+      {
+        text: 'Cancel invite', style: 'destructive', onPress: async () => {
+          setBusyInviteId(invite.id);
+          const { error } = await supabase.rpc('admin_cancel_parent_invite', {
+            p_invite_id: invite.id,
+          });
+          setBusyInviteId(null);
+          if (error) Alert.alert('Could not cancel invite', error.message);
+          else {
+            showToast('Family invite cancelled', 'success');
+            loadParents();
+          }
         },
-      });
-      setInviting(false);
-      if (error) { Alert.alert('Error', error.message); return; }
-      setInviteEmail('');
-      Alert.alert(
-        'Invite sent ✓',
-        `An invitation has been sent to ${inviteEmail.trim()}. Once they sign up, come back here to link them.`
-      );
+      },
+    ]);
+  }
+
+  async function resendInvite(invite) {
+    setBusyInviteId(invite.id);
+    const { data: renewedInvite, error: updateError } = await supabase.rpc('admin_renew_parent_invite', {
+      p_invite_id: invite.id,
+    });
+    if (updateError) {
+      setBusyInviteId(null);
+      Alert.alert('Could not renew invite', updateError.message);
+      return;
     }
+    const renewedCode = renewedInvite?.code || invite.code;
+    const renewedEmail = renewedInvite?.email || invite.email;
+    const { error: emailError } = await supabase.rpc('enqueue_email_notification', {
+      p_daycare_id: profile.daycare_id,
+      p_recipient_email: renewedEmail,
+      p_kind: 'parent_invite',
+      p_title: "Reminder: link to your child's DailyLog",
+      p_body: `Create or sign in to DailyLog, then enter this one-time code: ${renewedCode}`,
+      p_payload: { type: 'parent_invite', inviteCode: renewedCode, childId: child.id },
+      p_dedupe_key: `parent-invite-reminder:${invite.id}:${new Date().toISOString()}`,
+    });
+    setBusyInviteId(null);
+    await loadParents();
+    if (emailError) Alert.alert('Invite renewed', `The email was not queued. Share this code securely: ${renewedCode}`);
+    else showToast(`Invite resent to ${renewedEmail}`, 'success');
   }
 
   async function handleUnlinkParent(parent) {
     Alert.alert(
-      'Unlink parent',
-      `Remove ${parent.full_name}'s access to ${child.first_name}'s daily logs?`,
+      'Unlink family member',
+      `${parent.is_primary && parents.length > 1 ? 'This is the primary guardian. The next linked guardian will be promoted automatically.\n\n' : ''}Remove ${parent.full_name}'s access to ${child.first_name}'s daily logs?`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Unlink', style: 'destructive',
           onPress: async () => {
-            await supabase.from('parent_children')
-              .delete()
-              .eq('parent_id', parent.id)
-              .eq('child_id', child.id);
+            const { error } = await supabase.rpc('admin_unlink_parent_child', {
+              p_child_id: child.id,
+              p_parent_id: parent.id,
+            });
+            if (error) {
+              Alert.alert('Could not unlink family member', error.message);
+              return;
+            }
             await loadParents();
+            showToast('Family access removed', 'success');
           },
         },
       ]
+    );
+  }
+
+  function makePrimaryGuardian(parent) {
+    Alert.alert(
+      'Make primary guardian?',
+      `${parent.full_name} will become the main family contact for ${child.first_name}. The current primary guardian will remain linked.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Make primary',
+          onPress: async () => {
+            setBusyPrimaryId(parent.id);
+            const { error } = await supabase.rpc('admin_set_primary_guardian', {
+              p_child_id: child.id,
+              p_parent_id: parent.id,
+            });
+            setBusyPrimaryId(null);
+            if (error) {
+              Alert.alert('Could not change primary guardian', error.message);
+              return;
+            }
+            await loadParents();
+            showToast(`${parent.full_name} is now the primary guardian`, 'success');
+          },
+        },
+      ],
     );
   }
 
@@ -411,16 +741,23 @@ export default function ChildProfileScreen({ route, navigation }) {
     >
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Text style={styles.back}>← Back</Text>
+        <TouchableOpacity
+          onPress={() => navigation.goBack()}
+          style={styles.headerSide}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+        >
+          <Ionicons name="chevron-back" size={22} color={colors.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Child profile</Text>
         <TouchableOpacity
           onPress={handleSave}
-          disabled={!hasChanges || saving}
-          style={[styles.saveBtn, (!hasChanges || saving) && styles.saveBtnDisabled]}
+          disabled={saving}
+          style={[styles.saveBtn, saving && styles.saveBtnDisabled]}
+          accessibilityRole="button"
+          accessibilityLabel="Save child profile"
         >
-          <Text style={[styles.saveBtnText, (!hasChanges || saving) && styles.saveBtnTextDisabled]}>
+          <Text style={styles.saveBtnText}>
             {saving ? 'Saving...' : 'Save'}
           </Text>
         </TouchableOpacity>
@@ -431,10 +768,10 @@ export default function ChildProfileScreen({ route, navigation }) {
         <View style={styles.avatarContainer}>
           <ChildAvatar
             child={{ ...child, first_name: firstName, last_name: lastName, photo_url: photoUrl }}
-            size={72}
+            size={88}
           />
           <View style={styles.avatarBadge}>
-            <Text style={styles.avatarBadgeText}>📷</Text>
+            <Ionicons name="camera-outline" size={15} color={colors.white} />
           </View>
           {uploadingPhoto && (
             <View style={styles.avatarOverlay}>
@@ -443,27 +780,214 @@ export default function ChildProfileScreen({ route, navigation }) {
           )}
         </View>
         <Text style={styles.avatarName}>{firstName} {lastName}</Text>
-        {dob && <Text style={styles.avatarDob}>Born {dob}</Text>}
-        <Text style={styles.changePhotoHint}>Tap to change photo</Text>
+        <Text style={styles.avatarDob}>
+          {dob ? `Born ${formatBirthDate(dob)}` : 'Date of birth not added'}
+          {currentClassroom ? ` · ${currentClassroom.name}` : ''}
+        </Text>
       </TouchableOpacity>
 
-      {/* Profile completeness nudge */}
-      {(() => {
-        const missing = [];
-        if (!allergies?.length && !medicalNotes) missing.push('Medical info');
-        if (!contacts?.length) missing.push('Emergency contacts');
-        if (parents.length === 0 && !loadingParents) missing.push('Linked parents');
-        if (!dob) missing.push('Date of birth');
-        if (missing.length === 0) return null;
-        return (
-          <View style={styles.completenessCard}>
-            <Text style={styles.completenessTitle}>⚠️ Profile needs attention</Text>
-            <Text style={styles.completenessText}>
-              Missing: {missing.join(' · ')}
-            </Text>
+      <TouchableOpacity
+        style={styles.dailyReportAction}
+        onPress={() => navigation.navigate('DailyLog', {
+          child: {
+            ...child,
+            first_name: firstName,
+            last_name: lastName,
+            photo_url: photoUrl,
+          },
+          date: format(new Date(), 'yyyy-MM-dd'),
+        })}
+        activeOpacity={0.76}
+        accessibilityRole="button"
+        accessibilityLabel={`Open today's daily report for ${firstName}`}
+      >
+        <View style={styles.dailyReportIcon}>
+          <Ionicons name="today-outline" size={21} color={colors.primary} />
+        </View>
+        <View style={styles.dailyReportCopy}>
+          <Text style={styles.dailyReportTitle}>Today’s daily report</Text>
+          <Text style={styles.dailyReportText}>Log care, activities, notes and approved photos</Text>
+        </View>
+        <Ionicons name="chevron-forward" size={18} color={colors.textFaint} />
+      </TouchableOpacity>
+
+      <View style={[
+        styles.card,
+        route.params?.focusSection === 'pickups' && styles.pickupCardFocused,
+      ]}>
+        <View style={styles.pickupHeader}>
+          <View style={styles.sectionTitleRow}>
+            <Ionicons name="shield-checkmark-outline" size={19} color={colors.primary} />
+            <Text style={styles.cardTitleInline}>Authorized pickups</Text>
           </View>
-        );
-      })()}
+          {pickupPeople.some((person) => person.approval_status === 'pending') ? (
+            <View style={styles.pickupPendingCount}>
+              <Text style={styles.pickupPendingCountText}>
+                {pickupPeople.filter((person) => person.approval_status === 'pending').length} to review
+              </Text>
+            </View>
+          ) : null}
+        </View>
+        <Text style={styles.pickupIntro}>
+          Parent-added people stay blocked from pickup passes and kiosk credentials until an authorized administrator approves them.
+        </Text>
+
+        {loadingPickups ? (
+          <ActivityIndicator style={styles.pickupLoader} color={colors.primary} />
+        ) : pickupError && pickupPeople.length === 0 ? (
+          <View style={styles.pickupLoadError}>
+            <Text style={styles.pickupErrorText}>{pickupError}</Text>
+            <TouchableOpacity onPress={() => loadPickupPeople()} accessibilityRole="button">
+              <Text style={styles.pickupRetryText}>Try again</Text>
+            </TouchableOpacity>
+          </View>
+        ) : pickupPeople.length === 0 ? (
+          <View style={styles.pickupEmpty}>
+            <Ionicons name="people-outline" size={22} color={colors.textFaint} />
+            <Text style={styles.pickupEmptyText}>No non-account pickup people are listed.</Text>
+          </View>
+        ) : (
+          <View style={styles.pickupList}>
+            {pickupPeople.map((person, index) => {
+              const pending = person.approval_status === 'pending';
+              const approved = person.approval_status === 'approved';
+              const focused = route.params?.pickupId === person.id;
+              const busy = reviewingPickupId === person.id;
+              return (
+                <View
+                  key={person.id}
+                  style={[
+                    styles.pickupPersonRow,
+                    index > 0 && styles.pickupPersonBorder,
+                    focused && styles.pickupPersonFocused,
+                  ]}
+                >
+                  <View style={[
+                    styles.pickupPersonAvatar,
+                    approved && styles.pickupPersonAvatarApproved,
+                    person.approval_status === 'rejected' && styles.pickupPersonAvatarRejected,
+                  ]}>
+                    <Text style={styles.pickupPersonInitial}>{person.full_name?.[0] || '?'}</Text>
+                  </View>
+                  <View style={styles.pickupPersonCopy}>
+                    <Text style={styles.pickupPersonName}>{person.full_name}</Text>
+                    <Text style={styles.pickupPersonMeta}>
+                      {person.relationship || 'Authorized pickup'}{person.phone ? ` · ${person.phone}` : ''}
+                    </Text>
+                    <Text style={[
+                      styles.pickupStatus,
+                      approved && styles.pickupStatusApproved,
+                      person.approval_status === 'rejected' && styles.pickupStatusRejected,
+                    ]}>
+                      {pending ? 'Awaiting center review' : approved ? 'Approved' : 'Not approved'}
+                    </Text>
+                    {person.review_note ? <Text style={styles.pickupReviewNote}>{person.review_note}</Text> : null}
+                  </View>
+                  {pending && canReviewPickups ? (
+                    <View style={styles.pickupReviewActions}>
+                      {busy ? <ActivityIndicator color={colors.primary} /> : (
+                        <>
+                          <TouchableOpacity
+                            style={styles.pickupApproveButton}
+                            onPress={() => approvePickup(person)}
+                            accessibilityLabel={`Approve ${person.full_name} for pickup`}
+                          >
+                            <Ionicons name="checkmark" size={17} color={colors.white} />
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            style={styles.pickupRejectButton}
+                            onPress={() => openRejectPickup(person)}
+                            accessibilityLabel={`Do not approve ${person.full_name} for pickup`}
+                          >
+                            <Ionicons name="close" size={17} color={colors.danger} />
+                          </TouchableOpacity>
+                        </>
+                      )}
+                    </View>
+                  ) : pending ? (
+                    <View style={styles.pickupReadOnlyBadge}>
+                      <Ionicons name="lock-closed-outline" size={14} color={colors.textMuted} />
+                    </View>
+                  ) : (
+                    <Ionicons
+                      name={approved ? 'checkmark-circle' : 'close-circle'}
+                      size={21}
+                      color={approved ? colors.success : colors.danger}
+                    />
+                  )}
+                </View>
+              );
+            })}
+          </View>
+        )}
+        {pickupError && pickupPeople.length > 0 ? <Text style={styles.pickupErrorText}>{pickupError}</Text> : null}
+        {!canReviewPickups && pickupPeople.some((person) => person.approval_status === 'pending') ? (
+          <Text style={styles.pickupPermissionNote}>A team member with children-edit permission must review pending pickup people.</Text>
+        ) : null}
+      </View>
+
+      <Modal
+        visible={Boolean(rejectingPickup)}
+        transparent
+        animationType="slide"
+        onRequestClose={() => !reviewingPickupId && setRejectingPickup(null)}
+      >
+        <View style={styles.moveOverlay}>
+          <TouchableOpacity
+            style={{ flex: 1 }}
+            activeOpacity={1}
+            onPress={() => !reviewingPickupId && setRejectingPickup(null)}
+          />
+          <View style={styles.pickupRejectSheet}>
+            <View style={styles.moveSheetHeader}>
+              <Text style={[styles.moveSheetTitle, { flex: 1 }]}>Do not approve pickup</Text>
+              <TouchableOpacity onPress={() => setRejectingPickup(null)} disabled={Boolean(reviewingPickupId)} accessibilityLabel="Close">
+                <Text style={styles.moveSheetClose}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={styles.pickupRejectContent}>
+              <Text style={styles.pickupRejectTitle}>{rejectingPickup?.full_name}</Text>
+              <Text style={styles.pickupRejectText}>
+                This person will remain unable to create a pickup pass or use their kiosk PIN. The family will see your note.
+              </Text>
+              <Input
+                label="Note to family (optional)"
+                value={reviewNote}
+                onChangeText={setReviewNote}
+                placeholder="e.g. Please visit the office with photo ID."
+                multiline
+                maxLength={500}
+              />
+              <Button
+                label="Confirm not approved"
+                variant="danger"
+                loading={Boolean(reviewingPickupId)}
+                onPress={() => submitPickupReview(rejectingPickup, 'rejected', reviewNote.trim() || null)}
+              />
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Profile completeness nudge */}
+      {!loadingParents && missingSections.length > 0 && (
+        <View style={styles.completenessCard}>
+          <View style={styles.completenessHeader}>
+            <Text style={styles.completenessTitle}>Profile {profilePercent}% complete</Text>
+            <Text style={styles.completenessCount}>{completedSections} of 5 sections</Text>
+          </View>
+          <View style={styles.completenessTrack}>
+            <View style={[styles.completenessFill, { width: `${profilePercent}%` }]} />
+          </View>
+          <View style={styles.completenessChips}>
+            {missingSections.map((section) => (
+              <View key={section.label} style={styles.completenessChip}>
+                <Text style={styles.completenessChipText}>{section.label}</Text>
+              </View>
+            ))}
+          </View>
+        </View>
+      )}
 
       {/* Details form */}
       <View style={styles.card}>
@@ -490,33 +1014,49 @@ export default function ChildProfileScreen({ route, navigation }) {
       )}
 
       {/* Classroom assignment */}
-      {classrooms.length > 1 && (
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>🏫 Classroom</Text>
-          <View style={styles.classroomRow}>
-            <View style={styles.classroomInfo}>
-              <Text style={styles.classroomCurrentName}>
-                {classrooms.find(r => r.id === currentClassroomId)?.name || 'Unknown'}
-              </Text>
-              {classrooms.find(r => r.id === currentClassroomId)?.age_group && (
-                <Text style={styles.classroomCurrentAge}>
-                  {classrooms.find(r => r.id === currentClassroomId)?.age_group}
-                </Text>
-              )}
-            </View>
+      <View style={[styles.card, styles.classroomCard]}>
+        <View style={styles.classroomRow}>
+          <View style={styles.classroomInfo}>
+            <Text style={styles.cardTitleCompact}>Classroom</Text>
+            <Text style={styles.classroomCurrentName}>
+              {currentClassroom?.name || 'Not assigned'}
+            </Text>
+            {currentClassroom?.age_group ? (
+              <Text style={styles.classroomCurrentAge}>{currentClassroom.age_group}</Text>
+            ) : null}
+          </View>
+          {classrooms.length > 1 ? (
             <TouchableOpacity
               onPress={() => setShowMovePicker(true)}
               style={styles.classMoveBtn}
               disabled={movingClass}
             >
               {movingClass
-                ? <ActivityIndicator color={colors.white} size="small" />
+                ? <ActivityIndicator color={colors.primary} size="small" />
                 : <Text style={styles.classMoveBtnText}>Move to…</Text>
               }
             </TouchableOpacity>
+          ) : null}
+        </View>
+      </View>
+
+      <View style={[styles.card, styles.handoffCard, !handoffReady && styles.handoffCardPending]}>
+        <View style={styles.handoffHeader}>
+          <View style={[styles.handoffIcon, handoffReady && styles.handoffIconReady]}>
+            <Ionicons name={handoffReady ? 'checkmark-circle-outline' : 'alert-circle-outline'} size={21} color={handoffReady ? colors.success : colors.amber} />
+          </View>
+          <View style={styles.classroomInfo}>
+            <Text style={styles.cardTitleCompact}>Room handoff</Text>
+            <Text style={styles.handoffStatus}>{handoffReady ? 'First-day setup complete' : 'Setup needs administrator attention'}</Text>
           </View>
         </View>
-      )}
+        <View style={styles.handoffDetails}>
+          <View style={styles.handoffDetailRow}><Text style={styles.handoffDetailLabel}>First day</Text><Text style={styles.handoffDetailValue}>{child.enrolled_on ? formatBirthDate(child.enrolled_on) : 'Not recorded'}</Text></View>
+          <View style={styles.handoffDetailRow}><Text style={styles.handoffDetailLabel}>Primary educator</Text><Text style={styles.handoffDetailValue}>{isPrimaryEducator ? 'You' : primaryEducatorName || 'Not assigned'}</Text></View>
+          <View style={styles.handoffDetailRow}><Text style={styles.handoffDetailLabel}>Cubby</Text><Text style={styles.handoffDetailValue}>{cubbyLabel || 'Not assigned'}</Text></View>
+        </View>
+        {!handoffReady ? <View style={styles.handoffNotice}><Ionicons name="information-circle-outline" size={17} color={colors.amber} /><Text style={styles.handoffNoticeText}>Ask an administrator to complete the enrollment room handoff. Attendance remains available because the first day has begun.</Text></View> : null}
+      </View>
 
       {/* Move classroom picker modal */}
       <Modal visible={showMovePicker} transparent animationType="slide">
@@ -556,48 +1096,30 @@ export default function ChildProfileScreen({ route, navigation }) {
         </View>
       </Modal>
 
-      {/* Incident history */}
-      <View style={styles.card}>
-        <View style={styles.incidentHeader}>
-          <Text style={styles.cardTitle}>⚠️ Incident reports</Text>
-          <TouchableOpacity
-            onPress={() => navigation.navigate('IncidentReport', { child: { ...child, first_name: firstName, last_name: lastName } })}
-            style={styles.incidentNewBtn}
-          >
-            <Text style={styles.incidentNewBtnText}>+ New</Text>
-          </TouchableOpacity>
-        </View>
-        {incidents.length === 0 ? (
-          <Text style={styles.noParents}>No incidents reported.</Text>
-        ) : (
-          incidents.map((incident, i) => {
-            const sevColors = {
-              minor: colors.amber,
-              moderate: colors.coral,
-              serious: colors.danger,
-            };
-            return (
-              <View key={incident.id}>
-                {i > 0 && <Divider />}
-                <View style={styles.incidentRow}>
-                  <View style={[styles.incidentDot, { backgroundColor: sevColors[incident.severity] || colors.amber }]} />
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.incidentType}>{incident.injury_type}</Text>
-                    <Text style={styles.incidentMeta}>
-                      {format(new Date(incident.occurred_at), 'MMM d · h:mm a')} ·{' '}
-                      {incident.status === 'acknowledged' ? '✅ Acknowledged' : '⏳ Pending'}
-                    </Text>
-                  </View>
-                </View>
-              </View>
-            );
-          })
-        )}
-      </View>
-
       {/* Medical profile */}
       <View style={styles.card}>
-        <Text style={styles.cardTitle}>🏥 Medical & emergency info</Text>
+        <Text style={styles.cardTitle}>Medical & emergency</Text>
+
+        <TouchableOpacity
+          onPress={toggleNoKnownMedicalNeeds}
+          disabled={savingMedical}
+          accessibilityRole="checkbox"
+          accessibilityState={{ checked: noKnownMedicalNeeds, disabled: savingMedical }}
+          style={[
+            styles.medicalReviewRow,
+            noKnownMedicalNeeds && styles.medicalReviewRowSelected,
+          ]}
+        >
+          <Ionicons
+            name={noKnownMedicalNeeds ? 'checkmark-circle' : 'ellipse-outline'}
+            size={22}
+            color={noKnownMedicalNeeds ? colors.success : colors.textMuted}
+          />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.medicalReviewTitle}>No known allergies or medical needs</Text>
+            <Text style={styles.medicalReviewSub}>Confirm this after reviewing the child’s information with the family.</Text>
+          </View>
+        </TouchableOpacity>
 
         {/* Allergies */}
         <Text style={styles.medLabel}>Allergies</Text>
@@ -612,7 +1134,7 @@ export default function ChildProfileScreen({ route, navigation }) {
                   { text: 'Remove', style: 'destructive', onPress: () => removeAllergy(a) },
                 ])}
               >
-                <Text style={styles.allergyChipText}>⚠️ {a}</Text>
+                <Text style={styles.allergyChipText}>{a}  ×</Text>
               </TouchableOpacity>
             ))}
           </View>
@@ -626,8 +1148,8 @@ export default function ChildProfileScreen({ route, navigation }) {
           />
           <TouchableOpacity
             onPress={addAllergy}
-            disabled={!newAllergy.trim()}
-            style={[styles.medAddBtn, !newAllergy.trim() && styles.medAddBtnDisabled]}
+            disabled={!newAllergy.trim() || savingMedical}
+            style={[styles.medAddBtn, (!newAllergy.trim() || savingMedical) && styles.medAddBtnDisabled]}
           >
             <Text style={styles.medAddBtnText}>Add</Text>
           </TouchableOpacity>
@@ -675,6 +1197,7 @@ export default function ChildProfileScreen({ route, navigation }) {
         </View>
         <TouchableOpacity
           onPress={addContact}
+          disabled={savingMedical}
           style={[styles.medAddBtn, { alignSelf: 'flex-start', marginTop: spacing.sm }]}
         >
           <Text style={styles.medAddBtnText}>+ Add contact</Text>
@@ -686,12 +1209,16 @@ export default function ChildProfileScreen({ route, navigation }) {
         <Text style={styles.medLabel}>Medical notes</Text>
         <Input
           value={medicalNotes}
-          onChangeText={setMedicalNotes}
+          onChangeText={(value) => {
+            setMedicalNotes(value);
+            if (!medicalReviewed) return;
+            if (!child.medical_notes && !allergies.length && !noKnownMedicalNeeds) setMedicalReviewed(false);
+          }}
           placeholder="e.g. Carries EpiPen; inhaler in cubby"
           multiline
         />
         <TouchableOpacity
-          onPress={() => saveMedical({ medical_notes: medicalNotes.trim() || null })}
+          onPress={() => saveMedical({ medicalNotes, noKnownMedicalNeeds: false })}
           disabled={savingMedical}
           style={[styles.medAddBtn, { alignSelf: 'flex-start' }]}
         >
@@ -707,18 +1234,57 @@ export default function ChildProfileScreen({ route, navigation }) {
           onPress={() => navigation.navigate('Medication', { child: { ...child, first_name: firstName, last_name: lastName } })}
           style={styles.medLink}
         >
-          <Text style={styles.medLinkIcon}>💊</Text>
+          <View style={styles.medLinkIcon}>
+            <Ionicons name="medical-outline" size={18} color={colors.primary} />
+          </View>
           <View style={{ flex: 1 }}>
             <Text style={styles.medLinkTitle}>Medications</Text>
             <Text style={styles.medLinkSub}>Authorizations & administration log</Text>
           </View>
-          <Text style={styles.moveRoomArrow}>→</Text>
+          <Ionicons name="chevron-forward" size={18} color={colors.primary} />
         </TouchableOpacity>
+
+        <Divider />
+
+        <TouchableOpacity
+          onPress={() => navigation.navigate('ChildConsents', { childId: child.id, child: { ...child, first_name: firstName, last_name: lastName } })}
+          style={styles.medLink}
+        >
+          <View style={styles.medLinkIcon}>
+            <Ionicons name="shield-checkmark-outline" size={18} color={colors.primary} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.medLinkTitle}>Permissions & consents</Text>
+            <Text style={styles.medLinkSub}>Parent-controlled activity permissions</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={colors.primary} />
+        </TouchableOpacity>
+
+        {canManageFamilyDocuments ? (
+          <>
+            <Divider />
+            <TouchableOpacity
+              onPress={() => navigation.navigate('AdminChildDocuments', { childId: child.id, child: { ...child, first_name: firstName, last_name: lastName } })}
+              style={styles.medLink}
+              accessibilityRole="button"
+              accessibilityLabel={`Open family documents for ${firstName}`}
+            >
+              <View style={styles.medLinkIcon}>
+                <Ionicons name="folder-open-outline" size={18} color={colors.primary} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.medLinkTitle}>Family documents</Text>
+                <Text style={styles.medLinkSub}>Requests, secure uploads & review history</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={colors.primary} />
+            </TouchableOpacity>
+          </>
+        ) : null}
       </View>
 
       {/* Linked parents */}
       <View style={styles.card}>
-        <Text style={styles.cardTitle}>👨‍👩‍👧 Linked parents</Text>
+        <Text style={styles.cardTitle}>Linked parents</Text>
 
         {loadingParents ? (
           <ActivityIndicator color={colors.primary} />
@@ -735,6 +1301,30 @@ export default function ChildProfileScreen({ route, navigation }) {
                 <View style={styles.parentInfo}>
                   <Text style={styles.parentName}>{parent.full_name}</Text>
                   <Text style={styles.parentEmail}>{parent.email}</Text>
+                  <View style={styles.parentAccessRow}>
+                    <View style={styles.parentAccessBadge}>
+                      <Text style={styles.parentAccessBadgeText}>{parent.relationship || 'Family'}</Text>
+                    </View>
+                    {parent.is_primary ? (
+                      <View style={styles.parentAccessBadge}><Text style={styles.parentAccessBadgeText}>Primary</Text></View>
+                    ) : (
+                      <TouchableOpacity
+                        style={[styles.parentAccessBadge, styles.makePrimaryBadge]}
+                        onPress={() => makePrimaryGuardian(parent)}
+                        disabled={busyPrimaryId === parent.id}
+                        accessibilityLabel={`Make ${parent.full_name} primary guardian`}
+                      >
+                        {busyPrimaryId === parent.id
+                          ? <ActivityIndicator size="small" color={colors.primary} />
+                          : <Text style={styles.makePrimaryBadgeText}>Make primary</Text>}
+                      </TouchableOpacity>
+                    )}
+                    <View style={[styles.parentAccessBadge, parent.pickup_authorized ? styles.parentAccessBadgeOk : styles.parentAccessBadgeMuted]}>
+                      <Text style={[styles.parentAccessBadgeText, parent.pickup_authorized ? styles.parentAccessBadgeTextOk : styles.parentAccessBadgeTextMuted]}>
+                        {parent.pickup_authorized ? 'Pickup allowed' : 'No pickup'}
+                      </Text>
+                    </View>
+                  </View>
                   {parent.phone ? (
                     <TouchableOpacity
                       onPress={() => Linking.openURL(`tel:${parent.phone}`)}
@@ -760,6 +1350,49 @@ export default function ChildProfileScreen({ route, navigation }) {
 
         <Divider />
 
+        {pendingInvites.length > 0 && (
+          <View style={styles.pendingInviteBlock}>
+            <View style={styles.pendingInviteHeading}>
+              <Ionicons name="time-outline" size={17} color={colors.amber} />
+              <Text style={styles.pendingInviteTitle}>Pending family invites</Text>
+            </View>
+            {pendingInvites.map(invite => {
+              const expires = invite.expires_at ? new Date(invite.expires_at) : null;
+              const expired = expires && expires.getTime() <= Date.now();
+              return (
+                <View style={styles.pendingInviteCard} key={invite.id}>
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={styles.pendingInviteEmail} numberOfLines={1}>{invite.email}</Text>
+                    <Text style={[styles.pendingInviteMeta, expired && styles.pendingInviteExpired]}>
+                      {invite.relationship || 'Parent'} · {expired ? 'Expired' : expires ? `Expires ${format(expires, 'MMM d')}` : 'No expiry set'}
+                    </Text>
+                    <Text style={styles.pendingInviteCode}>Code {invite.code}</Text>
+                  </View>
+                  <TouchableOpacity
+                    style={styles.inviteIconButton}
+                    onPress={() => resendInvite(invite)}
+                    disabled={busyInviteId === invite.id}
+                    accessibilityLabel={`Resend invite to ${invite.email}`}
+                  >
+                    {busyInviteId === invite.id
+                      ? <ActivityIndicator color={colors.primary} size="small" />
+                      : <Ionicons name="refresh-outline" size={18} color={colors.primary} />}
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.inviteIconButton, styles.inviteDeleteButton]}
+                    onPress={() => cancelInvite(invite)}
+                    disabled={busyInviteId === invite.id}
+                    accessibilityLabel={`Cancel invite for ${invite.email}`}
+                  >
+                    <Ionicons name="trash-outline" size={17} color={colors.danger} />
+                  </TouchableOpacity>
+                </View>
+              );
+            })}
+            <Divider />
+          </View>
+        )}
+
         {/* Link existing parent */}
         {existingParents.filter(p => !parents.find(lp => lp.id === p.id)).length > 0 && (
           <>
@@ -777,73 +1410,182 @@ export default function ChildProfileScreen({ route, navigation }) {
         )}
 
         {/* Invite / link parent by email */}
-        <Text style={styles.inviteLabel}>Invite a new parent by email</Text>
-        <View style={styles.inviteRow}>
-          <Input
-            value={inviteEmail}
-            onChangeText={setInviteEmail}
-            placeholder="parent@email.com"
-            keyboardType="email-address"
-            style={{ flex: 1, marginBottom: 0 }}
-          />
-          <TouchableOpacity
-            onPress={handleInviteParent}
-            disabled={inviting || !inviteEmail.trim()}
-            style={[styles.inviteBtn, (!inviteEmail.trim() || inviting) && styles.inviteBtnDisabled]}
-          >
-            {inviting
-              ? <ActivityIndicator color={colors.white} size="small" />
-              : <Text style={styles.inviteBtnText}>Invite</Text>
-            }
-          </TouchableOpacity>
-        </View>
+        <Text style={styles.inviteLabel}>Invite a new family member</Text>
+        <Input
+          label="Email *"
+          value={inviteEmail}
+          onChangeText={value => {
+            setInviteEmail(value);
+            if (inviteErrors.email || inviteErrors.form) setInviteErrors(current => ({ ...current, email: null, form: null }));
+          }}
+          placeholder="parent@email.com"
+          keyboardType="email-address"
+          autoCapitalize="none"
+          autoCorrect={false}
+          error={inviteErrors.email}
+        />
+        <Input
+          label="Relationship *"
+          value={inviteRelationship}
+          onChangeText={value => {
+            setInviteRelationship(value);
+            if (inviteErrors.relationship || inviteErrors.form) setInviteErrors(current => ({ ...current, relationship: null, form: null }));
+          }}
+          placeholder="Parent, guardian, grandmother…"
+          autoCapitalize="words"
+          error={inviteErrors.relationship}
+        />
+        {inviteErrors.form ? <Text style={styles.inviteError}>{inviteErrors.form}</Text> : null}
+        <TouchableOpacity
+          onPress={handleInviteParent}
+          disabled={inviting}
+          style={[styles.inviteBtn, inviting && styles.inviteBtnDisabled]}
+          accessibilityRole="button"
+          accessibilityState={{ disabled: inviting, busy: inviting }}
+        >
+          {inviting
+            ? <ActivityIndicator color={colors.white} size="small" />
+            : <><Ionicons name="mail-outline" size={17} color={colors.white} /><Text style={styles.inviteBtnText}>Send 7-day invite</Text></>
+          }
+        </TouchableOpacity>
         <Text style={styles.inviteHint}>
-          They'll receive an email invitation. Once they sign up, they'll be automatically linked.
+          The code is email-bound, single-use and expires after seven days. Linking completes only after the family signs in and accepts it.
         </Text>
       </View>
 
       {/* Parent picker modal */}
-      <Modal visible={showParentPicker} transparent animationType="slide">
+      <Modal visible={showParentPicker} transparent animationType="slide" onRequestClose={closeParentPicker}>
         <View style={styles.moveOverlay}>
-          <TouchableOpacity style={{ flex: 1 }} activeOpacity={1} onPress={() => setShowParentPicker(false)} />
+          <TouchableOpacity style={{ flex: 1 }} activeOpacity={1} onPress={closeParentPicker} />
           <View style={styles.moveSheet}>
             <View style={styles.moveSheetHeader}>
-              <Text style={styles.moveSheetTitle}>Link a parent</Text>
-              <TouchableOpacity onPress={() => setShowParentPicker(false)}>
+              {selectedExistingParent ? (
+                <TouchableOpacity onPress={() => setSelectedExistingParent(null)} style={styles.sheetBack} accessibilityLabel="Back to family list">
+                  <Ionicons name="arrow-back" size={20} color={colors.textPrimary} />
+                </TouchableOpacity>
+              ) : null}
+              <Text style={[styles.moveSheetTitle, { flex: 1 }]}>{selectedExistingParent ? 'Review family access' : 'Link a family member'}</Text>
+              <TouchableOpacity onPress={closeParentPicker} accessibilityLabel="Close family picker">
                 <Text style={styles.moveSheetClose}>✕</Text>
               </TouchableOpacity>
             </View>
-            <ScrollView style={styles.moveList}>
-              {existingParents
-                .filter(p => !parents.find(lp => lp.id === p.id))
-                .map(parent => (
-                  <TouchableOpacity
-                    key={parent.id}
-                    onPress={() => linkExistingParent(parent)}
-                    style={styles.moveRoomRow}
-                    activeOpacity={0.7}
-                  >
-                    <View style={[styles.parentAvatar, { width: 36, height: 36, borderRadius: 18 }]}>
-                      <Text style={styles.parentInitial}>{parent.full_name?.[0] || '?'}</Text>
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.moveRoomName}>{parent.full_name}</Text>
-                      <Text style={styles.moveRoomAge}>{parent.email}</Text>
-                    </View>
-                    <Text style={styles.linkExistingChevron}>+</Text>
-                  </TouchableOpacity>
-                ))}
-              {existingParents.filter(p => !parents.find(lp => lp.id === p.id)).length === 0 && (
-                <Text style={[styles.noParents, { padding: spacing.xl, textAlign: 'center' }]}>
-                  No other parents available to link.
-                </Text>
-              )}
-            </ScrollView>
+            {selectedExistingParent ? (
+              <ScrollView style={styles.moveList} contentContainerStyle={styles.accessReview} keyboardShouldPersistTaps="handled">
+                <View style={styles.selectedParentCard}>
+                  <View style={[styles.parentAvatar, { width: 44, height: 44, borderRadius: 22 }]}>
+                    <Text style={styles.parentInitial}>{selectedExistingParent.full_name?.[0] || '?'}</Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.moveRoomName}>{selectedExistingParent.full_name}</Text>
+                    <Text style={styles.moveRoomAge}>{selectedExistingParent.email}</Text>
+                  </View>
+                </View>
+                <Input
+                  label="Relationship *"
+                  value={existingRelationship}
+                  onChangeText={value => { setExistingRelationship(value); if (existingLinkError) setExistingLinkError(''); }}
+                  placeholder="Parent, guardian, grandmother…"
+                  autoCapitalize="words"
+                  error={!existingRelationship.trim() ? existingLinkError : ''}
+                />
+                <TouchableOpacity
+                  style={styles.pickupAccessCard}
+                  onPress={() => setExistingPickupAllowed(value => !value)}
+                  accessibilityRole="switch"
+                  accessibilityState={{ checked: existingPickupAllowed }}
+                >
+                  <View style={[styles.pickupAccessIcon, existingPickupAllowed && styles.pickupAccessIconOn]}>
+                    <Ionicons name="key-outline" size={19} color={existingPickupAllowed ? colors.success : colors.textMuted} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.pickupAccessTitle}>Authorized pickup</Text>
+                    <Text style={styles.pickupAccessText}>Allow this family member to pick up {firstName}.</Text>
+                  </View>
+                  <View style={[styles.accessToggle, existingPickupAllowed && styles.accessToggleOn]}>
+                    <View style={[styles.accessToggleThumb, existingPickupAllowed && styles.accessToggleThumbOn]} />
+                  </View>
+                </TouchableOpacity>
+                {parents.length === 0 ? (
+                  <View style={styles.primaryNotice}>
+                    <Ionicons name="information-circle-outline" size={18} color={colors.primary} />
+                    <Text style={styles.primaryNoticeText}>As the first linked family member, they will be marked primary.</Text>
+                  </View>
+                ) : null}
+                {existingLinkError && existingRelationship.trim() ? <Text style={styles.inviteError}>{existingLinkError}</Text> : null}
+                <Button label="Confirm family access" onPress={linkExistingParent} loading={linkingExisting} />
+              </ScrollView>
+            ) : (
+              <ScrollView style={styles.moveList}>
+                {existingParents
+                  .filter(p => !parents.find(lp => lp.id === p.id))
+                  .map(parent => (
+                    <TouchableOpacity
+                      key={parent.id}
+                      onPress={() => selectExistingParent(parent)}
+                      style={styles.moveRoomRow}
+                      activeOpacity={0.7}
+                      accessibilityLabel={`Review access for ${parent.full_name}`}
+                    >
+                      <View style={[styles.parentAvatar, { width: 36, height: 36, borderRadius: 18 }]}>
+                        <Text style={styles.parentInitial}>{parent.full_name?.[0] || '?'}</Text>
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.moveRoomName}>{parent.full_name}</Text>
+                        <Text style={styles.moveRoomAge}>{parent.email}</Text>
+                      </View>
+                      <Ionicons name="chevron-forward" size={18} color={colors.textFaint} />
+                    </TouchableOpacity>
+                  ))}
+                {existingParents.filter(p => !parents.find(lp => lp.id === p.id)).length === 0 && (
+                  <Text style={[styles.noParents, { padding: spacing.xl, textAlign: 'center' }]}>No other family accounts are available to link.</Text>
+                )}
+              </ScrollView>
+            )}
           </View>
         </View>
       </Modal>
 
-      <Divider />
+      {/* Incident history — retained below the Group 13 profile sections. */}
+      <View style={styles.card}>
+        <View style={styles.incidentHeader}>
+          <View style={styles.sectionTitleRow}>
+            <Ionicons name="warning-outline" size={18} color={colors.danger} />
+            <Text style={styles.cardTitleInline}>Incident reports</Text>
+          </View>
+          <TouchableOpacity
+            onPress={() => navigation.navigate('IncidentReport', { child: { ...child, first_name: firstName, last_name: lastName } })}
+            style={styles.incidentNewBtn}
+          >
+            <Text style={styles.incidentNewBtnText}>+ New</Text>
+          </TouchableOpacity>
+        </View>
+        {incidents.length === 0 ? (
+          <Text style={styles.noParents}>No incidents reported.</Text>
+        ) : (
+          incidents.map((incident, i) => {
+            const sevColors = {
+              minor: colors.amber,
+              moderate: colors.coral,
+              serious: colors.danger,
+            };
+            return (
+              <View key={incident.id}>
+                {i > 0 && <Divider />}
+                <View style={styles.incidentRow}>
+                  <View style={[styles.incidentDot, { backgroundColor: sevColors[incident.severity] || colors.amber }]} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.incidentType}>{incident.injury_type}</Text>
+                    <Text style={styles.incidentMeta}>
+                      {format(new Date(incident.occurred_at), 'MMM d · h:mm a')} ·{' '}
+                      {incident.status === 'acknowledged' ? 'Acknowledged' : 'Pending'}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+            );
+          })
+        )}
+      </View>
 
       {/* Danger zone */}
       <View style={styles.dangerCard}>
@@ -866,68 +1608,192 @@ export default function ChildProfileScreen({ route, navigation }) {
 }
 
 const styles = StyleSheet.create({
+  routeState: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.xxl, backgroundColor: colors.bg },
+  routeStateTitle: { marginTop: spacing.md, color: colors.textPrimary, fontFamily: fonts.black, fontSize: 20, textAlign: 'center' },
+  routeStateText: { marginTop: spacing.sm, color: colors.textMuted, fontFamily: fonts.regular, fontSize: 13, lineHeight: 19, textAlign: 'center' },
   container: { flex: 1, backgroundColor: colors.bg },
-  content: { padding: spacing.xl },
+  content: {
+    paddingHorizontal: spacing.xxl,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.xxxl,
+  },
 
   header: {
     flexDirection: 'row', alignItems: 'center',
-    justifyContent: 'space-between', marginBottom: spacing.xl,
+    justifyContent: 'space-between', marginBottom: spacing.lg,
   },
-  back: { fontSize: 15, color: colors.primary, fontWeight: '500', width: 60 },
-  headerTitle: { fontSize: 17, fontWeight: '600', color: colors.textPrimary },
+  headerSide: {
+    width: 64,
+    minHeight: 36,
+    justifyContent: 'center',
+  },
+  headerTitle: { fontSize: 18, fontFamily: fonts.black, color: colors.textPrimary },
   saveBtn: {
     backgroundColor: colors.primary, paddingHorizontal: spacing.lg,
     paddingVertical: spacing.sm, borderRadius: radius.full,
+    minWidth: 64,
+    alignItems: 'center',
   },
   saveBtnDisabled: { backgroundColor: colors.border },
-  saveBtnText: { fontSize: 14, fontWeight: '600', color: colors.white },
-  saveBtnTextDisabled: { color: colors.textMuted },
+  saveBtnText: { fontSize: 13.5, fontFamily: fonts.bold, color: colors.white },
 
   avatarWrap: { alignItems: 'center', marginBottom: spacing.xl },
   avatarContainer: { position: 'relative', marginBottom: spacing.sm },
   avatarBadge: {
-    position: 'absolute', bottom: 0, right: -4,
-    backgroundColor: colors.surface, borderRadius: 12,
-    width: 24, height: 24, alignItems: 'center', justifyContent: 'center',
-    borderWidth: 2, borderColor: colors.border,
+    position: 'absolute', bottom: -2, right: -2,
+    backgroundColor: colors.primary, borderRadius: 15,
+    width: 30, height: 30, alignItems: 'center', justifyContent: 'center',
+    borderWidth: 2.5, borderColor: colors.bg,
   },
-  avatarBadgeText: { fontSize: 12 },
   avatarOverlay: {
     ...StyleSheet.absoluteFillObject,
-    borderRadius: 36, backgroundColor: 'rgba(0,0,0,0.4)',
+    borderRadius: 44, backgroundColor: 'rgba(0,0,0,0.4)',
     alignItems: 'center', justifyContent: 'center',
   },
-  avatarName: { fontSize: 20, fontWeight: '700', color: colors.textPrimary },
-  avatarDob: { fontSize: 13, color: colors.textSecondary, marginTop: 3 },
-  changePhotoHint: { fontSize: 12, color: colors.primary, marginTop: spacing.xs, fontWeight: '500' },
+  avatarName: { fontSize: 20, fontFamily: fonts.black, color: colors.textPrimary },
+  avatarDob: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontFamily: fonts.regular,
+    color: colors.textSecondary,
+    marginTop: 3,
+    textAlign: 'center',
+  },
+  dailyReportAction: {
+    minHeight: 70,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    marginBottom: spacing.lg,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.borderSoft,
+    borderRadius: radius.lg,
+    backgroundColor: colors.surface,
+  },
+  dailyReportIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.primaryLight,
+  },
+  dailyReportCopy: { flex: 1, minWidth: 0 },
+  dailyReportTitle: { color: colors.textPrimary, fontFamily: fonts.bold, fontSize: 14 },
+  dailyReportText: { marginTop: 3, color: colors.textMuted, fontFamily: fonts.regular, fontSize: 11.5 },
+
+  pickupCardFocused: { borderColor: colors.primary, backgroundColor: colors.primaryLight },
+  pickupHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
+  pickupPendingCount: { paddingHorizontal: 9, paddingVertical: 4, borderRadius: radius.full, backgroundColor: colors.amberLight },
+  pickupPendingCountText: { color: colors.amber, fontFamily: fonts.bold, fontSize: 10.5 },
+  pickupIntro: { marginTop: spacing.sm, color: colors.textMuted, fontFamily: fonts.regular, fontSize: 11.5, lineHeight: 17 },
+  pickupLoader: { marginVertical: spacing.xl },
+  pickupLoadError: { alignItems: 'center', gap: spacing.sm, marginTop: spacing.lg, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.dangerLight },
+  pickupErrorText: { marginTop: spacing.sm, color: colors.danger, fontFamily: fonts.bold, fontSize: 11.5, lineHeight: 16 },
+  pickupRetryText: { color: colors.primary, fontFamily: fonts.bold, fontSize: 12 },
+  pickupEmpty: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: spacing.lg, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.bg },
+  pickupEmptyText: { flex: 1, color: colors.textMuted, fontFamily: fonts.regular, fontSize: 12 },
+  pickupList: { marginTop: spacing.md, overflow: 'hidden', borderWidth: 1, borderColor: colors.borderSoft, borderRadius: radius.md, backgroundColor: colors.surface },
+  pickupPersonRow: { minHeight: 74, flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md },
+  pickupPersonBorder: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.borderSoft },
+  pickupPersonFocused: { backgroundColor: colors.amberLight },
+  pickupPersonAvatar: { width: 38, height: 38, alignItems: 'center', justifyContent: 'center', borderRadius: 19, backgroundColor: colors.amberLight },
+  pickupPersonAvatarApproved: { backgroundColor: colors.successLight },
+  pickupPersonAvatarRejected: { backgroundColor: colors.dangerLight },
+  pickupPersonInitial: { color: colors.textPrimary, fontFamily: fonts.bold, fontSize: 12.5 },
+  pickupPersonCopy: { flex: 1, minWidth: 0 },
+  pickupPersonName: { color: colors.textPrimary, fontFamily: fonts.bold, fontSize: 13 },
+  pickupPersonMeta: { marginTop: 2, color: colors.textMuted, fontFamily: fonts.regular, fontSize: 10.5 },
+  pickupStatus: { marginTop: 4, color: colors.amber, fontFamily: fonts.bold, fontSize: 10.5 },
+  pickupStatusApproved: { color: colors.success },
+  pickupStatusRejected: { color: colors.danger },
+  pickupReviewNote: { marginTop: 3, color: colors.textMuted, fontFamily: fonts.regular, fontSize: 10.5, lineHeight: 14 },
+  pickupReviewActions: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  pickupApproveButton: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center', borderRadius: radius.md, backgroundColor: colors.success },
+  pickupRejectButton: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: colors.danger + '55', borderRadius: radius.md, backgroundColor: colors.dangerLight },
+  pickupReadOnlyBadge: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center', borderRadius: radius.md, backgroundColor: colors.bg },
+  pickupPermissionNote: { marginTop: spacing.md, color: colors.textMuted, fontFamily: fonts.regular, fontSize: 10.5, lineHeight: 15 },
+  pickupRejectSheet: { maxHeight: '70%', borderTopLeftRadius: 24, borderTopRightRadius: 24, backgroundColor: colors.surface, paddingBottom: spacing.xxxl },
+  pickupRejectContent: { padding: spacing.xl },
+  pickupRejectTitle: { color: colors.textPrimary, fontFamily: fonts.black, fontSize: 17 },
+  pickupRejectText: { marginTop: spacing.xs, marginBottom: spacing.lg, color: colors.textMuted, fontFamily: fonts.regular, fontSize: 12, lineHeight: 18 },
 
   // Profile completeness
   completenessCard: {
-    backgroundColor: colors.amberLight, borderRadius: radius.lg,
-    borderWidth: 1, borderColor: colors.amber + '44',
+    backgroundColor: colors.amberLight, borderRadius: 16,
     padding: spacing.lg, marginBottom: spacing.lg,
   },
-  completenessTitle: { fontSize: 14, fontWeight: '600', color: colors.amber, marginBottom: spacing.xs },
-  completenessText: { fontSize: 13, color: colors.textSecondary, lineHeight: 18 },
+  completenessHeader: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+  },
+  completenessTitle: { fontSize: 14, fontFamily: fonts.bold, color: colors.amber },
+  completenessCount: { fontSize: 12, fontFamily: fonts.bold, color: colors.amber },
+  completenessTrack: {
+    height: 6,
+    borderRadius: radius.full,
+    backgroundColor: '#F0E2C4',
+    overflow: 'hidden',
+    marginTop: spacing.md,
+  },
+  completenessFill: {
+    height: '100%',
+    borderRadius: radius.full,
+    backgroundColor: colors.amber,
+  },
+  completenessChips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: spacing.md,
+  },
+  completenessChip: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.full,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  completenessChipText: { fontSize: 11.5, fontFamily: fonts.bold, color: colors.amber },
 
   card: {
-    backgroundColor: colors.surface, borderRadius: radius.lg,
-    borderWidth: 1, borderColor: colors.border,
+    backgroundColor: colors.surface, borderRadius: 18,
+    borderWidth: 1.5, borderColor: colors.border,
     padding: spacing.lg, marginBottom: spacing.lg,
   },
-  cardTitle: { fontSize: 15, fontWeight: '600', color: colors.textPrimary, marginBottom: spacing.lg },
+  cardTitle: { fontSize: 15, fontFamily: fonts.black, color: colors.textPrimary, marginBottom: spacing.lg },
+  cardTitleCompact: {
+    fontSize: 15,
+    fontFamily: fonts.black,
+    color: colors.textPrimary,
+    marginBottom: 3,
+  },
+  cardTitleInline: { fontSize: 15, fontFamily: fonts.black, color: colors.textPrimary },
+  sectionTitleRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   saveFullBtn: { marginBottom: spacing.lg },
 
-  noParents: { fontSize: 13, color: colors.textMuted, marginBottom: spacing.md },
+  noParents: { fontSize: 13, fontFamily: fonts.regular, color: colors.textMuted, marginBottom: spacing.md },
   parentRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: spacing.sm, gap: spacing.md },
   parentAvatar: {
     width: 40, height: 40, borderRadius: 20,
     backgroundColor: colors.purpleLight, alignItems: 'center', justifyContent: 'center',
   },
-  parentInitial: { fontSize: 15, fontWeight: '700', color: colors.purple },
+  parentInitial: { fontSize: 15, fontFamily: fonts.bold, color: colors.purple },
   parentInfo: { flex: 1 },
-  parentName: { fontSize: 14, fontWeight: '600', color: colors.textPrimary },
-  parentEmail: { fontSize: 12, color: colors.textSecondary, marginTop: 1 },
+  parentName: { fontSize: 14, fontFamily: fonts.bold, color: colors.textPrimary },
+  parentEmail: { fontSize: 12, fontFamily: fonts.regular, color: colors.textSecondary, marginTop: 1 },
+  parentAccessRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 5, marginTop: 6 },
+  parentAccessBadge: { paddingHorizontal: 7, paddingVertical: 3, borderRadius: radius.full, backgroundColor: colors.primaryLight },
+  parentAccessBadgeOk: { backgroundColor: colors.successLight },
+  parentAccessBadgeMuted: { backgroundColor: colors.bg },
+  parentAccessBadgeText: { color: colors.primary, fontFamily: fonts.bold, fontSize: 9.5 },
+  parentAccessBadgeTextOk: { color: colors.success },
+  parentAccessBadgeTextMuted: { color: colors.textMuted },
+  makePrimaryBadge: { borderWidth: 1, borderColor: colors.primary, backgroundColor: colors.surface },
+  makePrimaryBadgeText: { color: colors.primary, fontFamily: fonts.bold, fontSize: 9.5 },
   phoneRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 3 },
   phoneIcon: { fontSize: 11 },
   phoneText: { fontSize: 12, color: colors.primary, fontWeight: '500', textDecorationLine: 'underline' },
@@ -950,48 +1816,74 @@ const styles = StyleSheet.create({
   linkExistingChevron: { fontSize: 20, color: colors.primary, fontWeight: '600' },
 
   inviteLabel: { fontSize: 13, fontWeight: '500', color: colors.textSecondary, marginBottom: spacing.sm },
-  inviteRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.sm },
   inviteBtn: {
-    backgroundColor: colors.primary, paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md, borderRadius: radius.md,
-    alignItems: 'center', justifyContent: 'center', minWidth: 64,
+    flexDirection: 'row', gap: spacing.sm, backgroundColor: colors.primary,
+    paddingHorizontal: spacing.lg, paddingVertical: spacing.md, borderRadius: radius.md,
+    alignItems: 'center', justifyContent: 'center', minHeight: 46,
   },
   inviteBtnDisabled: { backgroundColor: colors.border },
-  inviteBtnText: { fontSize: 14, color: colors.white, fontWeight: '600' },
-  inviteHint: { fontSize: 12, color: colors.textMuted, lineHeight: 17 },
+  inviteBtnText: { fontSize: 14, color: colors.white, fontFamily: fonts.bold },
+  inviteHint: { fontSize: 12, color: colors.textMuted, lineHeight: 17, marginTop: spacing.sm },
+  inviteError: { color: colors.danger, fontFamily: fonts.regular, fontSize: 12, marginBottom: spacing.sm },
+  pendingInviteBlock: { marginBottom: spacing.md },
+  pendingInviteHeading: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.sm },
+  pendingInviteTitle: { color: colors.textPrimary, fontFamily: fonts.bold, fontSize: 13 },
+  pendingInviteCard: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md, marginBottom: spacing.sm, borderRadius: radius.md, backgroundColor: colors.amberLight },
+  pendingInviteEmail: { color: colors.textPrimary, fontFamily: fonts.bold, fontSize: 12.5 },
+  pendingInviteMeta: { color: colors.amber, fontFamily: fonts.regular, fontSize: 11, marginTop: 2 },
+  pendingInviteExpired: { color: colors.danger },
+  pendingInviteCode: { color: colors.textMuted, fontFamily: fonts.bold, fontSize: 10.5, marginTop: 3, letterSpacing: 0.5 },
+  inviteIconButton: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center', borderRadius: radius.md, backgroundColor: colors.surface },
+  inviteDeleteButton: { backgroundColor: colors.dangerLight },
 
   dangerCard: {
     backgroundColor: colors.dangerLight, borderRadius: radius.lg,
     borderWidth: 1, borderColor: colors.danger + '33',
     padding: spacing.lg, marginTop: spacing.sm,
   },
-  dangerTitle: { fontSize: 15, fontWeight: '600', color: colors.danger, marginBottom: spacing.xs },
-  dangerDesc: { fontSize: 13, color: colors.textSecondary, lineHeight: 18 },
+  dangerTitle: { fontSize: 15, fontFamily: fonts.black, color: colors.danger, marginBottom: spacing.xs },
+  dangerDesc: { fontSize: 13, fontFamily: fonts.regular, color: colors.textSecondary, lineHeight: 18 },
 
   incidentHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.md },
   incidentNewBtn: {
     backgroundColor: colors.dangerLight, paddingHorizontal: spacing.md,
     paddingVertical: spacing.xs + 1, borderRadius: radius.full,
   },
-  incidentNewBtnText: { fontSize: 12, color: colors.danger, fontWeight: '600' },
+  incidentNewBtnText: { fontSize: 12, color: colors.danger, fontFamily: fonts.bold },
   incidentRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: spacing.sm },
   incidentDot: { width: 10, height: 10, borderRadius: 5 },
   incidentType: { fontSize: 14, fontWeight: '500', color: colors.textPrimary },
   incidentMeta: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
 
   // Classroom assignment — compact row + modal
+  classroomCard: {
+    paddingVertical: spacing.lg,
+  },
   classroomRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
   },
   classroomInfo: { flex: 1 },
-  classroomCurrentName: { fontSize: 15, fontWeight: '600', color: colors.textPrimary },
-  classroomCurrentAge: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
+  classroomCurrentName: { fontSize: 13, fontFamily: fonts.regular, color: colors.textSecondary },
+  classroomCurrentAge: { fontSize: 12, fontFamily: fonts.regular, color: colors.textFaint, marginTop: 2 },
+  handoffCard: { backgroundColor: colors.successLight, borderColor: colors.success + '33' },
+  handoffCardPending: { backgroundColor: colors.amberLight, borderColor: colors.amber + '44' },
+  handoffHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  handoffIcon: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center', borderRadius: 20, backgroundColor: colors.surface },
+  handoffIconReady: { backgroundColor: colors.surface },
+  handoffStatus: { color: colors.textSecondary, fontFamily: fonts.regular, fontSize: 12 },
+  handoffDetails: { marginTop: spacing.md, overflow: 'hidden', borderWidth: 1, borderColor: colors.borderSoft, borderRadius: radius.md, backgroundColor: colors.surface },
+  handoffDetailRow: { minHeight: 42, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md, paddingHorizontal: spacing.md, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.borderSoft },
+  handoffDetailLabel: { color: colors.textMuted, fontFamily: fonts.regular, fontSize: 11.5 },
+  handoffDetailValue: { flex: 1, color: colors.textPrimary, fontFamily: fonts.bold, fontSize: 11.5, textAlign: 'right' },
+  handoffNotice: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm, marginTop: spacing.md },
+  handoffNoticeText: { flex: 1, color: colors.textSecondary, fontFamily: fonts.regular, fontSize: 11, lineHeight: 16 },
   classMoveBtn: {
-    backgroundColor: colors.primary, paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm + 2, borderRadius: radius.full,
+    backgroundColor: colors.surface, paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm + 1, borderRadius: radius.full,
+    borderWidth: 1.8, borderColor: colors.primary,
     minWidth: 90, alignItems: 'center',
   },
-  classMoveBtnText: { fontSize: 13, color: colors.white, fontWeight: '600' },
+  classMoveBtnText: { fontSize: 13, color: colors.primary, fontFamily: fonts.bold },
 
   // Move modal
   moveOverlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.45)' },
@@ -1004,6 +1896,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     padding: spacing.xl, borderBottomWidth: 1, borderBottomColor: colors.border,
   },
+  sheetBack: { width: 34, height: 34, alignItems: 'center', justifyContent: 'center', marginLeft: -8, marginRight: spacing.xs },
   moveSheetTitle: { fontSize: 17, fontWeight: '600', color: colors.textPrimary },
   moveSheetClose: { fontSize: 20, color: colors.textSecondary, fontWeight: '600', padding: spacing.xs },
   moveList: { paddingHorizontal: spacing.md },
@@ -1012,6 +1905,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md, paddingVertical: spacing.lg,
     borderBottomWidth: 1, borderBottomColor: colors.border,
   },
+  accessReview: { padding: spacing.lg, paddingBottom: spacing.xxxl },
+  selectedParentCard: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, padding: spacing.md, marginBottom: spacing.lg, borderWidth: 1, borderColor: colors.border, borderRadius: radius.lg, backgroundColor: colors.bg },
+  pickupAccessCard: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, padding: spacing.md, marginBottom: spacing.md, borderWidth: 1, borderColor: colors.border, borderRadius: radius.lg, backgroundColor: colors.surface },
+  pickupAccessIcon: { width: 38, height: 38, alignItems: 'center', justifyContent: 'center', borderRadius: radius.md, backgroundColor: colors.bg },
+  pickupAccessIconOn: { backgroundColor: colors.successLight },
+  pickupAccessTitle: { color: colors.textPrimary, fontFamily: fonts.bold, fontSize: 13.5 },
+  pickupAccessText: { color: colors.textMuted, fontFamily: fonts.regular, fontSize: 11.5, lineHeight: 16, marginTop: 2 },
+  accessToggle: { width: 42, height: 24, padding: 3, borderRadius: 12, backgroundColor: colors.border },
+  accessToggleOn: { backgroundColor: colors.success },
+  accessToggleThumb: { width: 18, height: 18, borderRadius: 9, backgroundColor: colors.white },
+  accessToggleThumbOn: { marginLeft: 18 },
+  primaryNotice: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm, padding: spacing.md, marginBottom: spacing.md, borderRadius: radius.md, backgroundColor: colors.primaryLight },
+  primaryNoticeText: { flex: 1, color: colors.textSecondary, fontFamily: fonts.regular, fontSize: 12, lineHeight: 17 },
   moveRoomIcon: {
     width: 40, height: 40, borderRadius: 20,
     backgroundColor: colors.primaryLight, alignItems: 'center', justifyContent: 'center',
@@ -1026,13 +1932,21 @@ const styles = StyleSheet.create({
   },
 
   // Medical section
-  medLabel: { fontSize: 13, fontWeight: '600', color: colors.textSecondary, marginBottom: spacing.sm },
+  medicalReviewRow: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm,
+    borderWidth: 1, borderColor: colors.border, borderRadius: radius.md,
+    backgroundColor: colors.primarySoft, padding: spacing.md, marginBottom: spacing.lg,
+  },
+  medicalReviewRowSelected: { borderColor: colors.success, backgroundColor: colors.successLight },
+  medicalReviewTitle: { fontSize: 13, fontFamily: fonts.bold, color: colors.textPrimary },
+  medicalReviewSub: { fontSize: 11, color: colors.textSecondary, lineHeight: 16, marginTop: 2 },
+  medLabel: { fontSize: 13, fontFamily: fonts.bold, color: colors.textPrimary, marginBottom: spacing.sm },
   allergyWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.sm },
   allergyChip: {
     backgroundColor: colors.dangerLight, borderWidth: 1, borderColor: colors.danger + '55',
     paddingHorizontal: spacing.md, paddingVertical: spacing.xs + 2, borderRadius: radius.full,
   },
-  allergyChipText: { fontSize: 13, color: colors.danger, fontWeight: '600' },
+  allergyChipText: { fontSize: 13, color: colors.danger, fontFamily: fonts.bold },
   medAddRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   medAddBtn: {
     backgroundColor: colors.primary, paddingHorizontal: spacing.lg,
@@ -1052,7 +1966,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', gap: spacing.md,
     paddingVertical: spacing.sm,
   },
-  medLinkIcon: { fontSize: 22 },
-  medLinkTitle: { fontSize: 14, fontWeight: '600', color: colors.textPrimary },
-  medLinkSub: { fontSize: 12, color: colors.textSecondary, marginTop: 1 },
+  medLinkIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: radius.md,
+    backgroundColor: colors.primarySoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  medLinkTitle: { fontSize: 14, fontFamily: fonts.bold, color: colors.textPrimary },
+  medLinkSub: { fontSize: 12, fontFamily: fonts.regular, color: colors.textSecondary, marginTop: 1 },
 });

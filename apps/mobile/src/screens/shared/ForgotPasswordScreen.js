@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
-import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
+import { KeyboardAwareScrollView } from '../../components/KeyboardAwareScrollView';
 import { useAuth } from '../../hooks/useAuth';
 import { Input, Button } from '../../components/ui';
 import { colors, spacing, radius } from '../../theme';
@@ -27,7 +27,7 @@ export default function ForgotPasswordScreen({ navigation }) {
     const { error } = await resetPassword(email.trim().toLowerCase());
     setLoading(false);
     if (error) {
-      setErrors({ general: error.message });
+      setErrors({ general: 'The reset request could not be sent. Check your connection and try again.' });
     } else {
       setSent(true);
     }
@@ -133,4 +133,3 @@ const styles = StyleSheet.create({
     textAlign: 'center', marginTop: spacing.md,
   },
 });
-

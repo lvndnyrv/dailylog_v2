@@ -55,10 +55,18 @@ export function RolesLibrary({ roles }: { roles: CenterRole[] }) {
 
   const toggle = (area: string, col: keyof AreaPermission) => {
     if (locked) return;
-    setDraft((d) => ({
-      ...d,
-      [area]: { ...(d[area] ?? emptyPermission()), [col]: !(d[area] ?? emptyPermission())[col] },
-    }));
+    setDraft((current) => {
+      const permission = { ...(current[area] ?? emptyPermission()) };
+      const nextValue = !permission[col];
+      permission[col] = nextValue;
+      if (col === "view" && !nextValue) {
+        permission.edit = false;
+        permission.approve = false;
+      } else if ((col === "edit" || col === "approve") && nextValue) {
+        permission.view = true;
+      }
+      return { ...current, [area]: permission };
+    });
   };
 
   return (
@@ -175,12 +183,8 @@ export function RolesLibrary({ roles }: { roles: CenterRole[] }) {
             ) : (
               <>
                 These are the <b className="text-ink">defaults</b> for everyone with this role.
-                Individuals can be fine-tuned in their profile — those become{" "}
-                <b className="text-ink">overrides</b>.{" "}
-                {/* Per-person override screen (4e) is not built yet — kept as a hint. */}
-                <span className="whitespace-nowrap font-semibold text-faint">
-                  See a person&apos;s matrix →
-                </span>
+                Individuals can be fine-tuned from their staff profile — those become{" "}
+                <b className="text-ink">audited overrides</b> without changing this role.
               </>
             )}
           </p>

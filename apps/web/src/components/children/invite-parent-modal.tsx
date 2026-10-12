@@ -42,7 +42,7 @@ export function InviteParentModal({
               : "Email could not be queued; share this code manually."}
           </p>
           <div className="flex flex-col items-center gap-1 rounded-[13px] bg-canvas px-4 py-5">
-            <span className="text-[11.5px] font-semibold text-muted">Invite code — works once, 14 days</span>
+            <span className="text-[11.5px] font-semibold text-muted">Invite code — works once, 7 days</span>
             <span className="font-mono text-[26px] font-semibold tracking-[.18em] text-ink">
               {state.inviteCode}
             </span>

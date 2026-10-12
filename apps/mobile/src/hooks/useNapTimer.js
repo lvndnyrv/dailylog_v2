@@ -4,6 +4,7 @@ import { mutate } from '../lib/offlineQueue';
 import { newId } from '../lib/uuid';
 import { showToast } from '../components/Toast';
 import { format } from 'date-fns';
+import { useClassroom } from './useClassroom';
 
 /**
  * Nap timer hook — manages live nap timers for a classroom.
@@ -14,6 +15,8 @@ import { format } from 'date-fns';
  */
 export function useNapTimer(classroomId) {
   const [activeNaps, setActiveNaps] = useState({});
+  const { classrooms = [] } = useClassroom();
+  const roomKey = (classrooms.find(room => room.id === classroomId)?.member_room_ids || [classroomId]).join(',');
   const reminderInterval = useRef(null);
   const remindedSet = useRef(new Set());
   const today = format(new Date(), 'yyyy-MM-dd');
@@ -22,8 +25,8 @@ export function useNapTimer(classroomId) {
     if (!classroomId) return;
     const { data: kids } = await supabase
       .from('children').select('id, first_name')
-      .eq('classroom_id', classroomId).is('archived_at', null);
-    if (!kids?.length) return;
+      .in('classroom_id', roomKey.split(',')).is('archived_at', null);
+    if (!kids?.length) { setActiveNaps({}); return; }
 
     const childNames = {};
     kids.forEach(k => { childNames[k.id] = k.first_name; });
@@ -51,7 +54,7 @@ export function useNapTimer(classroomId) {
       }
     });
     setActiveNaps(naps);
-  }, [classroomId, today]);
+  }, [classroomId, today, roomKey]);
 
   useEffect(() => { loadActiveNaps(); }, [loadActiveNaps]);
 
@@ -148,4 +151,3 @@ export function useNapTimer(classroomId) {
 
   return { activeNaps, startNap, endNap, isNapping, getElapsed, getOpenNaps, refresh: loadActiveNaps };
 }
-

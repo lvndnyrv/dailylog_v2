@@ -1,66 +1,46 @@
+import {
+  getMyProfile,
+  hasPermission,
+  listRecentReportExports,
+  listReportAdmins,
+  listReportSchedules,
+} from "@dailylog/db/queries";
+import { ReportsView } from "@/components/reports/reports-view";
 import { SectionHeader } from "@/components/shell/header";
+import { getServerSupabase } from "@/lib/supabase/server";
 
-const card = "rounded-2xl border border-[rgba(23,51,91,.1)] bg-card p-[18px]";
-
-const REPORTS = [
-  {
-    title: "Daily attendance record",
-    blurb: "Who was in, when, and who dropped off — the licensing record for any day.",
-    href: "/reports-export/attendance",
-    note: "today's date · add ?date=YYYY-MM-DD for another day",
-  },
-  {
-    title: "Monthly attendance record",
-    blurb: "Every check-in for the month — the record inspectors and subsidies ask for.",
-    href: "/reports-export/attendance-month",
-    note: "this month · add ?month=YYYY-MM for another",
-  },
-  {
-    title: "Children roster",
-    blurb: "Every active child with room, birthday, allergies and primary contact.",
-    href: "/reports-export/children",
-    note: "one row per child",
-  },
-  {
-    title: "Invoices",
-    blurb: "Every invoice with family, status and totals — ready for the accountant.",
-    href: "/reports-export/invoices",
-    note: "one row per invoice",
-  },
-];
-
-// Reports 13a — the library. Each report is a CSV export scoped by RLS.
-// Scheduling (13c/13d) and the timesheet export (13e) arrive with their
-// underlying features.
-export default function ReportsPage() {
-  return (
-    <>
-      <SectionHeader
-        title="Reports"
-        subtitle="Run and export — everything is scoped to your center"
-      />
-      <div className="grid flex-1 grid-cols-3 items-start gap-4 p-7">
-        {REPORTS.map((report) => (
-          <div key={report.title} className={`${card} flex flex-col gap-2`}>
-            <h2 className="text-[14px] font-extrabold text-ink">{report.title}</h2>
-            <p className="flex-1 text-[12.5px] leading-relaxed text-muted">{report.blurb}</p>
-            <p className="text-[10.5px] text-faint">{report.note}</p>
-            <a
-              href={report.href}
-              className="self-start rounded-btn bg-primary px-4 py-2 text-[13px] font-bold text-white hover:bg-primary-hover"
-            >
-              Download CSV
-            </a>
+export default async function ReportsPage() {
+  const client = await getServerSupabase();
+  const profile = await getMyProfile(client);
+  const canView = await hasPermission(client, "reports", "view");
+  if (!profile?.daycare_id || !["owner_admin", "admin"].includes(profile.role) || !canView) {
+    return (
+      <>
+        <SectionHeader title="Reports" subtitle="Center reporting and exports" showUtilities={false} />
+        <main className="flex flex-1 items-start p-7">
+          <div className="max-w-xl rounded-2xl border border-hairline bg-card p-6">
+            <h2 className="text-lg font-extrabold text-ink">Reports access is restricted</h2>
+            <p className="mt-2 text-sm leading-relaxed text-muted">
+              Ask an owner administrator to enable Reports viewing for your role.
+            </p>
           </div>
-        ))}
-        <div className={`${card} col-span-3 opacity-70`}>
-          <h2 className="text-[14px] font-extrabold text-ink">Scheduled reports & timesheets</h2>
-          <p className="mt-1 text-[12.5px] leading-relaxed text-muted">
-            Emailed report schedules arrive with notifications; the payroll
-            timesheet export arrives with staff time tracking.
-          </p>
-        </div>
-      </div>
-    </>
+        </main>
+      </>
+    );
+  }
+  const [schedules, exports, admins, canEdit] = await Promise.all([
+    listReportSchedules(client),
+    listRecentReportExports(client),
+    listReportAdmins(client),
+    hasPermission(client, "reports", "edit"),
+  ]);
+  return (
+    <ReportsView
+      schedules={schedules}
+      exports={exports}
+      admins={admins}
+      canEdit={canEdit}
+      profileId={profile.id}
+    />
   );
 }

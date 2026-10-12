@@ -13,11 +13,18 @@ export function RatioAlertsCard({
   const [status, setStatus] = useState<"idle" | "saved" | "error">("idle");
 
   const save = (next: typeof settings) => {
+    const previous = settings;
     setSettings(next);
     setStatus("idle");
     startTransition(async () => {
-      const result = await updateRatioAlertsAction(next);
-      setStatus(result.error ? "error" : "saved");
+      try {
+        const result = await updateRatioAlertsAction(next);
+        if (result.error) setSettings(previous);
+        setStatus(result.error ? "error" : "saved");
+      } catch {
+        setSettings(previous);
+        setStatus("error");
+      }
     });
   };
 
@@ -25,7 +32,7 @@ export function RatioAlertsCard({
     <section className="rounded-2xl border-[1.5px] border-[#D6E1F0] bg-card px-4 py-4">
       <div className="mb-3 flex items-center">
         <h2 className="text-[14px] font-extrabold text-ink">Ratio alerts</h2>
-        <span className="ml-auto text-[10.5px] text-faint">
+        <span role="status" className="ml-auto text-[10.5px] text-faint">
           {pending ? "Saving…" : status === "saved" ? "Saved" : status === "error" ? "Could not save" : ""}
         </span>
       </div>
@@ -83,7 +90,7 @@ function ToggleRow({
         onChange={(event) => onChange(event.target.checked)}
         className="peer sr-only"
       />
-      <span className="relative h-[22px] w-[38px] rounded-full bg-[#D6E1F0] transition-colors peer-checked:bg-primary peer-disabled:opacity-60 after:absolute after:left-0.5 after:top-0.5 after:size-[18px] after:rounded-full after:bg-white after:transition-transform peer-checked:after:translate-x-4" />
+      <span className="relative h-[22px] w-[38px] rounded-full bg-[#D6E1F0] transition-colors peer-checked:bg-primary peer-focus-visible:ring-2 peer-focus-visible:ring-primary peer-focus-visible:ring-offset-2 peer-disabled:opacity-60 after:absolute after:left-0.5 after:top-0.5 after:size-[18px] after:rounded-full after:bg-white after:transition-transform peer-checked:after:translate-x-4" />
     </label>
   );
 }

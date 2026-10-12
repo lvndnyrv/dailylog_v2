@@ -25,10 +25,36 @@ Set the secrets named in `supabase/functions/.env.example`, then deploy:
 supabase functions deploy dispatch-notifications --no-verify-jwt
 ```
 
-Invoke `dispatch-notifications` every minute from Supabase Cron or another
+Invoke `dispatch-notifications` every five minutes from Supabase Cron or another
 scheduler. Send `x-worker-secret: <NOTIFICATION_WORKER_SECRET>` on every POST.
 The worker safely supports concurrent invocations and reclaims five-minute-old
 leases after a crash.
+
+For Supabase Cron, keep the header value out of `cron.job`: install `pg_cron`
+and `pg_net`, save the same random worker secret in both Edge Function Secrets
+as `NOTIFICATION_WORKER_SECRET` and Vault as `notification_worker_secret`, then
+schedule this SQL snippet with `*/5 * * * *`:
+
+```sql
+select net.http_post(
+  url := 'https://<PROJECT_REF>.supabase.co/functions/v1/dispatch-notifications',
+  headers := jsonb_build_object(
+    'content-type', 'application/json',
+    'x-worker-secret', (
+      select decrypted_secret
+      from vault.decrypted_secrets
+      where name = 'notification_worker_secret'
+      limit 1
+    )
+  ),
+  body := '{}'::jsonb,
+  timeout_milliseconds := 30000
+);
+```
+
+Deploy with legacy JWT verification disabled. The function performs its own
+constant-value header check, while Vault decrypts the scheduler secret only
+when the job runs.
 
 Push delivery uses Expo. Email delivery calls `EMAIL_WEBHOOK_URL` with:
 
@@ -45,6 +71,10 @@ Push delivery uses Expo. Email delivery calls `EMAIL_WEBHOOK_URL` with:
 
 The email adapter should treat `idempotencyKey` as unique and return a 2xx
 status only after the provider accepts the message.
+
+Until an email provider is configured, push and in-app delivery remain active.
+Queued email rows are marked failed once with a clear `EMAIL_WEBHOOK_URL` error;
+they are not reported as delivered and are not retried forever.
 
 ## Time tracking rollout
 

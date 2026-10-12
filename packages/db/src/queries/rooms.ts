@@ -4,16 +4,35 @@ import type { Tables, TablesInsert, TablesUpdate } from '../types';
 
 type Client = SupabaseClient<Database>;
 
-export type RoomLiveStatus =
-  Database['public']['Functions']['get_rooms_live_status']['Returns'][number] & {
+type GeneratedRoomLiveStatus =
+  Database['public']['Functions']['get_rooms_live_status']['Returns'][number];
+
+export interface RoomEducator {
+  id: string;
+  full_name: string;
+}
+
+function isRoomEducator(value: unknown): value is RoomEducator {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const educator = value as Record<string, unknown>;
+  return typeof educator.id === 'string' && typeof educator.full_name === 'string';
+}
+
+export type RoomLiveStatus = Omit<GeneratedRoomLiveStatus, 'educators'> & {
+    educators: RoomEducator[];
     opens_on: string | null;
     nap_start: string | null;
     nap_end: string | null;
     lead_educator_id: string | null;
+    updated_at: string | null;
+    operating: Database['public']['Functions']['get_room_operating_context']['Returns'][number] | null;
   };
 
 export type RoomTransition =
   Database['public']['Functions']['get_room_transitions']['Returns'][number];
+
+export type RoomTransitionWaitRow =
+  Database['public']['Functions']['get_room_transition_wait_requests']['Returns'][number];
 
 export interface RoomCoverageAssignmentRow {
   id: string;
@@ -30,11 +49,20 @@ export interface RoomCoverageAssignmentRow {
 
 export interface RoomTransitionPlanRow {
   id: string;
+  updated_at: string;
   child_id: string;
   from_classroom_id: string;
   to_classroom_id: string;
   move_on: string;
   transition_week: boolean;
+  transition_starts_on: string | null;
+  transition_ends_on: string | null;
+  current_tuition_cents: number | null;
+  new_tuition_cents: number | null;
+  currency: string;
+  family_message: string | null;
+  family_visible: boolean;
+  published_at: string | null;
   status: string;
   notes: string | null;
   child: { id: string; first_name: string; last_name: string } | null;
@@ -44,23 +72,33 @@ export interface RoomTransitionPlanRow {
 
 // Live per-room counts (7a): enrolled, present now, assigned educators.
 export async function listRoomsLive(client: Client): Promise<RoomLiveStatus[]> {
-  const [live, settings] = await Promise.all([
+  const [live, settings, operating] = await Promise.all([
     client.rpc('get_rooms_live_status'),
     client
       .from('classrooms')
-      .select('id, opens_on, nap_start, nap_end, lead_educator_id')
+      .select('id, opens_on, nap_start, nap_end, lead_educator_id, updated_at')
       .is('archived_at', null),
+    client.rpc('get_room_operating_context'),
   ]);
   if (live.error) throw live.error;
   if (settings.error) throw settings.error;
+  if (operating.error) throw operating.error;
   const byId = new Map((settings.data ?? []).map((room) => [room.id, room]));
-  return (live.data ?? []).map((room) => ({
-    ...room,
-    opens_on: byId.get(room.id)?.opens_on ?? null,
-    nap_start: byId.get(room.id)?.nap_start ?? null,
-    nap_end: byId.get(room.id)?.nap_end ?? null,
-    lead_educator_id: byId.get(room.id)?.lead_educator_id ?? null,
-  }));
+  return (live.data ?? []).map((room): RoomLiveStatus => {
+    const educators = Array.isArray(room.educators)
+      ? (room.educators as unknown[]).filter(isRoomEducator)
+      : [];
+    return {
+      ...room,
+      educators,
+      operating: operating.data?.find((context) => context.room_id === room.id) ?? null,
+      opens_on: byId.get(room.id)?.opens_on ?? null,
+      nap_start: byId.get(room.id)?.nap_start ?? null,
+      nap_end: byId.get(room.id)?.nap_end ?? null,
+      lead_educator_id: byId.get(room.id)?.lead_educator_id ?? null,
+      updated_at: byId.get(room.id)?.updated_at ?? null,
+    };
+  });
 }
 
 // Children close to aging out of their band, with the suggested next room (7e).
@@ -71,6 +109,14 @@ export async function listRoomTransitions(
   const { data, error } = await client.rpc('get_room_transitions', {
     p_horizon_months: horizonMonths,
   });
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function listRoomTransitionWaitRequests(
+  client: Client,
+): Promise<RoomTransitionWaitRow[]> {
+  const { data, error } = await client.rpc('get_room_transition_wait_requests');
   if (error) throw error;
   return data ?? [];
 }
@@ -102,7 +148,7 @@ export async function listRoomCoverageAssignments(
     )
     .lt('starts_at', to)
     .gt('ends_at', from)
-    .neq('status', 'cancelled')
+    .in('status', ['assigned', 'accepted', 'declined'])
     .order('starts_at');
   if (error) throw error;
   return (data ?? []) as unknown as RoomCoverageAssignmentRow[];
@@ -112,7 +158,9 @@ export async function listRoomTransitionPlans(client: Client): Promise<RoomTrans
   const { data, error } = await client
     .from('room_transition_plans')
     .select(
-      `id, child_id, from_classroom_id, to_classroom_id, move_on, transition_week,
+      `id, updated_at, child_id, from_classroom_id, to_classroom_id, move_on, transition_week,
+       transition_starts_on, transition_ends_on, current_tuition_cents,
+       new_tuition_cents, currency, family_message, family_visible, published_at,
        status, notes, child:children(id, first_name, last_name),
        from_room:classrooms!room_transition_plans_from_classroom_id_fkey(id, name),
        to_room:classrooms!room_transition_plans_to_classroom_id_fkey(id, name)`,
@@ -134,14 +182,19 @@ export async function listRoomCombinations(client: Client): Promise<Tables<'room
 
 // Today's roster for one room (7b): child + attendance state.
 export async function getRoomRoster(client: Client, roomId: string, date?: string) {
+  const rosterDate = date ?? new Date().toISOString().slice(0, 10);
+  const { data: contexts, error: contextError } = await client.rpc('get_room_operating_context');
+  if (contextError) throw contextError;
+  const context = contexts?.find((item) => item.room_id === roomId);
   const { data, error } = await client
     .from('children')
     .select(
-      `id, first_name, last_name, date_of_birth, allergies,
+      `id, first_name, last_name, date_of_birth, allergies, classroom_id, enrolled_on, home_room:classrooms(name),
        attendance:attendance_records(id, date, checked_in_at, checked_out_at, status, absence_reason)`,
     )
-    .eq('classroom_id', roomId)
-    .eq('attendance.date', date ?? new Date().toISOString().slice(0, 10))
+    .in('classroom_id', context?.member_room_ids ?? [roomId])
+    .eq('attendance.date', rosterDate)
+    .or(`enrolled_on.is.null,enrolled_on.lte.${rosterDate}`)
     .is('archived_at', null)
     .order('first_name');
   if (error) throw error;

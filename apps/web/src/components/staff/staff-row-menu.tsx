@@ -1,6 +1,6 @@
 "use client";
 
-import { Copy, Mail, Pencil, Trash2, UserRound } from "lucide-react";
+import { Copy, KeyRound, Mail, Pencil, ShieldCheck, Trash2, UserRound } from "lucide-react";
 import { useState } from "react";
 import { deactivateStaffAction } from "@/lib/staff/actions";
 import { Modal } from "@/components/ui/modal";
@@ -11,14 +11,14 @@ export function StaffRowMenu({
   profileId,
   currentProfileId,
   name,
-  email,
+  canStartDelegation,
   onDuplicate,
 }: {
   staffId: string;
   profileId: string;
   currentProfileId: string;
   name: string;
-  email: string;
+  canStartDelegation: boolean;
   onDuplicate: () => void;
 }) {
   const [confirming, setConfirming] = useState(false);
@@ -31,7 +31,13 @@ export function StaffRowMenu({
         actions={[
           { label: "View profile", icon: UserRound, href: `/staff/${staffId}` },
           { label: "Edit details", icon: Pencil, href: `/staff/${staffId}?edit=1` },
-          { label: "Message", icon: Mail, href: `mailto:${email}` },
+          ...(!isSelf
+            ? [{ label: "Message", icon: Mail, href: `/staff/${staffId}/messages` }]
+            : []),
+          { label: "Manage permissions", icon: KeyRound, href: `/staff/${staffId}?permissions=1` },
+          ...(canStartDelegation && !isSelf
+            ? [{ label: "Start delegation", icon: ShieldCheck, href: `/staff?tab=delegations&delegate=${profileId}` }]
+            : []),
           { label: "Duplicate", icon: Copy, onSelect: onDuplicate },
           ...(!isSelf
             ? [

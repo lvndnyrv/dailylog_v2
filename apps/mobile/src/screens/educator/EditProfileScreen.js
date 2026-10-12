@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
+import { isAdminRole } from '@dailylog/shared';
 import {
   View, Text, TouchableOpacity,
   StyleSheet
 } from 'react-native';
 import { useAuth } from '../../hooks/useAuth';
 import { supabase } from '../../lib/supabase';
-import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
+import { KeyboardAwareScrollView } from '../../components/KeyboardAwareScrollView';
 import { Input, Button, PasswordStrength } from '../../components/ui';
 import { showToast } from '../../components/Toast';
 import { colors, spacing, radius } from '../../theme';
@@ -77,7 +78,12 @@ export default function EditProfileScreen({ navigation }) {
 
   return (
     <KeyboardAwareScrollView style={styles.container} contentContainerStyle={styles.content} enableOnAndroid extraScrollHeight={20} keyboardShouldPersistTaps="handled">
-      <TouchableOpacity onPress={() => navigation.goBack()} style={styles.back}>
+      <TouchableOpacity
+        onPress={() => navigation.goBack()}
+        style={styles.back}
+        accessibilityRole="button"
+        accessibilityLabel="Back to settings"
+      >
         <Text style={styles.backText}>← Back</Text>
       </TouchableOpacity>
 
@@ -93,7 +99,7 @@ export default function EditProfileScreen({ navigation }) {
           </View>
           <View>
             <Text style={styles.roleLabel}>
-              {profile?.role === 'admin' ? '👑 Admin' : profile?.role === 'educator' ? '👩‍🏫 Educator' : '👨‍👩‍👧 Parent'}
+              {isAdminRole(profile?.role) ? '👑 Admin' : profile?.role === 'educator' ? '👩‍🏫 Educator' : '👨‍👩‍👧 Parent'}
             </Text>
             <Text style={styles.emailLabel}>{profile?.email}</Text>
           </View>

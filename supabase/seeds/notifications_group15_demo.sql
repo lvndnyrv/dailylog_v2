@@ -10,6 +10,7 @@ insert into notification_preferences (
   ('00000000-0000-4000-a000-000000000001', '10000000-0000-4000-a000-000000000001', 'ratio_alert',          true, true,  false),
   ('00000000-0000-4000-a000-000000000001', '10000000-0000-4000-a000-000000000001', 'incident_report',      true, true,  true),
   ('00000000-0000-4000-a000-000000000001', '10000000-0000-4000-a000-000000000001', 'cert_expiry',          true, false, true),
+  ('00000000-0000-4000-a000-000000000001', '10000000-0000-4000-a000-000000000001', 'compliance_due',       true, true,  true),
   ('00000000-0000-4000-a000-000000000001', '10000000-0000-4000-a000-000000000001', 'overdue_billing',      true, false, true),
   ('00000000-0000-4000-a000-000000000001', '10000000-0000-4000-a000-000000000001', 'new_device_sign_in',   true, true,  true),
   ('00000000-0000-4000-a000-000000000001', '10000000-0000-4000-a000-000000000001', 'waitlist_enrollment',  true, false, false)
@@ -75,9 +76,9 @@ insert into notifications (
     '10000000-0000-4000-a000-000000000001',
     '00000000-0000-4000-a000-000000000001',
     'waitlist_enrollment',
-    'Laurent family completed their application',
-    'Chloé · Preschool · requested start date Aug 1.',
-    '{"category":"enrollment","source":"Enrollment","href":"/enrollment/41000000-0000-4000-a000-000000000009","action_label":"Review application","severity":"info"}',
+    'Laurent family updated their application',
+    'Chloé · Preschool · application is 55% complete.',
+    '{"category":"enrollment","source":"Enrollment","href":"/enrollment/41000000-0000-4000-a000-000000000003","action_label":"Review application","severity":"info"}',
     null,
     now() - interval '3 hours'
   ),

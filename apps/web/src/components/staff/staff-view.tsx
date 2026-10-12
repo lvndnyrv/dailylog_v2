@@ -7,15 +7,17 @@ import type {
   StaffRow,
   StaffShiftRow,
   StaffTimeEntryRow,
+  StaffTimeOffCoverageImpactRow,
   StaffTimeOffRequestRow,
 } from "@dailylog/db/queries";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Avatar } from "@/components/ui/avatar";
-import { revokeInviteAction } from "@/lib/staff/actions";
 import { InviteEducatorModal } from "./invite-educator-modal";
 import { RolesLibrary } from "./roles-library";
 import { StaffDelegations } from "./staff-delegations";
+import { StaffInviteLifecycleModal } from "./staff-invite-lifecycle-modal";
+import { StaffBulkActions } from "./staff-bulk-actions";
 import { StaffTimekeeping } from "./staff-timekeeping";
 import { StaffRowMenu } from "./staff-row-menu";
 
@@ -41,6 +43,7 @@ const ROLE_LABELS: Record<string, string> = {
 type CertState =
   | { kind: "none" }
   | { kind: "valid" }
+  | { kind: "missing"; label: string }
   | { kind: "expiring"; label: string }
   | { kind: "expired"; label: string };
 
@@ -53,6 +56,7 @@ function certState(member: StaffRow): CertState {
   let soonestDays = Infinity;
 
   for (const cert of certs) {
+    if (cert.missing) return { kind: "missing", label: `${cert.item} missing` };
     if (!cert.expires_on) continue;
     const days = Math.floor((new Date(`${cert.expires_on}T12:00`).getTime() - now) / 86400000);
     if (days < 0) return { kind: "expired", label: `${cert.item} expired` };
@@ -73,6 +77,7 @@ export function StaffView({
   shifts,
   timeEntries,
   timeOff,
+  timeOffCoverageImpacts,
   timeZone,
   weekStart,
   month,
@@ -81,6 +86,8 @@ export function StaffView({
   initialTab,
   canManageDelegations,
   currentProfileId,
+  defaultDelegationDays,
+  initialDelegateProfileId,
 }: {
   staff: StaffRow[];
   invites: PendingStaffInvite[];
@@ -90,6 +97,7 @@ export function StaffView({
   shifts: StaffShiftRow[];
   timeEntries: StaffTimeEntryRow[];
   timeOff: StaffTimeOffRequestRow[];
+  timeOffCoverageImpacts: StaffTimeOffCoverageImpactRow[];
   timeZone: string;
   weekStart: string;
   month: string;
@@ -98,11 +106,15 @@ export function StaffView({
   initialTab: Tab;
   canManageDelegations: boolean;
   currentProfileId: string;
+  defaultDelegationDays: number;
+  initialDelegateProfileId: string | null;
 }) {
   const [tab, setTab] = useState<Tab>(initialTab);
   const [roomFilter, setRoomFilter] = useState<string | null>(null);
   const [certFilter, setCertFilter] = useState(false);
   const [inviting, setInviting] = useState(openInvite);
+  const [selectedInvite, setSelectedInvite] = useState<PendingStaffInvite | null>(null);
+  const [selectedStaffIds, setSelectedStaffIds] = useState<Set<string>>(() => new Set());
   const [inviteTemplate, setInviteTemplate] = useState<{
     name: string;
     role: "educator" | "lead" | "admin";
@@ -125,17 +137,29 @@ export function StaffView({
 
   const certIssues = staff.filter((s) => {
     const state = certState(s);
-    return state.kind === "expiring" || state.kind === "expired";
+    return state.kind === "missing" || state.kind === "expiring" || state.kind === "expired";
   }).length;
 
   const filtered = staff.filter((s) => {
     if (roomFilter && s.profile?.classroom?.id !== roomFilter) return false;
     if (certFilter) {
       const state = certState(s);
-      if (state.kind !== "expiring" && state.kind !== "expired") return false;
+      if (state.kind !== "missing" && state.kind !== "expiring" && state.kind !== "expired") return false;
     }
     return true;
   });
+  const selectedStaff = staff.filter((member) => selectedStaffIds.has(member.id));
+  const selectableFiltered = filtered.filter((member) => member.profile?.id !== currentProfileId);
+  const allFilteredSelected =
+    selectableFiltered.length > 0 && selectableFiltered.every((member) => selectedStaffIds.has(member.id));
+  const toggleSelected = (staffId: string) => {
+    setSelectedStaffIds((current) => {
+      const next = new Set(current);
+      if (next.has(staffId)) next.delete(staffId);
+      else next.add(staffId);
+      return next;
+    });
+  };
 
   return (
     <div className="flex flex-1 flex-col">
@@ -219,8 +243,26 @@ export function StaffView({
               )}
             </div>
 
+            <StaffBulkActions
+              selected={selectedStaff}
+              classrooms={classrooms}
+              onClear={() => setSelectedStaffIds(new Set())}
+            />
+
             <div className="overflow-hidden rounded-2xl border-[1.5px] border-[#D6E1F0] bg-card">
-              <div className={`grid grid-cols-[1.8fr_1fr_1fr_1.4fr_.9fr_34px] gap-2.5 border-b-[1.5px] border-[#EDF3FB] bg-[#F8FBFE] px-[18px] py-3 ${HEAD}`}>
+              <div className={`grid grid-cols-[28px_1.8fr_1fr_1fr_1.4fr_.9fr_34px] items-center gap-2.5 border-b-[1.5px] border-[#EDF3FB] bg-[#F8FBFE] px-[18px] py-3 ${HEAD}`}>
+                <input
+                  type="checkbox"
+                  aria-label="Select visible staff"
+                  checked={allFilteredSelected}
+                  onChange={() => setSelectedStaffIds((current) => {
+                    const next = new Set(current);
+                    if (allFilteredSelected) selectableFiltered.forEach((member) => next.delete(member.id));
+                    else selectableFiltered.forEach((member) => next.add(member.id));
+                    return next;
+                  })}
+                  className="size-4 accent-[var(--primary)]"
+                />
                 <span>NAME</span>
                 <span>ROLE</span>
                 <span>ROOM</span>
@@ -240,8 +282,18 @@ export function StaffView({
                     onKeyDown={(e) => {
                       if (e.key === "Enter" || e.key === " ") router.push(`/staff/${member.id}`);
                     }}
-                    className="grid cursor-pointer grid-cols-[1.8fr_1fr_1fr_1.4fr_.9fr_34px] items-center gap-2.5 border-b border-[#EDF3FB] px-[18px] py-3 last:border-b-0 hover:bg-[#F8FBFE] focus-visible:bg-[#F8FBFE] focus-visible:outline-none"
+                    className="grid cursor-pointer grid-cols-[28px_1.8fr_1fr_1fr_1.4fr_.9fr_34px] items-center gap-2.5 border-b border-[#EDF3FB] px-[18px] py-3 last:border-b-0 hover:bg-[#F8FBFE] focus-visible:bg-[#F8FBFE] focus-visible:outline-none"
                   >
+                    <input
+                      type="checkbox"
+                      aria-label={`Select ${member.profile!.full_name}`}
+                      checked={selectedStaffIds.has(member.id)}
+                      disabled={member.profile!.id === currentProfileId}
+                      title={member.profile!.id === currentProfileId ? "Bulk actions cannot target your own account" : undefined}
+                      onClick={(event) => event.stopPropagation()}
+                      onChange={() => toggleSelected(member.id)}
+                      className="size-4 accent-[var(--primary)] disabled:opacity-30"
+                    />
                     <span className="flex items-center gap-2.5">
                       <Avatar name={member.profile!.full_name} size={32} />
                       <span className="min-w-0">
@@ -266,6 +318,11 @@ export function StaffView({
                       {state.kind === "valid" && (
                         <span className="font-semibold text-success">All valid ✓</span>
                       )}
+                      {state.kind === "missing" && (
+                        <span className="rounded-full bg-danger-bg px-2.5 py-[3px] text-[11px] font-bold text-danger">
+                          {state.label}
+                        </span>
+                      )}
                       {state.kind === "expiring" && (
                         <span className="whitespace-nowrap rounded-full bg-warning-bg px-2.5 py-[3px] text-[11px] font-bold text-warning-text">
                           {state.label}
@@ -287,7 +344,7 @@ export function StaffView({
                       profileId={member.profile!.id}
                       currentProfileId={currentProfileId}
                       name={member.profile!.full_name}
-                      email={member.profile!.email}
+                      canStartDelegation={canManageDelegations && member.profile!.role === "educator"}
                       onDuplicate={() => {
                         setInviteTemplate({
                           name: member.profile!.full_name,
@@ -312,18 +369,19 @@ export function StaffView({
                 return (
                   <div
                     key={invite.id}
-                    className="grid grid-cols-[1.8fr_1fr_1fr_1.4fr_.9fr_34px] items-center gap-2.5 border-b border-[#EDF3FB] bg-[#FBFDFF] px-[18px] py-3 last:border-b-0"
+                    className="grid grid-cols-[28px_1.8fr_1fr_1fr_1.4fr_.9fr_34px] items-center gap-2.5 border-b border-[#EDF3FB] bg-[#FBFDFF] px-[18px] py-3 last:border-b-0"
                   >
+                    <span />
                     <span className="flex items-center gap-2.5">
                       <span className="grid size-8 flex-none place-items-center rounded-full border-[1.5px] border-dashed border-[#C3D2E6] text-[11px] font-bold text-faint">
                         ?
                       </span>
                       <span className="min-w-0">
-                        <span className="block truncate text-[13px] font-bold text-ink">
-                          {invite.email}
-                        </span>
+                        <button type="button" onClick={() => setSelectedInvite(invite)} className="block max-w-full truncate text-left text-[13px] font-bold text-ink hover:text-primary">
+                          {invite.full_name || invite.email}
+                        </button>
                         <span className="block font-mono text-[10.5px] text-faint">
-                          code {invite.code}
+                          {invite.full_name ? invite.email : `code ${invite.code}`}
                         </span>
                       </span>
                     </span>
@@ -343,16 +401,9 @@ export function StaffView({
                         </span>
                       )}
                     </span>
-                    <form action={revokeInviteAction}>
-                      <input type="hidden" name="invite_id" value={invite.id} />
-                      <button
-                        type="submit"
-                        title="Revoke invite"
-                        className="text-[11.5px] font-bold text-danger hover:underline"
-                      >
-                        ✕
-                      </button>
-                    </form>
+                    <button type="button" onClick={() => setSelectedInvite(invite)} className="text-[11.5px] font-bold text-primary hover:underline">
+                      View
+                    </button>
                   </div>
                 );
               })}
@@ -368,7 +419,13 @@ export function StaffView({
 
         {tab === "roles" && <RolesLibrary roles={roles} />}
         {tab === "delegations" && (
-          <StaffDelegations delegations={delegations} staff={staff} timeZone={timeZone} />
+          <StaffDelegations
+            delegations={delegations}
+            staff={staff}
+            timeZone={timeZone}
+            defaultDelegationDays={defaultDelegationDays}
+            initialDelegateProfileId={initialDelegateProfileId}
+          />
         )}
         {(tab === "timesheets" || tab === "time-off") && (
           <StaffTimekeeping
@@ -377,6 +434,7 @@ export function StaffView({
             shifts={shifts}
             entries={timeEntries}
             requests={timeOff}
+            coverageImpacts={timeOffCoverageImpacts}
             timeZone={timeZone}
             weekStart={weekStart}
             month={month}
@@ -393,6 +451,12 @@ export function StaffView({
             setInviting(false);
             setInviteTemplate(null);
           }}
+        />
+      )}
+      {selectedInvite && (
+        <StaffInviteLifecycleModal
+          invite={selectedInvite}
+          onClose={() => setSelectedInvite(null)}
         />
       )}
     </div>

@@ -26,5 +26,6 @@ export default async function Home() {
   if (!user) redirect("/sign-in");
 
   const profile = await getMyProfile(supabase);
+  if (!profile || profile.archived_at) redirect("/account-issue");
   redirect(roleDestination(profile?.role));
 }

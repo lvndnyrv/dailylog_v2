@@ -4,8 +4,10 @@ import {
   listFloaters,
   listRoomCombinations,
   listRoomCoverageAssignments,
+  listRoomDemandForecast,
   listRoomsLive,
   listRoomTransitionPlans,
+  listRoomTransitionWaitRequests,
   listRoomTransitions,
   listStaff,
   listStaffShifts,
@@ -28,7 +30,8 @@ export default async function RoomDetailPage({
   const supabase = await getServerSupabase();
   const daycare = await getMyDaycare(supabase);
   const timeZone = daycare?.timezone ?? "America/Toronto";
-  const today = dateInTimeZone(new Date(), timeZone);
+  const now = new Date();
+  const today = dateInTimeZone(now, timeZone);
   const rangeStart = `${addDateDays(today, -1)}T00:00:00Z`;
   const rangeEnd = `${addDateDays(today, 2)}T00:00:00Z`;
 
@@ -41,9 +44,11 @@ export default async function RoomDetailPage({
     assignments,
     transitions,
     transitionPlans,
+    transitionWaits,
     combinations,
     floaters,
     staff,
+    forecast,
   ] = await Promise.all([
     listRoomsLive(supabase),
     getRoomRoster(supabase, id, today),
@@ -53,9 +58,11 @@ export default async function RoomDetailPage({
     listRoomCoverageAssignments(supabase, rangeStart, rangeEnd),
     listRoomTransitions(supabase, 3),
     listRoomTransitionPlans(supabase),
+    listRoomTransitionWaitRequests(supabase),
     listRoomCombinations(supabase),
     listFloaters(supabase),
     listStaff(supabase),
+    listRoomDemandForecast(supabase, today),
   ]);
   const room = rooms.find((r) => r.id === id);
   if (!room) notFound();
@@ -71,14 +78,19 @@ export default async function RoomDetailPage({
       assignments={assignments.filter((item) => item.classroom?.id === id)}
       transitions={transitions.filter((item) => item.room_id === id)}
       transitionPlans={transitionPlans.filter((item) => item.from_classroom_id === id)}
+      transitionWaits={transitionWaits.filter((item) => item.from_classroom_id === id)}
       combinations={combinations.filter(
         (item) => item.source_classroom_id === id || item.host_classroom_id === id,
       )}
       floaters={floaters}
-      educators={staff.filter((member) => member.profile?.role === "educator").map((member) => ({
+      educators={staff.filter((member) => member.status === "active" && member.profile?.role === "educator").map((member) => ({
         id: member.profile!.id,
         fullName: member.profile!.full_name,
+        roomId: member.profile!.classroom?.id ?? null,
+        roomName: member.profile!.classroom?.name ?? null,
       }))}
+      forecast={forecast.filter((item) => item.room_id === (room.operating?.host_room_id ?? id))}
+      nowIso={now.toISOString()}
       date={today}
       timeZone={timeZone}
       alertAfterMinutes={daycare?.ratio_alert_after_minutes ?? 10}

@@ -2,9 +2,13 @@ import type { NotificationRow } from "@dailylog/db/queries";
 import type { Json } from "@dailylog/db";
 import {
   Award,
+  CalendarClock,
   CircleDollarSign,
   ClipboardList,
+  Megaphone,
   ReceiptText,
+  MessageCircle,
+  ShieldAlert,
   Smartphone,
   TriangleAlert,
   UsersRound,
@@ -50,6 +54,54 @@ export function notificationPresentation(
   };
 
   switch (notification.kind) {
+    case "announcement":
+      return {
+        icon: Megaphone,
+        iconClassName: "bg-tint text-primary",
+        accentClassName: "bg-primary",
+        category: "alerts",
+        source: overrides.source ?? "Broadcasts",
+        href: overrides.href ?? "/messages",
+        actionLabel: overrides.actionLabel ?? "View broadcast",
+        urgent: payloadString(payload, "priority") === "urgent",
+      };
+    case "attendance":
+      return {
+        icon: CalendarClock,
+        iconClassName: "bg-warning-bg text-warning-text",
+        accentClassName: "bg-warning",
+        category: "alerts",
+        source: overrides.source ?? "Attendance",
+        href: overrides.href ?? "/attendance",
+        actionLabel: overrides.actionLabel ?? "Review attendance",
+        urgent: false,
+      };
+    case "parent_messages": {
+      const childId = payloadString(payload, "childId");
+      return {
+        icon: MessageCircle,
+        iconClassName: "bg-tint text-primary",
+        accentClassName: "bg-primary",
+        category: "alerts",
+        source: overrides.source ?? "Messages",
+        href: overrides.href ?? (childId
+          ? `/messages?child=${encodeURIComponent(childId)}`
+          : "/messages"),
+        actionLabel: overrides.actionLabel ?? "Open conversation",
+        urgent: false,
+      };
+    }
+    case "staff_message":
+      return {
+        icon: MessageCircle,
+        iconClassName: "bg-tint text-primary",
+        accentClassName: "bg-primary",
+        category: "alerts",
+        source: overrides.source ?? "Staff message",
+        href: overrides.href ?? "/staff",
+        actionLabel: overrides.actionLabel ?? "Open message",
+        urgent: false,
+      };
     case "ratio_alert":
       return {
         icon: TriangleAlert,
@@ -61,6 +113,7 @@ export function notificationPresentation(
         actionLabel: overrides.actionLabel ?? "Assign floater",
         urgent: true,
       };
+    case "incident":
     case "incident_report":
       return {
         icon: ClipboardList,
@@ -71,6 +124,90 @@ export function notificationPresentation(
         href: overrides.href ?? "/dashboard?review=incident",
         actionLabel: overrides.actionLabel ?? "Review",
         urgent: true,
+      };
+    case "pickup_review": {
+      const childId = payloadString(payload, "childId");
+      return {
+        icon: UsersRound,
+        iconClassName: "bg-warning-bg text-warning-text",
+        accentClassName: "bg-warning",
+        category: "alerts",
+        source: overrides.source ?? "Authorized pickups",
+        href: overrides.href ?? (childId
+          ? `/children/${encodeURIComponent(childId)}#authorized-pickups`
+          : "/children"),
+        actionLabel: overrides.actionLabel ?? "Review pickup person",
+        urgent: false,
+      };
+    }
+    case "pickup_security": {
+      const childId = payloadString(payload, "childId");
+      return {
+        icon: ShieldAlert,
+        iconClassName: "bg-danger-bg text-danger",
+        accentClassName: "bg-danger",
+        category: "alerts",
+        source: overrides.source ?? "Pickup safety",
+        href: overrides.href ?? (childId
+          ? `/children/${encodeURIComponent(childId)}#pickup-safety`
+          : "/children"),
+        actionLabel: overrides.actionLabel ?? "Review alert",
+        urgent: true,
+      };
+    }
+    case "parent_document_review": {
+      const childId = payloadString(payload, "childId");
+      const requestId = payloadString(payload, "requestId");
+      const documentAnchor = requestId
+        ? `family-document-${encodeURIComponent(requestId)}`
+        : "family-documents";
+      return {
+        icon: ClipboardList,
+        iconClassName: "bg-tint text-primary",
+        accentClassName: "bg-primary",
+        category: "alerts",
+        source: overrides.source ?? "Child documents",
+        href: overrides.href ?? (childId
+          ? `/children/${encodeURIComponent(childId)}#${documentAnchor}`
+          : "/children"),
+        actionLabel: overrides.actionLabel ?? "Review document",
+        urgent: false,
+      };
+    }
+    case "parent_data_request":
+      return {
+        icon: ShieldAlert,
+        iconClassName: "bg-warning-bg text-warning-text",
+        accentClassName: "bg-warning",
+        category: "alerts",
+        source: overrides.source ?? "Privacy requests",
+        href: overrides.href ?? "/settings#privacy-data-requests",
+        actionLabel: overrides.actionLabel ?? "Review request",
+        urgent: false,
+      };
+    case "time_off_request":
+      return {
+        icon: CalendarClock,
+        iconClassName: "bg-warning-bg text-warning-text",
+        accentClassName: "bg-warning",
+        category: "alerts",
+        source: overrides.source ?? "Staff · Time off",
+        href: overrides.href ?? "/staff?tab=time-off",
+        actionLabel: overrides.actionLabel ?? "Review request",
+        urgent: true,
+      };
+    case "coverage_response":
+    case "coverage_review":
+      return {
+        icon: UsersRound,
+        iconClassName: "bg-warning-bg text-warning-text",
+        accentClassName: "bg-warning",
+        category: "alerts",
+        source: overrides.source ?? "Rooms & ratios",
+        href: overrides.href ?? "/rooms",
+        actionLabel: overrides.actionLabel ?? "Review coverage",
+        urgent: notification.kind === "coverage_review"
+          || payloadString(payload, "response") === "declined",
       };
     case "new_device_sign_in":
       return {
@@ -83,6 +220,17 @@ export function notificationPresentation(
         actionLabel: overrides.actionLabel ?? "Review devices",
         urgent: false,
       };
+    case "compliance_due":
+      return {
+        icon: CalendarClock,
+        iconClassName: "bg-warning-bg text-warning-text",
+        accentClassName: "bg-warning",
+        category: "compliance",
+        source: overrides.source ?? "Compliance",
+        href: overrides.href ?? "/compliance",
+        actionLabel: overrides.actionLabel ?? "Review compliance",
+        urgent: payloadString(payload, "severity") === "critical",
+      };
     case "cert_expiry":
       return {
         icon: Award,
@@ -93,6 +241,17 @@ export function notificationPresentation(
         href: overrides.href ?? "/compliance",
         actionLabel: overrides.actionLabel ?? "Send reminder",
         urgent: false,
+      };
+    case "credential_review":
+      return {
+        icon: Award,
+        iconClassName: "bg-warning-bg text-warning-text",
+        accentClassName: "bg-warning",
+        category: "compliance",
+        source: overrides.source ?? "Compliance",
+        href: overrides.href ?? "/staff",
+        actionLabel: overrides.actionLabel ?? "Review renewal",
+        urgent: true,
       };
     case "payment_received":
       return {

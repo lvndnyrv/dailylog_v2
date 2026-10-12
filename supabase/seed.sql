@@ -525,6 +525,76 @@ update staff_members set certifications = jsonb_build_array(
                      'issued','2023-03-01','expires_on', null))
  where profile_id = '00000000-0000-4000-a000-000000000004';
 
+-- Group 12c: Sam's invitation requires clearance before they may satisfy a
+-- room-ratio slot. The normalized row drives both web Compliance and mobile
+-- credential renewal; a real original must be uploaded before it clears.
+update staff_members
+   set background_check_required = true
+ where profile_id = '00000000-0000-4000-a000-000000000004';
+
+insert into staff_credentials (
+  daycare_id, staff_member_id, name, issuer, completed_on, expires_on,
+  required, ratio_qualifying
+)
+select member.daycare_id, member.id, 'Background check', 'Provincial registry',
+       date '2023-03-01', null, true, false
+  from staff_members member
+ where member.profile_id = '00000000-0000-4000-a000-000000000004'
+on conflict (staff_member_id, (lower(btrim(name)))) do update
+  set required = true,
+      issuer = excluded.issuer,
+      completed_on = excluded.completed_on,
+      archived_at = null;
+
+insert into staff_credentials (
+  daycare_id, staff_member_id, name, issuer, completed_on, expires_on,
+  required, ratio_qualifying
+)
+select member.daycare_id, member.id, 'First Aid / CPR', 'Red Cross',
+       current_date - 700, current_date + 21, true, true
+  from staff_members member
+ where member.profile_id = '00000000-0000-4000-a000-000000000003'
+on conflict (staff_member_id, (lower(btrim(name)))) do update
+  set required = true,
+      ratio_qualifying = true,
+      issuer = excluded.issuer,
+      completed_on = excluded.completed_on,
+      expires_on = excluded.expires_on,
+      archived_at = null;
+
+-- Group 12b: realistic drill history for a fresh demo reset. Headcount
+-- comparisons are snapshots from the recorded drill, not current attendance.
+insert into compliance_drills (
+  id, daycare_id,kind,conducted_at,lead_staff_id,duration_seconds,
+  children_count,staff_count,attendance_children,attendance_staff,notes,
+  next_due_on,created_by
+)
+select
+  fixture.id,
+  '10000000-0000-4000-a000-000000000001'::uuid,
+  fixture.kind,
+  fixture.conducted_at,
+  member.id,
+  fixture.duration_seconds,
+  fixture.children_count,
+  fixture.staff_count,
+  fixture.children_count,
+  fixture.staff_count,
+  fixture.notes,
+  fixture.next_due_on,
+  '00000000-0000-4000-a000-000000000001'::uuid
+from staff_members member
+cross join (values
+  ('d1200000-0000-4000-a000-000000000001'::uuid,'fire',
+    now()-interval '18 days',128,26,6,'All rooms cleared; west exit opened cleanly.',current_date+13),
+  ('d1200000-0000-4000-a000-000000000002'::uuid,'lockdown',
+    now()-interval '2 months',245,24,6,'Classroom blinds and attendance cards verified.',current_date+31),
+  ('d1200000-0000-4000-a000-000000000003'::uuid,'severe_weather',
+    now()-interval '4 months',310,23,5,'Basement muster and emergency radio check complete.',current_date+52)
+) as fixture(id,kind,conducted_at,duration_seconds,children_count,staff_count,notes,next_due_on)
+where member.profile_id = '00000000-0000-4000-a000-000000000003'
+on conflict (id) do nothing;
+
 -- enrollment pipeline samples across stages + closures
 insert into enrollments (daycare_id, child_first_name, child_date_of_birth, guardian_name, guardian_email, guardian_phone, stage, desired_start_date, source, created_at) values
   ('10000000-0000-4000-a000-000000000001', 'Leo',    (current_date - interval '14 months')::date, 'Dana Alvarez',  'dana.alvarez@family.test',  '555-0101', 'inquiry',     (current_date + 45)::date, 'website',  now() - interval '3 days'),
@@ -544,6 +614,25 @@ values ('10000000-0000-4000-a000-000000000001',
         'Welcome to Sunny Grove!',
         'Our summer program starts next week — see the calendar for details.',
         true);
+
+-- Reports 13a–13d: realistic automatic deliveries for a fresh demo center.
+insert into report_schedules (
+  id,daycare_id,created_by,report_kind,cadence,delivery_day,delivery_time,
+  recipient_ids,formats,skip_empty
+) values
+  ('d1300000-0000-4000-a000-000000000001',
+   '10000000-0000-4000-a000-000000000001',
+   '00000000-0000-4000-a000-000000000001',
+   'ratio','weekly',1,'07:00',
+   array['00000000-0000-4000-a000-000000000001'::uuid,
+         '00000000-0000-4000-a000-000000000002'::uuid],
+   array['pdf'::text],true),
+  ('d1300000-0000-4000-a000-000000000002',
+   '10000000-0000-4000-a000-000000000001',
+   '00000000-0000-4000-a000-000000000001',
+   'billing','monthly',1,'06:00',
+   array['00000000-0000-4000-a000-000000000001'::uuid],
+   array['pdf'::text,'csv'::text],false);
 
 -- Demo operational state for the dashboard (9a): Tara Nguyen is out today, so
 -- Infant runs on one lead and tips over ratio — this surfaces the over-ratio

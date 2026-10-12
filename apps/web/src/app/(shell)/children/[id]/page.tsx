@@ -18,8 +18,9 @@ export default async function ChildProfilePage({
   let data: Awaited<ReturnType<typeof getChildProfile>>;
   try {
     data = await getChildProfile(supabase, id);
-  } catch {
-    notFound();
+  } catch (error) {
+    if ((error as { code?: string }).code === "PGRST116") notFound();
+    throw error;
   }
 
   const classrooms = await listClassrooms(supabase);
@@ -36,8 +37,11 @@ export default async function ChildProfilePage({
       child={data.child as never}
       pickups={data.pickups}
       medications={data.medications as never}
+      medicationLogs={data.medicationLogs}
       consents={data.consents as never}
       documents={data.documents}
+      documentRequests={data.documentRequests}
+      pickupSecurityEvents={data.pickupSecurityEvents}
       pendingInvites={data.pendingInvites}
       classrooms={classrooms}
       photoUrl={photoUrl}

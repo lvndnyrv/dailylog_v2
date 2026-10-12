@@ -20,6 +20,11 @@ export interface RoleActionState {
   newRoleId?: string;
 }
 
+export interface PermissionOverrideActionState {
+  error?: string;
+  ok?: boolean;
+}
+
 function str(formData: FormData, key: string): string {
   return String(formData.get(key) ?? "").trim();
 }
@@ -28,13 +33,24 @@ function str(formData: FormData, key: string): string {
 function readPermissions(formData: FormData): RolePermissions {
   const perms: RolePermissions = {};
   for (const key of PERMISSION_AREA_KEYS) {
-    perms[key] = {
-      view: formData.get(`perm_${key}_view`) === "1",
-      edit: formData.get(`perm_${key}_edit`) === "1",
-      approve: formData.get(`perm_${key}_approve`) === "1",
-    };
+    const edit = formData.get(`perm_${key}_edit`) === "1";
+    const approve = formData.get(`perm_${key}_approve`) === "1";
+    perms[key] = { view: formData.get(`perm_${key}_view`) === "1" || edit || approve, edit, approve };
   }
   return perms;
+}
+
+function normalizePermissions(value: unknown): RolePermissions {
+  const source = value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, Partial<Record<"view" | "edit" | "approve", unknown>>>
+    : {};
+  const permissions: RolePermissions = {};
+  for (const key of PERMISSION_AREA_KEYS) {
+    const edit = source[key]?.edit === true;
+    const approve = source[key]?.approve === true;
+    permissions[key] = { view: source[key]?.view === true || edit || approve, edit, approve };
+  }
+  return permissions;
 }
 
 export async function saveRoleAction(
@@ -102,9 +118,9 @@ export async function duplicateRoleAction(
   const name = str(formData, "name");
   let permissions: RolePermissions;
   try {
-    permissions = JSON.parse(str(formData, "permissions") || "{}");
+    permissions = normalizePermissions(JSON.parse(str(formData, "permissions") || "{}"));
   } catch {
-    permissions = {};
+    permissions = normalizePermissions({});
   }
 
   try {
@@ -126,4 +142,37 @@ export async function deleteRoleAction(formData: FormData): Promise<void> {
   const supabase = await getServerSupabase();
   await deleteCenterRole(supabase, str(formData, "role_id"));
   revalidatePath("/staff");
+}
+
+export async function saveStaffPermissionOverrideAction(
+  _prev: PermissionOverrideActionState,
+  formData: FormData,
+): Promise<PermissionOverrideActionState> {
+  const supabase = await getServerSupabase();
+  const profileId = str(formData, "profile_id");
+  const staffId = str(formData, "staff_id");
+  const classroomId = str(formData, "classroom_id") || null;
+  let permissions: unknown = {};
+
+  if (str(formData, "intent") !== "reset") {
+    try {
+      permissions = JSON.parse(str(formData, "permissions") || "{}");
+    } catch {
+      return { error: "The permission changes could not be read." };
+    }
+  }
+
+  const { error } = await supabase.rpc(
+    "save_staff_permission_override" as never,
+    {
+      p_profile_id: profileId,
+      p_classroom_id: classroomId,
+      p_permissions: permissions,
+    } as never,
+  );
+  if (error) return { error: error.message };
+
+  revalidatePath("/staff");
+  if (staffId) revalidatePath(`/staff/${staffId}`);
+  return { ok: true };
 }

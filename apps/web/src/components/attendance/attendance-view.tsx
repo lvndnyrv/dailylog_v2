@@ -1,18 +1,27 @@
 "use client";
 
-import type { AttendanceDayRow } from "@dailylog/db/queries";
+import type {
+  AttendanceCorrectionRow,
+  AttendanceDayRow,
+  AttendanceFollowupRow,
+  Closure,
+  LatePickupEventRow,
+  MissingCheckoutRow,
+} from "@dailylog/db/queries";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Avatar } from "@/components/ui/avatar";
 import { ArrivalStatusModal } from "./arrival-status-modal";
+import { AttendanceFollowupModal } from "./attendance-followup-modal";
 import { CheckInModal } from "./check-in-modal";
 import { FixTimesModal } from "./fix-times-modal";
 
 const card = "rounded-2xl border-[1.5px] border-[#D6E1F0] bg-card";
 const cardTitle = "text-[14px] font-extrabold text-ink";
-const logColumns = "grid-cols-[1.45fr_.85fr_.55fr_1.15fr_1.25fr]";
+const logColumns =
+  "grid-cols-[1.35fr_.8fr_.5fr_.5fr_1.05fr_1.15fr_1fr] min-w-[920px]";
 
 interface WeekDay {
   day: string;
@@ -27,6 +36,11 @@ export function AttendanceView({
   isToday,
   openCheckIn = false,
   timeZone,
+  closure,
+  corrections,
+  followups,
+  latePickups,
+  missingCheckouts,
 }: {
   rows: AttendanceDayRow[];
   week: WeekDay[];
@@ -34,6 +48,11 @@ export function AttendanceView({
   isToday: boolean;
   openCheckIn?: boolean;
   timeZone: string;
+  closure: Closure | null;
+  corrections: AttendanceCorrectionRow[];
+  followups: AttendanceFollowupRow[];
+  latePickups: LatePickupEventRow[];
+  missingCheckouts: MissingCheckoutRow[];
 }) {
   const router = useRouter();
   const [modal, setModal] = useState<
@@ -41,8 +60,10 @@ export function AttendanceView({
     | "checkin"
     | { kind: "fix"; child: AttendanceDayRow }
     | { kind: "status"; child: AttendanceDayRow }
-  >(openCheckIn && isToday ? "checkin" : "none");
+    | { kind: "followup"; child: AttendanceDayRow }
+  >(openCheckIn && isToday && !closure ? "checkin" : "none");
   const [showAllMissing, setShowAllMissing] = useState(false);
+  const [showAllLog, setShowAllLog] = useState(false);
 
   const closeModal = () => {
     setModal("none");
@@ -60,7 +81,7 @@ export function AttendanceView({
         b.attendance[0].checked_in_at ?? "",
       ),
     );
-  const visibleLog = log.slice(0, 5);
+  const visibleLog = showAllLog ? log : log.slice(0, 5);
 
   const weekdayBars = week
     .filter((item) => {
@@ -78,8 +99,73 @@ export function AttendanceView({
 
   return (
     <div className="flex flex-1 flex-col px-7 pb-7 pt-[22px]">
+      <div className="mb-[18px] flex flex-wrap items-center gap-2.5">
+        <label className="relative">
+          <span className="sr-only">Attendance date</span>
+          <input
+            type="date"
+            value={date}
+            onChange={(event) => router.push(`/attendance?date=${event.target.value}`)}
+            className="rounded-[13px] border-[1.5px] border-[#D6E1F0] bg-card px-4 py-2.5 text-[13px] font-semibold text-ink outline-none focus:border-primary"
+          />
+        </label>
+        <Link
+          href="/kiosk"
+          target="_blank"
+          className="rounded-full border-[1.5px] border-[#D6E1F0] bg-card px-4 py-2.5 text-[12px] font-bold text-primary hover:bg-white"
+        >
+          Open door kiosk ↗
+        </Link>
+        <Link
+          href={`/reports-export/attendance-month?month=${date.slice(0, 7)}`}
+          className="text-[11.5px] font-bold text-primary hover:text-primary-hover"
+        >
+          Monthly attendance CSV →
+        </Link>
+      </div>
+
+      {missingCheckouts.length > 0 && (
+        <section className="mb-[18px] flex flex-wrap items-center gap-3 rounded-2xl border-[1.5px] border-[#EED39F] bg-warning-bg px-[18px] py-3.5">
+          <span className="grid size-8 place-items-center rounded-full bg-white text-warning-text" aria-hidden>!</span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-[12.5px] font-extrabold text-ink">
+              {missingCheckouts.length} missing check-out{missingCheckouts.length === 1 ? "" : "s"} need review
+            </span>
+            <span className="block text-[11px] text-muted">
+              {missingCheckouts.slice(0, 2).map((item) => item.child?.first_name ?? "Child").join(", ")}
+              {missingCheckouts.length > 2 ? ` and ${missingCheckouts.length - 2} more` : ""} · original entries will stay traceable
+            </span>
+          </span>
+          <Link
+            href={`/attendance?date=${missingCheckouts[0].date}`}
+            className="rounded-full bg-primary px-4 py-2 text-[11.5px] font-bold text-white hover:bg-primary-hover"
+          >
+            Review oldest day
+          </Link>
+        </section>
+      )}
+
       <div className="grid grid-cols-1 items-start gap-5 xl:grid-cols-[minmax(0,1fr)_298px]">
         <div className="flex min-w-0 flex-col gap-[18px]">
+          {closure ? (
+            <section
+              className={`${card} border-[#D6E1F0] bg-[#F5F8FC] px-[18px] py-[17px]`}
+              aria-labelledby="closed-h"
+            >
+              <div className="flex items-start gap-3">
+                <span className="grid size-9 shrink-0 place-items-center rounded-full bg-white text-[16px]" aria-hidden>
+                  ◷
+                </span>
+                <span className="min-w-0">
+                  <h2 id="closed-h" className={cardTitle}>Center closed — {closure.reason}</h2>
+                  <p className="mt-1 text-[12px] leading-relaxed text-muted">
+                    Attendance is not expected and check-in is disabled for this day.
+                    {closure.family_message ? ` ${closure.family_message}` : " Families can see this closure in their app."}
+                  </p>
+                </span>
+              </div>
+            </section>
+          ) : (
           <section
             className={`${card} border-[#EED39F] px-[18px] py-[17px]`}
             aria-labelledby="expected-h"
@@ -136,12 +222,13 @@ export function AttendanceView({
                             >
                               Record reply
                             </button>
-                            <Link
-                              href={`/messages?child=${row.id}`}
+                            <button
+                              type="button"
+                              onClick={() => setModal({ kind: "followup", child: row })}
                               className="rounded-full bg-primary px-3.5 py-2 text-[11.5px] font-bold text-white hover:bg-primary-hover"
                             >
                               Message parent
-                            </Link>
+                            </button>
                           </span>
                         )
                       )}
@@ -180,6 +267,7 @@ export function AttendanceView({
               </p>
             )}
           </section>
+          )}
 
           <section className={`${card} overflow-hidden`} aria-labelledby="log-h">
             <div className="flex items-center gap-2 px-[18px] py-[15px]">
@@ -190,52 +278,82 @@ export function AttendanceView({
                 every entry is time-stamped and signed
               </span>
             </div>
-            <div
-              className={`grid ${logColumns} gap-3 border-y border-[#E3EBF6] bg-[#F8FAFD] px-[18px] py-2.5 font-mono text-[10.5px] font-bold tracking-[.07em] text-faint`}
-            >
-              <span>CHILD</span>
-              <span>ROOM</span>
-              <span>IN</span>
-              <span>DROPPED OFF BY</span>
-              <span>NOTES</span>
-            </div>
-            {visibleLog.map((row) => {
-              const attendance = row.attendance[0];
-              return (
-                <button
-                  key={row.id}
-                  type="button"
-                  onClick={() => setModal({ kind: "fix", child: row })}
-                  className={`grid w-full ${logColumns} items-center gap-3 border-b border-[#E3EBF6] px-[18px] py-3 text-left last:border-b-0 hover:bg-[#FAFCFF]`}
-                  title={`Correct ${row.first_name}'s attendance times`}
-                >
-                  <span className="truncate text-[12.5px] font-bold text-ink">
-                    {row.first_name} {row.last_name}
-                  </span>
-                  <span className="truncate text-[12px] text-muted">
-                    {row.classroom?.name ?? "—"}
-                  </span>
-                  <span className="text-[12.5px] font-bold text-ink">
-                    {timeOf(attendance.checked_in_at, timeZone)}
-                  </span>
-                  <span className="truncate text-[12px] text-muted">
-                    {attendance.dropped_off_by ?? "—"}
-                    {attendance.method === "kiosk" && (
-                      <span className="ml-1 text-[10.5px] font-bold text-primary">
-                        · verified PIN
-                      </span>
-                    )}
-                  </span>
-                  <span className="truncate text-[11.5px] text-faint">
-                    {attendance.notes ?? "—"}
-                  </span>
-                </button>
-              );
-            })}
-            {log.length > visibleLog.length && (
-              <div className="px-[18px] py-2.5 text-[11.5px] text-faint">
-                + {log.length - visibleLog.length} more today
+            <div className="overflow-x-auto">
+              <div
+                className={`grid ${logColumns} gap-3 border-y border-[#E3EBF6] bg-[#F8FAFD] px-[18px] py-2.5 font-mono text-[10.5px] font-bold tracking-[.07em] text-faint`}
+              >
+                <span>CHILD</span>
+                <span>ROOM</span>
+                <span>IN</span>
+                <span>OUT</span>
+                <span>DROPPED OFF BY</span>
+                <span>PICKED UP BY</span>
+                <span>NOTES</span>
               </div>
+              {visibleLog.map((row) => {
+                const attendance = row.attendance[0];
+                return (
+                  <button
+                    key={row.id}
+                    type="button"
+                    onClick={() => setModal({ kind: "fix", child: row })}
+                    className={`grid w-full ${logColumns} items-center gap-3 border-b border-[#E3EBF6] px-[18px] py-3 text-left last:border-b-0 hover:bg-[#FAFCFF]`}
+                    title={`Correct ${row.first_name}'s attendance times`}
+                  >
+                    <span className="truncate text-[12.5px] font-bold text-ink">
+                      {row.first_name} {row.last_name}
+                    </span>
+                    <span className="truncate text-[12px] text-muted">
+                      {row.classroom?.name ?? "—"}
+                    </span>
+                    <span className="text-[12.5px] font-bold text-ink">
+                      {timeOf(attendance.checked_in_at, timeZone)}
+                    </span>
+                    <span className="text-[12.5px] font-bold text-ink">
+                      {timeOf(attendance.checked_out_at, timeZone)}
+                    </span>
+                    <span className="truncate text-[12px] text-muted">
+                      {attendance.dropped_off_by ??
+                        attendance.checked_in_by_profile?.full_name ??
+                        "—"}
+                      {attendance.method === "kiosk" && (
+                        <span className="ml-1 text-[10.5px] font-bold text-primary">
+                          · verified PIN
+                        </span>
+                      )}
+                      {attendance.method === "educator" && attendance.checked_in_by_profile && (
+                        <span className="ml-1 text-[10.5px] font-bold text-primary">
+                          · educator check-in
+                        </span>
+                      )}
+                    </span>
+                    <span className="min-w-0 text-[12px] text-muted">
+                      <span className="block truncate">
+                        {attendance.picked_up_by ?? "—"}
+                      </span>
+                      {attendance.checked_out_at && attendance.checked_out_by_profile && (
+                        <span className="block truncate text-[10.5px] font-bold text-primary">
+                          signed by {attendance.checked_out_by_profile.full_name}
+                        </span>
+                      )}
+                    </span>
+                    <span className="truncate text-[11.5px] text-faint">
+                      {attendance.notes ?? "—"}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+            {log.length > 5 && (
+              <button
+                type="button"
+                onClick={() => setShowAllLog((value) => !value)}
+                className="flex w-full items-center gap-1 px-[18px] py-2.5 text-left text-[11.5px] font-bold text-primary hover:bg-[#FAFCFF]"
+                aria-expanded={showAllLog}
+              >
+                {showAllLog ? "Show fewer" : `View ${log.length - 5} more today`}
+                {showAllLog ? <ChevronUp size={13} aria-hidden /> : <ChevronDown size={13} aria-hidden />}
+              </button>
             )}
             {log.length === 0 && (
               <p className="px-[18px] py-5 text-[12.5px] text-faint">
@@ -257,7 +375,7 @@ export function AttendanceView({
                 return (
                   <div key={item.day} className="flex h-full flex-1 flex-col justify-end gap-1.5">
                     <div
-                      className={`w-full rounded-t-md ${current ? "bg-primary" : "bg-[#78A8DF]"}`}
+                      className={`w-full rounded-t-md ${current && closure ? "border border-dashed border-[#AAB8CA] bg-[#E9EFF7]" : current ? "bg-primary" : "bg-[#78A8DF]"}`}
                       style={{ height: `${Math.max(4, (count / maxWeek) * 64)}px` }}
                       title={`${count} checked in`}
                     />
@@ -279,15 +397,38 @@ export function AttendanceView({
 
           <section className={`${card} px-[18px] py-[17px]`}>
             <h2 className={`${cardTitle} mb-2.5`}>Late pickups — {month}</h2>
-            <p className="text-[12px] leading-relaxed text-muted">
-              No billed late pickups are available yet. Late-pickup policy fees
-              will appear here when attendance fee automation is enabled.
+            {latePickups.length > 0 ? (
+              <div className="flex flex-col gap-2.5">
+                {latePickups.slice(0, 4).map((event) => (
+                  <div key={event.id} className="flex items-start gap-2 text-[11.5px]">
+                    <span className="min-w-0 flex-1 text-muted">
+                      <span className="font-semibold text-ink">
+                        {new Date(`${event.occurred_on}T12:00:00Z`).toLocaleDateString("en-CA", { month: "short", day: "numeric", timeZone: "UTC" })}
+                        {event.child ? ` · ${event.child.last_name}` : ""}
+                      </span>
+                      <span className="block">{event.late_minutes} min · picked up by {event.collected_by}</span>
+                    </span>
+                    <span className={`shrink-0 font-bold ${event.billing_status === "billed" ? "text-success" : event.billing_status === "waived" ? "text-warning-text" : "text-primary"}`}>
+                      {event.billing_status === "billed"
+                        ? `${money(event.fee_cents)} billed`
+                        : event.billing_status === "waived"
+                          ? "conversation"
+                          : `${money(event.fee_cents)} pending`}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-[12px] leading-relaxed text-muted">No late pickups recorded this month.</p>
+            )}
+            <p className="mt-2.5 text-[10.5px] leading-relaxed text-faint">
+              Policy fees attach to the family&apos;s open or next invoice automatically. A repeat threshold starts a conversation instead.
             </p>
             <Link
-              href="/billing?new=1"
+              href="/settings?section=attendance"
               className="mt-2.5 inline-block text-[11.5px] font-bold text-primary hover:text-primary-hover"
             >
-              Add a fee to an invoice →
+              Review late-pickup policy →
             </Link>
           </section>
         </aside>
@@ -316,14 +457,35 @@ export function AttendanceView({
           childName={`${modal.child.first_name} ${modal.child.last_name}`}
           record={modal.child.attendance[0]}
           date={date}
+          timeZone={timeZone}
+          corrections={corrections.filter(
+            (correction) => correction.attendance_id === modal.child.attendance[0].id,
+          )}
           onClose={closeModal}
         />
       )}
       {typeof modal === "object" && modal.kind === "status" && (
         <ArrivalStatusModal child={modal.child} date={date} onClose={closeModal} />
       )}
+      {typeof modal === "object" && modal.kind === "followup" && (
+        <AttendanceFollowupModal
+          child={modal.child}
+          date={date}
+          followups={followups.filter((followup) => followup.child_id === modal.child.id)}
+          onClose={closeModal}
+        />
+      )}
     </div>
   );
+}
+
+function money(cents: number): string {
+  return new Intl.NumberFormat("en-CA", {
+    style: "currency",
+    currency: "CAD",
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  }).format(cents / 100);
 }
 
 function missingPriority(row: AttendanceDayRow): number {

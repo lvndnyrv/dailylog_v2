@@ -82,9 +82,17 @@ export function NewInvoiceModal({
           </div>
 
           {child && (
-            <p className="rounded-[11px] bg-canvas px-3 py-2 text-[12px] text-muted">
-              Billed to <b className="text-ink">{child.guardianName ?? "no linked parent"}</b>
-            </p>
+            <div className="flex items-center gap-3 rounded-[11px] bg-canvas px-3 py-2 text-[12px] text-muted">
+              <span className="min-w-0 flex-1">Billed to <b className="text-ink">{child.guardianName ?? "no linked parent"}</b></span>
+              {child.tuitionRate && (
+                <button type="button" className="font-bold text-primary hover:underline" onClick={() => setLines([{
+                  description: `${new Date().toLocaleDateString("en-CA", { month: "long" })} tuition — ${child.tuitionRate!.roomName}`,
+                  amount: (child.tuitionRate!.amountCents / 100).toFixed(2),
+                }])}>
+                  Use current rate · {(child.tuitionRate.amountCents / 100).toLocaleString("en-CA", { style: "currency", currency: "CAD" })}
+                </button>
+              )}
+            </div>
           )}
 
           <fieldset className="flex flex-col gap-2">

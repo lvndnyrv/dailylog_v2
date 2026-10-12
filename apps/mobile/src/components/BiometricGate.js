@@ -8,6 +8,32 @@ import { colors, spacing } from '../theme';
 
 export const BIOMETRIC_KEY = 'dailylog:biometric_lock';
 
+export function biometricKeyForUser(userId) {
+  return `${BIOMETRIC_KEY}:${userId}`;
+}
+
+export async function getBiometricPreference(userId) {
+  if (!userId) return false;
+
+  const userKey = biometricKeyForUser(userId);
+  const stored = await AsyncStorage.getItem(userKey);
+  if (stored !== null) return stored === 'on';
+
+  // Migrate the former device-wide preference once to the currently signed-in account.
+  const legacy = await AsyncStorage.getItem(BIOMETRIC_KEY);
+  if (legacy !== null) {
+    await AsyncStorage.setItem(userKey, legacy);
+    await AsyncStorage.removeItem(BIOMETRIC_KEY);
+    return legacy === 'on';
+  }
+  return false;
+}
+
+export async function setBiometricPreference(userId, enabled) {
+  if (!userId) throw new Error('A signed-in account is required to update app lock.');
+  await AsyncStorage.setItem(biometricKeyForUser(userId), enabled ? 'on' : 'off');
+}
+
 /** Returns whether the device supports biometrics (has hardware + enrolled). */
 export async function biometricsAvailable() {
   const hasHardware = await LocalAuthentication.hasHardwareAsync();
@@ -27,22 +53,28 @@ export function BiometricGate({ children }) {
   const appState = useRef(AppState.currentState);
 
   async function authenticate() {
-    const result = await LocalAuthentication.authenticateAsync({
-      promptMessage: 'Unlock DailyLog',
-      cancelLabel: 'Cancel',
-    });
-    if (result.success) setLocked(false);
+    try {
+      const result = await LocalAuthentication.authenticateAsync({
+        promptMessage: 'Unlock DailyLog',
+        cancelLabel: 'Cancel',
+      });
+      if (result.success) setLocked(false);
+    } catch {
+      setLocked(true);
+    }
   }
 
   useEffect(() => {
     async function init() {
+      setChecking(true);
       if (!user) { setChecking(false); setLocked(false); return; }
-      const enabled = await AsyncStorage.getItem(BIOMETRIC_KEY);
-      if (enabled === 'on' && await biometricsAvailable()) {
+      const enabled = await getBiometricPreference(user.id);
+      if (enabled && await biometricsAvailable()) {
         setLocked(true);
         setChecking(false);
         authenticate();
       } else {
+        setLocked(false);
         setChecking(false);
       }
     }
@@ -53,8 +85,8 @@ export function BiometricGate({ children }) {
   useEffect(() => {
     const sub = AppState.addEventListener('change', async (next) => {
       if (appState.current.match(/background/) && next === 'active' && user) {
-        const enabled = await AsyncStorage.getItem(BIOMETRIC_KEY);
-        if (enabled === 'on' && await biometricsAvailable()) {
+        const enabled = await getBiometricPreference(user.id);
+        if (enabled && await biometricsAvailable()) {
           setLocked(true);
           authenticate();
         }
@@ -86,4 +118,3 @@ const styles = StyleSheet.create({
   title: { fontSize: 22, fontWeight: '700', color: colors.textPrimary, marginBottom: spacing.sm },
   body: { fontSize: 14, color: colors.textSecondary, marginBottom: spacing.xl },
 });
-

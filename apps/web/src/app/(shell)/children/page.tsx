@@ -1,4 +1,9 @@
-import { listClassrooms, listMedicalRegister, listRoster } from "@dailylog/db/queries";
+import {
+  listClassrooms,
+  listConsentRegister,
+  listMedicalRegister,
+  listRoster,
+} from "@dailylog/db/queries";
 import {
   RosterView,
   type ChildrenTab,
@@ -14,10 +19,11 @@ export default async function ChildrenPage({
 }) {
   const params = await searchParams;
   const supabase = await getServerSupabase();
-  const [children, classrooms, medical] = await Promise.all([
+  const [children, classrooms, medical, consents] = await Promise.all([
     listRoster(supabase),
     listClassrooms(supabase),
     listMedicalRegister(supabase),
+    listConsentRegister(supabase),
   ]);
 
   const startingSoon = children.filter(
@@ -33,6 +39,7 @@ export default async function ChildrenPage({
       childrenRows={children}
       classrooms={classrooms}
       medical={medical}
+      consentRows={consents}
       startingSoon={startingSoon}
       openCreate={params.new === "1"}
       initialTab={initialTab}

@@ -65,7 +65,9 @@ export async function GET(
       headers: {
         "Content-Type": "application/pdf",
         "Content-Disposition": `inline; filename="${safeName(document.title)}"`,
-        "Cache-Control": "private, max-age=300",
+        "Cache-Control": "private, no-store",
+        "Referrer-Policy": "no-referrer",
+        "X-Content-Type-Options": "nosniff",
       },
     });
   }
@@ -74,5 +76,12 @@ export async function GET(
     .from("documents")
     .createSignedUrl(document.storage_path, 300);
   if (error || !data?.signedUrl) return new Response("Document unavailable", { status: 404 });
-  return Response.redirect(data.signedUrl, 302);
+  return new Response(null, {
+    status: 302,
+    headers: {
+      Location: data.signedUrl,
+      "Cache-Control": "private, no-store",
+      "Referrer-Policy": "no-referrer",
+    },
+  });
 }

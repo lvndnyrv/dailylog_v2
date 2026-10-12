@@ -80,8 +80,8 @@ export function ArrivalStatusModal({
       <div>
         <h2 className="text-[19px] font-extrabold text-ink">Record family response</h2>
         <p className="mt-0.5 text-[12.5px] leading-normal text-muted">
-          Update {child.first_name}&apos;s arrival status for today. Parent reporting
-          will feed these same states when that flow is added.
+          Update {child.first_name}&apos;s arrival status for this day. A family report
+          from the parent app appears here in the same states automatically.
         </p>
       </div>
 

@@ -1,11 +1,22 @@
 import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Platform } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { colors, spacing, radius } from '../theme';
+import { Ionicons } from '@expo/vector-icons';
+import { colors, fonts, spacing, radius } from '../theme';
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
-export function DatePickerField({ label, value, onChange }) {
+export function DatePickerField({
+  label,
+  value,
+  onChange,
+  placeholder = 'Select date of birth',
+  minimumDate = new Date(2010, 0, 1),
+  maximumDate = new Date(),
+  defaultDate,
+  error,
+  style,
+}) {
   const [show, setShow] = useState(false);
 
   const parsed = value ? new Date(value + 'T00:00:00') : null;
@@ -27,23 +38,29 @@ export function DatePickerField({ label, value, onChange }) {
   }
 
   return (
-    <View style={styles.wrap}>
+    <View style={[styles.wrap, style]}>
       {label && <Text style={styles.label}>{label}</Text>}
 
-      <TouchableOpacity onPress={() => setShow(true)} style={styles.btn} activeOpacity={0.7}>
+      <TouchableOpacity
+        onPress={() => setShow(true)}
+        style={[styles.btn, error && styles.btnError]}
+        activeOpacity={0.7}
+        accessibilityState={{ invalid: Boolean(error) }}
+      >
         <Text style={displayValue ? styles.btnText : styles.btnPlaceholder}>
-          {displayValue || 'Select date of birth'}
+          {displayValue || placeholder}
         </Text>
-        <Text style={styles.icon}>📅</Text>
+        <Ionicons name="calendar-outline" size={18} color={colors.textFaint} />
       </TouchableOpacity>
+      {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
       {show && (
         <DateTimePicker
-          value={parsed || new Date(2020, 0, 1)}
+          value={parsed || defaultDate || new Date()}
           mode="date"
           display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-          maximumDate={new Date()}
-          minimumDate={new Date(2010, 0, 1)}
+          maximumDate={maximumDate}
+          minimumDate={minimumDate}
           onChange={handleChange}
         />
       )}
@@ -53,14 +70,15 @@ export function DatePickerField({ label, value, onChange }) {
 
 const styles = StyleSheet.create({
   wrap: { marginBottom: spacing.md },
-  label: { fontSize: 13, fontWeight: '500', color: colors.textSecondary, marginBottom: spacing.xs },
+  label: { fontSize: 13, fontFamily: fonts.bold, color: colors.textPrimary, marginBottom: spacing.sm },
   btn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     borderWidth: 1.5, borderColor: colors.border, borderRadius: radius.md,
     paddingHorizontal: spacing.md, paddingVertical: spacing.md,
     backgroundColor: colors.surface,
   },
-  btnText:        { fontSize: 15, color: colors.textPrimary },
-  btnPlaceholder: { fontSize: 15, color: colors.textMuted },
-  icon: { fontSize: 16 },
+  btnError: { borderColor: colors.danger, backgroundColor: colors.dangerLight },
+  errorText: { marginTop: 5, fontSize: 11.5, fontFamily: fonts.regular, color: colors.danger },
+  btnText:        { fontSize: 15, fontFamily: fonts.regular, color: colors.textPrimary },
+  btnPlaceholder: { fontSize: 15, fontFamily: fonts.regular, color: colors.textFaint },
 });

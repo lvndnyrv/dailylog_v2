@@ -2,15 +2,18 @@
 
 import {
   acceptStaffInvite,
+  checkCenterRegistrationCode,
+  completeCenterSetup,
+  getMyDaycare,
   getMyProfile,
   getStaffInvite,
-  startCenter,
 } from "@dailylog/db/queries";
 import { revalidatePath } from "next/cache";
-import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { getServerSupabase } from "@/lib/supabase/server";
+import { validateUpload } from "@/lib/uploads";
 import { roleDestination } from "./redirect";
+import { trustedRequestOrigin } from "./trusted-origin";
 
 export interface ActionState {
   error?: string;
@@ -21,9 +24,46 @@ function configured(): boolean {
   return Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL);
 }
 
+function safeDestination(value: FormDataEntryValue | null, fallback: string): string {
+  const destination = typeof value === "string" ? value : "";
+  return destination.startsWith("/") && !destination.startsWith("//")
+    ? destination
+    : fallback;
+}
+
+async function securedDestination(
+  supabase: Awaited<ReturnType<typeof getServerSupabase>>,
+  role: string | null | undefined,
+  destination: string,
+  encourageSetup = false,
+): Promise<string> {
+  const fallback = roleDestination(role);
+  if (fallback === "/use-the-app") return fallback;
+
+  const [assurance, factors, daycare] = await Promise.all([
+    supabase.auth.mfa.getAuthenticatorAssuranceLevel(),
+    supabase.auth.mfa.listFactors(),
+    getMyDaycare(supabase),
+  ]);
+  const verifiedFactors = factors.data?.totp ?? [];
+  const currentLevel = assurance.data?.currentLevel ?? "aal1";
+  if (verifiedFactors.length > 0 && currentLevel !== "aal2") {
+    return `/two-step?next=${encodeURIComponent(destination)}`;
+  }
+  if (verifiedFactors.length === 0 && (daycare?.require_admin_mfa || encourageSetup)) {
+    const required = daycare?.require_admin_mfa ? "&required=1" : "";
+    return `/two-step?mode=setup&next=${encodeURIComponent(destination)}${required}`;
+  }
+  return destination;
+}
+
 const NOT_CONFIGURED: ActionState = {
   error: "Supabase isn't configured yet — add .env.local first.",
 };
+
+function validEmail(value: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
 
 export async function signInAction(
   _prev: ActionState,
@@ -41,7 +81,9 @@ export async function signInAction(
   }
 
   const profile = await getMyProfile(supabase);
-  redirect(roleDestination(profile?.role));
+  if (!profile || profile.archived_at) redirect("/account-issue");
+  const destination = safeDestination(formData.get("next"), roleDestination(profile?.role));
+  redirect(await securedDestination(supabase, profile?.role, destination));
 }
 
 // 10a's "Email me a one-time sign-in link" secondary path.
@@ -51,16 +93,22 @@ export async function magicLinkAction(
 ): Promise<ActionState> {
   if (!configured()) return NOT_CONFIGURED;
   const supabase = await getServerSupabase();
-  const origin = (await headers()).get("origin") ?? "";
+  const origin = await trustedRequestOrigin();
+  if (!origin) return { error: "Could not create a secure sign-in link. Refresh and try again." };
 
   const email = String(formData.get("email") ?? "").trim();
-  if (!email) return { error: "Enter your work email first, then request the link." };
+  if (!validEmail(email)) {
+    return { error: "Enter a valid work email first, then request the link." };
+  }
+  const destination = safeDestination(formData.get("next"), "/");
+  const callback = new URL("/auth/callback", origin);
+  callback.searchParams.set("next", destination);
 
-  const { error } = await supabase.auth.signInWithOtp({
+  await supabase.auth.signInWithOtp({
     email,
-    options: { emailRedirectTo: `${origin}/`, shouldCreateUser: false },
+    options: { emailRedirectTo: callback.toString(), shouldCreateUser: false },
   });
-  if (error) return { error: error.message };
+  // Always show the same result so this form cannot reveal registered emails.
   return { sent: true };
 }
 
@@ -70,13 +118,18 @@ export async function forgotAction(
 ): Promise<ActionState> {
   if (!configured()) return NOT_CONFIGURED;
   const supabase = await getServerSupabase();
-  const origin = (await headers()).get("origin") ?? "";
+  const origin = await trustedRequestOrigin();
+  if (!origin) return { error: "Could not create a secure reset link. Refresh and try again." };
+  const email = String(formData.get("email") ?? "").trim();
+  if (!validEmail(email)) return { error: "Enter a valid work email." };
+  const callback = new URL("/auth/callback", origin);
+  callback.searchParams.set("next", "/reset");
 
-  const { error } = await supabase.auth.resetPasswordForEmail(
-    String(formData.get("email") ?? "").trim(),
-    { redirectTo: `${origin}/reset` },
+  await supabase.auth.resetPasswordForEmail(
+    email,
+    { redirectTo: callback.toString() },
   );
-  if (error) return { error: error.message };
+  // Always show the same result so this form cannot reveal registered emails.
   return { sent: true };
 }
 
@@ -111,6 +164,10 @@ export async function acceptInviteAction(
   const code = String(formData.get("code") ?? "").trim();
   const email = String(formData.get("email") ?? "").trim();
   const password = String(formData.get("password") ?? "");
+  const termsAccepted = formData.get("terms_accepted") === "on";
+  if (!termsAccepted) {
+    return { error: "Accept the Staff Terms and confidentiality policy to continue." };
+  }
   if (password.length < 12) {
     return { error: "12+ characters — that's the only rule." };
   }
@@ -152,13 +209,15 @@ export async function acceptInviteAction(
   }
 
   try {
-    await acceptStaffInvite(supabase, code);
+    await acceptStaffInvite(supabase, code, termsAccepted);
   } catch (err) {
     return { error: err instanceof Error ? err.message : "Invite could not be accepted." };
   }
 
   const profile = await getMyProfile(supabase);
-  redirect(roleDestination(profile?.role));
+  if (!profile || profile.archived_at) redirect("/account-issue");
+  const destination = roleDestination(profile?.role);
+  redirect(await securedDestination(supabase, profile?.role, destination, true));
 }
 
 export async function startCenterAction(
@@ -172,31 +231,77 @@ export async function startCenterAction(
   const fullName = String(formData.get("full_name") ?? "").trim();
   const email = String(formData.get("email") ?? "").trim();
   const password = String(formData.get("password") ?? "");
-  if (!centerName || !fullName) return { error: "Center name and your name are required." };
+  const address = String(formData.get("address") ?? "").trim();
+  const phone = String(formData.get("phone") ?? "").trim();
+  const registrationCode = String(formData.get("registration_code") ?? "").trim();
+  if (!centerName || !fullName || !email || !address || !phone || !registrationCode) {
+    return { error: "Complete every required field, including your registration code." };
+  }
   if (password.length < 12) {
     return { error: "12+ characters — that's the only rule." };
+  }
+
+  let preview;
+  try {
+    preview = await checkCenterRegistrationCode(supabase, registrationCode, email);
+  } catch {
+    return { error: "We could not verify that registration code. Wait a moment and try again." };
+  }
+  if (!preview) {
+    return {
+      error: "That registration code is invalid, expired, already used, or belongs to another email.",
+    };
+  }
+  if (preview.center_name.trim().toLowerCase() !== centerName.toLowerCase()) {
+    return {
+      error: `This code was issued for ${preview.center_name}. Use that approved center name.`,
+    };
   }
 
   const { data, error } = await supabase.auth.signUp({
     email,
     password,
-    options: { data: { full_name: fullName } },
+    options: {
+      data: {
+        full_name: fullName,
+        center_registration_code: registrationCode,
+        approved_center_name: preview.center_name,
+      },
+    },
   });
-  if (error) return { error: error.message };
+  if (error) {
+    return {
+      error:
+        "We could not create this approved account. If this email already has a DailyLog account, sign in or reset its password.",
+    };
+  }
   if (!data.session) {
     return {
       error:
-        "Account created — confirm your email from your inbox, then sign in to finish setting up your center.",
+        "Account created — confirm your email, then finish the approved center setup in the DailyLog app.",
     };
   }
 
   try {
-    await startCenter(supabase, centerName);
-  } catch (err) {
-    return { error: err instanceof Error ? err.message : "Could not create the center." };
+    await completeCenterSetup(supabase, {
+      centerName: preview.center_name,
+      address,
+      phone,
+      registrationCode,
+    });
+    await supabase.auth.updateUser({
+      data: {
+        center_registration_code: null,
+        approved_center_name: null,
+      },
+    });
+  } catch {
+    return {
+      error: "The approved center could not be created. Your code was not consumed; try again.",
+    };
   }
 
-  redirect("/dashboard");
+  redirect(await securedDestination(supabase, "owner_admin", "/dashboard", true));
 }
 
 export async function signOutAction(formData?: FormData): Promise<void> {
@@ -230,16 +335,12 @@ export async function updateProfileAction(
 
   const avatarEntry = formData.get("avatar");
   const avatar = typeof avatarEntry === "string" || !avatarEntry?.size ? null : avatarEntry;
-  const avatarExtensions: Record<string, string> = {
-    "image/jpeg": "jpg",
-    "image/png": "png",
-    "image/webp": "webp",
-  };
-  if (avatar && !avatarExtensions[avatar.type]) {
-    return { error: "Choose a JPG, PNG, or WebP image." };
-  }
   if (avatar && avatar.size > 5 * 1024 * 1024) {
     return { error: "Choose an image smaller than 5 MB." };
+  }
+  const validatedAvatar = avatar ? await validateUpload(avatar, "profile-image") : null;
+  if (avatar && !validatedAvatar) {
+    return { error: "Choose a valid JPG, PNG, or WebP image." };
   }
 
   let uploadedPath: string | null = null;
@@ -255,12 +356,12 @@ export async function updateProfileAction(
     if (currentProfileError) return { error: currentProfileError.message };
     previousAvatarUrl = currentProfile.avatar_url;
 
-    uploadedPath = `${user.id}/avatar-${crypto.randomUUID()}.${avatarExtensions[avatar.type]}`;
+    uploadedPath = `${user.id}/avatar-${crypto.randomUUID()}.${validatedAvatar!.extension}`;
     const { error: uploadError } = await supabase.storage
       .from("profile-avatars")
       .upload(uploadedPath, avatar, {
         cacheControl: "3600",
-        contentType: avatar.type,
+        contentType: validatedAvatar!.mimeType,
         upsert: false,
       });
     if (uploadError) return { error: uploadError.message };

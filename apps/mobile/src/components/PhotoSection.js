@@ -5,9 +5,11 @@ import {
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
+import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
-import { colors, spacing, radius } from '../theme';
+import { getPhotoConsentStatuses } from '../hooks/useStaffVisibility';
+import { colors, spacing, radius, fonts } from '../theme';
 
 export function PhotoSection({ logId, childId, readOnly = false }) {
   const { profile }           = useAuth();
@@ -15,14 +17,17 @@ export function PhotoSection({ logId, childId, readOnly = false }) {
   const [uploading, setUploading] = useState(false);
   const [preview, setPreview] = useState(null); // full-screen preview URL
   const [failedIds, setFailedIds] = useState(new Set());
+  const [photoAllowed, setPhotoAllowed] = useState(readOnly);
+  const [checkingConsent, setCheckingConsent] = useState(!readOnly);
 
   useEffect(() => {
     if (!logId) return;
     loadPhotos();
 
     // Real-time updates so parents see photos as they're added
+    const channelInstance = `${Date.now()}:${Math.random().toString(36).slice(2)}`;
     const channel = supabase
-      .channel(`photos:${logId}`)
+      .channel(`photos:${logId}:${channelInstance}`)
       .on('postgres_changes', {
         event: '*', schema: 'public', table: 'photos',
         filter: `daily_log_id=eq.${logId}`,
@@ -31,6 +36,30 @@ export function PhotoSection({ logId, childId, readOnly = false }) {
 
     return () => supabase.removeChannel(channel);
   }, [logId]);
+
+  useEffect(() => {
+    let active = true;
+    async function checkConsent() {
+      if (readOnly || !childId) {
+        if (active) {
+          setPhotoAllowed(Boolean(readOnly));
+          setCheckingConsent(false);
+        }
+        return;
+      }
+      setCheckingConsent(true);
+      try {
+        const rows = await getPhotoConsentStatuses([childId]);
+        if (active) setPhotoAllowed(Boolean(rows?.find((row) => row.child_id === childId)?.allowed));
+      } catch {
+        if (active) setPhotoAllowed(false);
+      } finally {
+        if (active) setCheckingConsent(false);
+      }
+    }
+    checkConsent();
+    return () => { active = false; };
+  }, [childId, readOnly]);
 
   async function loadPhotos() {
     const { data } = await supabase
@@ -55,6 +84,13 @@ export function PhotoSection({ logId, childId, readOnly = false }) {
   }
 
   async function handlePickPhoto() {
+    if (!photoAllowed) {
+      Alert.alert(
+        'Photo permission required',
+        'This family has declined photo sharing or has not answered yet. New photos are blocked until the parent allows them.',
+      );
+      return;
+    }
     // Request permission
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
@@ -104,6 +140,7 @@ export function PhotoSection({ logId, childId, readOnly = false }) {
     let failCount = 0;
 
     for (const uri of uris) {
+      let uploadedPath = null;
       try {
         const manipResult = await ImageManipulator.manipulateAsync(
           uri,
@@ -120,6 +157,7 @@ export function PhotoSection({ logId, childId, readOnly = false }) {
           .upload(path, arrayBuffer, { contentType: 'image/jpeg', upsert: false });
 
         if (uploadError) throw uploadError;
+        uploadedPath = path;
 
         const { error: dbError } = await supabase.from('photos').insert({
           daily_log_id: logId,
@@ -130,6 +168,9 @@ export function PhotoSection({ logId, childId, readOnly = false }) {
         if (dbError) throw dbError;
         successCount++;
       } catch (err) {
+        if (uploadedPath) {
+          await supabase.storage.from('daily-log-photos').remove([uploadedPath]);
+        }
         failCount++;
       }
     }
@@ -146,6 +187,7 @@ export function PhotoSection({ logId, childId, readOnly = false }) {
 
   async function uploadPhoto(uri) {
     setUploading(true);
+    let uploadedPath = null;
     try {
       // Resize to max 1200px wide to keep storage lean
       const manipResult = await ImageManipulator.manipulateAsync(
@@ -165,6 +207,7 @@ export function PhotoSection({ logId, childId, readOnly = false }) {
         .upload(path, arrayBuffer, { contentType: 'image/jpeg', upsert: false });
 
       if (uploadError) throw uploadError;
+      uploadedPath = path;
 
       // Save metadata
       const { error: dbError } = await supabase.from('photos').insert({
@@ -177,23 +220,43 @@ export function PhotoSection({ logId, childId, readOnly = false }) {
 
       await loadPhotos();
     } catch (err) {
+      if (uploadedPath) {
+        await supabase.storage.from('daily-log-photos').remove([uploadedPath]);
+      }
       Alert.alert('Upload failed', err.message);
     }
     setUploading(false);
   }
 
   async function deletePhoto(photo) {
-    // Remove optimistically from UI, then delete from storage + DB
+    // Delete metadata first. If the report became final while this screen was
+    // stale, the database rejects the change and the stored image stays safe.
     setPhotos(prev => prev.filter(p => p.id !== photo.id));
-    await supabase.storage.from('daily-log-photos').remove([photo.storage_path]);
-    await supabase.from('photos').delete().eq('id', photo.id);
+    const { error: dbError } = await supabase.from('photos').delete().eq('id', photo.id);
+    if (dbError) {
+      await loadPhotos();
+      Alert.alert('Could not remove photo', dbError.message);
+      return;
+    }
+
+    const { error: storageError } = await supabase.storage
+      .from('daily-log-photos')
+      .remove([photo.storage_path]);
+    if (storageError) {
+      Alert.alert('Photo removed', 'The photo was removed from the report, but its stored file still needs cleanup.');
+    }
   }
 
   return (
     <View style={styles.section}>
       <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>📷  Photos</Text>
-        {!readOnly && (
+        <View style={styles.sectionHeading}>
+          <View style={styles.sectionIcon}>
+            <Ionicons name="camera-outline" size={19} color={colors.primary} />
+          </View>
+          <Text style={styles.sectionTitle}>Photos</Text>
+        </View>
+        {!readOnly && photoAllowed && (
           <TouchableOpacity
             onPress={handlePickPhoto}
             disabled={uploading}
@@ -202,15 +265,39 @@ export function PhotoSection({ logId, childId, readOnly = false }) {
           >
             {uploading
               ? <ActivityIndicator color={colors.primary} size="small" />
-              : <Text style={styles.addPhotoBtnText}>+ Add</Text>
+              : <>
+                  <Ionicons name="add" size={16} color={colors.primary} />
+                  <Text style={styles.addPhotoBtnText}>Add</Text>
+                </>
             }
           </TouchableOpacity>
         )}
       </View>
 
-      {photos.length === 0 && !readOnly && (
+      {!readOnly && checkingConsent && (
+        <View style={styles.consentChecking}>
+          <ActivityIndicator color={colors.primary} size="small" />
+          <Text style={styles.consentCheckingText}>Checking photo permission…</Text>
+        </View>
+      )}
+
+      {!readOnly && !checkingConsent && !photoAllowed && (
+        <View style={styles.consentBlocked}>
+          <View style={styles.consentBlockedIcon}>
+            <Ionicons name="shield-outline" size={20} color={colors.danger} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.consentBlockedTitle}>Photo uploads restricted</Text>
+            <Text style={styles.consentBlockedText}>The family declined photo consent or has not answered yet.</Text>
+          </View>
+        </View>
+      )}
+
+      {photos.length === 0 && !readOnly && photoAllowed && !checkingConsent && (
         <TouchableOpacity onPress={handlePickPhoto} style={styles.emptyBtn} disabled={uploading}>
-          <Text style={styles.emptyIcon}>📷</Text>
+          <View style={styles.emptyIcon}>
+            <Ionicons name="camera-outline" size={23} color={colors.primary} />
+          </View>
           <Text style={styles.emptyText}>Tap to add a photo</Text>
           <Text style={styles.emptyHint}>Snap a craft project, lunch, or outdoor activity</Text>
         </TouchableOpacity>
@@ -232,7 +319,7 @@ export function PhotoSection({ logId, childId, readOnly = false }) {
                     />
                   : <View style={[styles.thumb, styles.thumbPlaceholder]}>
                       {failedIds.has(photo.id)
-                        ? <Text style={styles.thumbErrorText}>⚠️</Text>
+                        ? <Ionicons name="image-outline" size={22} color={colors.textMuted} />
                         : <ActivityIndicator color={colors.textMuted} />
                       }
                     </View>
@@ -244,17 +331,17 @@ export function PhotoSection({ logId, childId, readOnly = false }) {
                   style={styles.thumbDeleteBtn}
                   hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
                 >
-                  <Text style={styles.thumbDeleteText}>✕</Text>
+                  <Ionicons name="close" size={13} color={colors.white} />
                 </TouchableOpacity>
               )}
             </View>
           ))}
 
-          {!readOnly && (
+          {!readOnly && photoAllowed && !checkingConsent && (
             <TouchableOpacity onPress={handlePickPhoto} style={styles.addThumb} disabled={uploading}>
               {uploading
                 ? <ActivityIndicator color={colors.primary} />
-                : <Text style={styles.addThumbText}>+</Text>
+                : <Ionicons name="add" size={26} color={colors.primary} />
               }
             </TouchableOpacity>
           )}
@@ -266,7 +353,7 @@ export function PhotoSection({ logId, childId, readOnly = false }) {
         <TouchableOpacity style={styles.previewOverlay} onPress={() => setPreview(null)} activeOpacity={1}>
           <Image source={{ uri: preview }} style={styles.previewImage} resizeMode="contain" />
           <TouchableOpacity onPress={() => setPreview(null)} style={styles.previewClose}>
-            <Text style={styles.previewCloseText}>✕</Text>
+            <Ionicons name="close" size={20} color={colors.white} />
           </TouchableOpacity>
         </TouchableOpacity>
       </Modal>
@@ -276,27 +363,52 @@ export function PhotoSection({ logId, childId, readOnly = false }) {
 
 const styles = StyleSheet.create({
   section: {
-    backgroundColor: colors.surface, borderRadius: radius.lg,
-    borderWidth: 1, borderColor: colors.border,
+    backgroundColor: colors.surface, borderRadius: 18,
+    borderWidth: 1.5, borderColor: colors.border,
     padding: spacing.lg, marginBottom: spacing.md,
     overflow: 'visible',
   },
-  sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.md },
-  sectionTitle: { fontSize: 15, fontWeight: '600', color: colors.textPrimary },
-  addPhotoBtn: {
-    backgroundColor: colors.primaryLight, paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs + 2, borderRadius: radius.full,
-    borderWidth: 1, borderColor: colors.primary + '44',
+  sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.lg },
+  sectionHeading: { flexDirection: 'row', alignItems: 'center' },
+  sectionIcon: {
+    width: 36, height: 36, borderRadius: 11,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: colors.primarySoft, marginRight: spacing.md,
   },
-  addPhotoBtnText: { fontSize: 13, color: colors.primary, fontWeight: '600' },
+  sectionTitle: { fontSize: 17, fontFamily: fonts.bold, color: colors.textPrimary },
+  addPhotoBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 3,
+    backgroundColor: colors.primaryLight, paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm, borderRadius: radius.md,
+  },
+  addPhotoBtnText: { fontSize: 12.5, color: colors.primary, fontFamily: fonts.bold },
+  consentChecking: {
+    minHeight: 58, flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
+    paddingHorizontal: spacing.md, borderRadius: radius.md, backgroundColor: colors.primarySoft,
+  },
+  consentCheckingText: { flex: 1, fontSize: 12.5, fontFamily: fonts.regular, color: colors.textMuted },
+  consentBlocked: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.md,
+    padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.dangerLight,
+  },
+  consentBlockedIcon: {
+    width: 36, height: 36, borderRadius: 11,
+    alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface,
+  },
+  consentBlockedTitle: { fontSize: 13.5, color: colors.danger, fontFamily: fonts.bold },
+  consentBlockedText: { marginTop: 2, fontSize: 11.5, lineHeight: 17, fontFamily: fonts.regular, color: colors.textMuted },
   emptyBtn: {
     borderWidth: 1.5, borderStyle: 'dashed', borderColor: colors.border,
-    borderRadius: radius.md, padding: spacing.xl,
+    borderRadius: radius.lg, padding: spacing.xl,
     alignItems: 'center', gap: spacing.xs,
+    backgroundColor: colors.primarySoft,
   },
-  emptyIcon: { fontSize: 28 },
-  emptyText: { fontSize: 14, color: colors.textSecondary, fontWeight: '500' },
-  emptyHint: { fontSize: 12, color: colors.textMuted, textAlign: 'center' },
+  emptyIcon: {
+    width: 42, height: 42, borderRadius: 13,
+    alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface,
+  },
+  emptyText: { fontSize: 14, color: colors.textPrimary, fontFamily: fonts.bold },
+  emptyHint: { fontSize: 12, fontFamily: fonts.regular, color: colors.textMuted, textAlign: 'center' },
   photoScroll: { marginHorizontal: -spacing.xs, paddingTop: 8, paddingLeft: 8 },
   thumbWrap: { marginRight: spacing.sm + 4, position: 'relative' },
   thumb: {
@@ -305,7 +417,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.bg,
   },
   thumbPlaceholder: { alignItems: 'center', justifyContent: 'center' },
-  thumbErrorText: { fontSize: 20 },
   thumbDeleteBtn: {
     position: 'absolute', top: -4, right: -4,
     width: 22, height: 22, borderRadius: 11,
@@ -313,14 +424,12 @@ const styles = StyleSheet.create({
     shadowColor: '#000', shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.2, shadowRadius: 2, elevation: 3,
   },
-  thumbDeleteText: { fontSize: 12, color: colors.white, fontWeight: '700', marginTop: -1 },
   addThumb: {
     width: 100, height: 100, borderRadius: radius.md,
     backgroundColor: colors.bg, borderWidth: 1.5,
     borderStyle: 'dashed', borderColor: colors.border,
     alignItems: 'center', justifyContent: 'center',
   },
-  addThumbText: { fontSize: 28, color: colors.textMuted },
   previewOverlay: {
     flex: 1, backgroundColor: 'rgba(0,0,0,0.92)',
     justifyContent: 'center', alignItems: 'center',
@@ -332,5 +441,4 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.2)',
     alignItems: 'center', justifyContent: 'center',
   },
-  previewCloseText: { fontSize: 16, color: '#fff', fontWeight: '700' },
 });

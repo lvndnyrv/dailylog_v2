@@ -323,8 +323,13 @@ export default function BulkLogScreen({ navigation }) {
   const insets = useSafeAreaInsets();
 
   const [screen, setScreen] = useState('audience');
-  const [selectedClassroom, setSelectedClassroom] = useState(activeClassroom || null);
-  const [children, setChildren] = useState([]);
+  const [selectedClassroomId, setSelectedClassroomId] = useState(activeClassroom?.id || null);
+  const selectedClassroom = classrooms.find(room => room.id === selectedClassroomId) || null;
+  const [loadedChildren, setLoadedChildren] = useState({ roomId: null, rows: [] });
+  // A revoked coverage room (or a room switch) must never display cached children.
+  const children = selectedClassroom && loadedChildren.roomId === selectedClassroom.id
+    ? loadedChildren.rows
+    : [];
   const [roomCounts, setRoomCounts] = useState({});
   const [selectedChildren, setSelectedChildren] = useState(new Set());
   const [search, setSearch] = useState('');
@@ -353,10 +358,15 @@ export default function BulkLogScreen({ navigation }) {
   const today = format(new Date(), 'yyyy-MM-dd');
 
   useEffect(() => {
-    if (!selectedClassroom && activeClassroom) {
-      setSelectedClassroom(activeClassroom);
+    if (!selectedClassroom && selectedClassroomId) {
+      setSelectedChildren(new Set());
+      setSelectedType(null);
+      setScreen('audience');
     }
-  }, [activeClassroom, selectedClassroom]);
+    if (!selectedClassroom && selectedClassroomId !== activeClassroom?.id) {
+      setSelectedClassroomId(activeClassroom?.id || null);
+    }
+  }, [activeClassroom?.id, selectedClassroomId, selectedClassroom?.id]);
 
   useEffect(() => {
     let alive = true;
@@ -389,7 +399,7 @@ export default function BulkLogScreen({ navigation }) {
 
     async function loadChildren() {
       if (!selectedClassroom?.id) {
-        setChildren([]);
+        setLoadedChildren({ roomId: null, rows: [] });
         setSelectedChildren(new Set());
         setLoading(false);
         return;
@@ -406,9 +416,9 @@ export default function BulkLogScreen({ navigation }) {
       if (!alive) return;
       if (error) {
         Alert.alert('Could not load children', error.message);
-        setChildren([]);
+        setLoadedChildren({ roomId: selectedClassroom.id, rows: [] });
       } else {
-        setChildren(data || []);
+        setLoadedChildren({ roomId: selectedClassroom.id, rows: data || [] });
       }
       setSelectedChildren(new Set());
       setSearch('');
@@ -466,7 +476,8 @@ export default function BulkLogScreen({ navigation }) {
   }
 
   function chooseClassroom(room) {
-    setSelectedClassroom(room);
+    if (!classrooms.some(current => current.id === room.id)) return;
+    setSelectedClassroomId(room.id);
     setScreen('audience');
   }
 
@@ -785,6 +796,11 @@ export default function BulkLogScreen({ navigation }) {
   }
 
   async function handleSave() {
+    if (!selectedClassroom || selectedList.length === 0) {
+      Alert.alert('Coverage changed', 'This classroom is no longer available. Choose a current classroom and children before logging.');
+      setScreen('audience');
+      return;
+    }
     setSaving(true);
     try {
       let detail = '';

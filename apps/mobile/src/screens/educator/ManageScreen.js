@@ -17,6 +17,7 @@ import { ClassroomSwitcher } from '../../components/ClassroomSwitcher';
 import { DatePickerField } from '../../components/DatePickerField';
 import { Ionicons } from '@expo/vector-icons';
 import { showToast } from '../../components/Toast';
+import { isAdminRole } from '@dailylog/shared';
 
 
 // ─── ADD CHILD BOTTOM SHEET ───────────────────────────────────────────────────
@@ -449,11 +450,14 @@ export default function ManageScreen({ navigation, route }) {
         <TouchableOpacity
           style={styles.classroomCard}
           activeOpacity={0.7}
+          disabled={!isAdminRole(profile?.role) || !!activeClassroom.temporary}
           onPress={() => navigation.navigate('ClassroomEdit', {
             classroom: activeClassroom,
             childrenCount: children.length,
             canDelete: classrooms.length > 1,
           })}
+          accessibilityRole={isAdminRole(profile?.role) && !activeClassroom.temporary ? 'button' : 'text'}
+          accessibilityLabel={`${activeClassroom.name} classroom details${activeClassroom.temporary ? ', temporary coverage' : ''}`}
         >
           <View style={styles.classroomCardInfo}>
             <Text style={styles.classroomCardName}>{activeClassroom.name}</Text>
@@ -462,7 +466,9 @@ export default function ManageScreen({ navigation, route }) {
               {children.length === 1 ? 'child' : 'children'} enrolled
             </Text>
           </View>
-          <Ionicons name="chevron-forward" size={19} color={colors.textFaint} />
+          {isAdminRole(profile?.role) && !activeClassroom.temporary && (
+            <Ionicons name="chevron-forward" size={19} color={colors.textFaint} />
+          )}
         </TouchableOpacity>
       )}
 

@@ -8,7 +8,7 @@ import { Button, Input } from '../../components/ui';
 
 export default function ClassroomEditScreen({ route, navigation }) {
   const { classroom, childrenCount, canDelete } = route.params;
-  const { reload: reloadClassrooms, leaveClassroom } = useClassroom();
+  const { reload: reloadClassrooms } = useClassroom();
 
   const [name, setName] = useState(classroom.name || '');
   const [ageGroup, setAgeGroup] = useState(classroom.age_group || '');
@@ -51,8 +51,11 @@ export default function ClassroomEditScreen({ route, navigation }) {
         {
           text: 'Delete', style: 'destructive',
           onPress: async () => {
-            await supabase.from('classrooms').delete().eq('id', classroom.id);
-            await leaveClassroom(classroom.id);
+            const { error } = await supabase.from('classrooms').delete().eq('id', classroom.id);
+            if (error) {
+              Alert.alert('Could not delete classroom', error.message);
+              return;
+            }
             await reloadClassrooms();
             navigation.goBack();
           },
@@ -160,7 +163,6 @@ const styles = StyleSheet.create({
   dangerTitle: { fontSize: 15, fontWeight: '600', color: colors.danger, marginBottom: spacing.xs },
   dangerText: { fontSize: 13, color: colors.textSecondary, lineHeight: 18 },
 });
-
 
 
 

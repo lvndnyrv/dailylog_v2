@@ -321,6 +321,12 @@ Operational follow-up migrations also applied: `20260906000100_operational_room_
 - The server still verifies the requested room and filters each child through their own room-scoped view permission. The rollback-only operational fixture covers both-room totals, partner labels, a denied partner-room permission override, and the return to home-room lists/access after pause. The existing Group 20 consent regression passed.
 - Applied `20261012000400_combined_room_consents.sql` to the linked project. Mobile typecheck passed, and the normal Preschool consent matrix loaded on the iPhone 17 Pro through accessibility controls. An active-combination visual pass remains pending.
 
+### Temporary-room quick-log and settings boundary — October 12
+
+- Quick log now derives the selected classroom from the educator's current operational-room list instead of retaining a stale room object. Cached children are shown only for the currently authorized, loaded room; if coverage disappears, the child selection and form are cleared and the screen returns to its audience step. Saving with no current classroom and children is blocked locally; existing database authorization remains the final write guard.
+- Temporary care access no longer presents the classroom settings edit shortcut. Educators see classroom details but cannot enter the admin-only room editor from this screen. The editor now reports a failed delete instead of silently navigating away or removing the educator's own permanent classroom membership.
+- The iPhone 17 Pro simulator loaded Quick log, switched from Preschool to Infant using accessibility elements, and showed the correct six Infant children. An actual coverage-expiry/revocation device pass remains pending. Mobile typecheck and iOS production bundle export passed; no live room combination or child record was changed.
+
 ## Still required before calling Group 7 complete
 
 1. **7d remaining boundary:** future-opening room lead moves remain an explicit administrator decision; the opening-day review is visible but not an automatic transfer or notification. No licensing-rule authority/preset verification is claimed.

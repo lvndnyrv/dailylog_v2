@@ -31,7 +31,8 @@ async function saveRoomSettings(formData: FormData, editing: boolean) {
   if (editing && !values.room_id) return { error: "This room is unavailable." };
   const supabase = await getServerSupabase();
   try {
-    const { data, error } = await supabase.rpc("save_room_settings", {
+    const moveLead = values.move_lead_home_room === "on";
+    const { data, error } = await supabase.rpc(moveLead ? "save_room_settings_with_lead_transfer" : "save_room_settings", {
     p_room_id: editing ? values.room_id : null!,
     p_settings: values,
     p_expected_updated_at: editing ? values.updated_at : null!,

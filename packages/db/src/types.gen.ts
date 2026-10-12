@@ -9073,6 +9073,14 @@ export type Database = {
         }
         Returns: string
       }
+      save_room_settings_with_lead_transfer: {
+        Args: {
+          p_expected_updated_at?: string
+          p_room_id: string
+          p_settings: Json
+        }
+        Returns: string
+      }
       save_room_transition_plan: {
         Args: {
           p_expected_updated_at?: string

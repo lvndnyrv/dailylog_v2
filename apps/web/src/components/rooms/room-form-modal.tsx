@@ -24,11 +24,13 @@ export function RoomFormModal({
   room,
   rooms,
   educators,
+  today,
   onClose,
 }: {
   room?: RoomLiveStatus;
   rooms: RoomLiveStatus[];
-  educators: { id: string; fullName: string }[];
+  educators: { id: string; fullName: string; roomId: string | null; roomName: string | null }[];
+  today: string;
   onClose: () => void;
 }) {
   const [state, action, pending] = useActionState<RoomActionState, FormData>(
@@ -49,6 +51,12 @@ export function RoomFormModal({
       (candidate.min_age_months === next.min && candidate.max_age_months === next.max),
   )?.ratio_children_per_educator;
   const [ratio, setRatio] = useState(room?.ratio_children_per_educator ?? matchingRule(band) ?? band.ratio);
+  const [leadId, setLeadId] = useState(room?.lead_educator_id ?? "");
+  const [opensOn, setOpensOn] = useState(room?.opens_on ?? "");
+  const [moveLead, setMoveLead] = useState(false);
+  const selectedLead = educators.find((educator) => educator.id === leadId);
+  const leadHasDifferentHome = Boolean(selectedLead && (!room || selectedLead.roomId !== room.id));
+  const futureOpening = Boolean(opensOn && opensOn > today);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const fieldErrors = { ...state.fieldErrors, ...errors };
   const fieldProps = (key: string) => ({
@@ -190,7 +198,8 @@ export function RoomFormModal({
             label="Opens on (optional)"
             name="opens_on"
             type="date"
-            defaultValue={room?.opens_on ?? ""}
+            value={opensOn}
+            onChange={(event) => setOpensOn(event.target.value)}
           />
         </div>
           <label className="flex min-w-0 flex-col gap-[7px]">
@@ -207,18 +216,32 @@ export function RoomFormModal({
             <span className="text-[13px] font-bold text-ink">Lead educator</span>
             <select
               name="lead_educator_id"
-              defaultValue={room?.lead_educator_id ?? ""}
+              value={leadId}
+              onChange={(event) => { setLeadId(event.target.value); setMoveLead(false); }}
               className="h-[47px] min-w-0 w-full rounded-[13px] border-[1.5px] border-[#D6E1F0] bg-card px-3.5 text-[13px] text-ink outline-none focus:border-primary"
             >
               <option value="">Assign later</option>
               {room?.lead_educator_id && !educators.some((person) => person.id === room.lead_educator_id) && <option value={room.lead_educator_id} disabled>Previous lead unavailable — choose a replacement or assign later</option>}
               {educators.map((educator) => (
-                <option key={educator.id} value={educator.id}>{educator.fullName}</option>
+                <option key={educator.id} value={educator.id}>{educator.fullName}{educator.roomName ? ` · ${educator.roomName}` : " · floater"}</option>
               ))}
             </select>
           </label>
         </div>
-        <p className="text-[11.5px] leading-relaxed text-muted">The lead is responsible for this room. This does not change their home room, access, shifts or live ratio count. Use coverage planning to arrange staffing, including for future openings.</p>
+        <p className="text-[11.5px] leading-relaxed text-muted">The lead is responsible for this room. Leadership alone does not change room access, shifts or live ratio count.</p>
+        {leadHasDifferentHome && selectedLead && (
+          <div className="rounded-[13px] border border-[#D6E1F0] bg-tint px-3.5 py-3">
+            <label className="flex items-start gap-2.5 text-[12px] font-semibold text-ink">
+              <input type="checkbox" name="move_lead_home_room" checked={moveLead && !futureOpening} disabled={futureOpening} onChange={(event) => setMoveLead(event.target.checked)} className="mt-0.5" />
+              <span>Move {selectedLead.fullName}&apos;s home room here now</span>
+            </label>
+            <p className="mt-1.5 pl-6 text-[11px] leading-relaxed text-muted">
+              {futureOpening
+                ? "This room opens later. Keep the current home room for now; review the educator's schedule and move them when the room opens."
+                : `Currently ${selectedLead.roomName ?? "a floater"}. This changes permanent room access immediately. Review coverage in the former room; update published shifts and regular schedules in Staff first.`}
+            </p>
+          </div>
+        )}
 
           <div className="grid grid-cols-2 gap-2.5">
             <Field label="Nap starts (optional)" name="nap_start" type="time" defaultValue={room?.nap_start?.slice(0, 5) ?? ""} {...fieldProps("nap_start")} />

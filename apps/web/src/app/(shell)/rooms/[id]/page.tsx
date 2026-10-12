@@ -79,9 +79,11 @@ export default async function RoomDetailPage({
         (item) => item.source_classroom_id === id || item.host_classroom_id === id,
       )}
       floaters={floaters}
-      educators={staff.filter((member) => member.profile?.role === "educator").map((member) => ({
+      educators={staff.filter((member) => member.status === "active" && member.profile?.role === "educator").map((member) => ({
         id: member.profile!.id,
         fullName: member.profile!.full_name,
+        roomId: member.profile!.classroom?.id ?? null,
+        roomName: member.profile!.classroom?.name ?? null,
       }))}
       date={today}
       timeZone={timeZone}

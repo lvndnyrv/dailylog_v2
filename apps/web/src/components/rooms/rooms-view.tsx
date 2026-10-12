@@ -43,6 +43,7 @@ interface Educator {
   fullName: string;
   role: string;
   roomId: string | null;
+  roomName: string | null;
 }
 
 type ModalState =
@@ -184,7 +185,8 @@ export function RoomsView({
       {modal === "add" && (
         <RoomFormModal
           rooms={rooms}
-          educators={educators.map((item) => ({ id: item.id, fullName: item.fullName }))}
+          educators={educators}
+          today={date}
           onClose={closeModal}
         />
       )}

@@ -95,13 +95,14 @@ export default async function RoomsPage({
         timeEntries={timeEntries}
         timeOff={timeOff}
         educators={staff
-          .filter((member) => member.profile?.role === "educator")
+          .filter((member) => member.status === "active" && member.profile?.role === "educator")
           .map((member) => ({
             id: member.profile!.id,
             staffMemberId: member.id,
             fullName: member.profile!.full_name,
             role: member.profile!.role,
             roomId: member.profile!.classroom?.id ?? null,
+            roomName: member.profile!.classroom?.name ?? null,
           }))}
         date={today}
         timeZone={timeZone}

@@ -78,7 +78,7 @@ export function RoomDetailView({
   transitionWaits: RoomTransitionWaitRow[];
   combinations: Tables<"room_combinations">[];
   floaters: { id: string; full_name: string; email: string }[];
-  educators: { id: string; fullName: string }[];
+  educators: { id: string; fullName: string; roomId: string | null; roomName: string | null }[];
   date: string;
   timeZone: string;
   alertAfterMinutes: number;
@@ -309,7 +309,7 @@ export function RoomDetailView({
         </aside>
       </main>
 
-      {modal === "edit" && <RoomFormModal room={room} rooms={rooms} educators={educators} onClose={() => setModal("none")} />}
+      {modal === "edit" && <RoomFormModal room={room} rooms={rooms} educators={educators} today={date} onClose={() => setModal("none")} />}
       {modal === "assign" && (
         <AssignFloaterModal floaters={floaters} rooms={rooms} shifts={shifts} initialEducatorId={floaters[0]?.id ?? null} initialRoomId={room.id} date={date} timeZone={timeZone} onClose={() => setModal("none")} />
       )}

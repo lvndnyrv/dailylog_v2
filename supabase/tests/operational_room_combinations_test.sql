@@ -13,6 +13,7 @@ declare
   member_id uuid; child_id uuid; host_child uuid; third_child uuid; fourth_child uuid;
   combination_id uuid; source_count integer; host_count integer; counted_staff integer;
   before_home uuid; test_zone text; monday date := '2026-09-14'; record_id uuid;
+  incident_id uuid;
   initial_rules jsonb; current_day date; p uuid;
 begin
   -- Choose a zone with a current weekday so public now()-based APIs are exercised.
@@ -92,6 +93,12 @@ begin
       where session.classroom_id=host_id and session.attendance_date=current_day
         and session.present_count=3 and session.awaited_count=1) then
     raise exception 'FAIL: shared roll call saved incomplete operating-group totals'; end if;
+  insert into public.incident_reports(daycare_id,child_id,educator_id,classroom_id,location,injury_type,description,status)
+    values(center_id,host_child,educator_id,host_id,'Shared play area','Bump','Rollback shared-room incident','draft')
+    returning id into incident_id;
+  if not exists(select 1 from public.incident_reports incident
+    where incident.id=incident_id and incident.classroom_id in (source_id,host_id)) then
+    raise exception 'FAIL: source educator cannot see the partner-child incident in the operating group'; end if;
   begin perform public.pause_room_combination_today(combination_id,true); raise exception 'FAIL: educator paused center schedule';
   exception when others then if sqlerrm like 'FAIL:%' then raise; end if; end;
   perform pg_temp.impersonate('authenticated',owner_id);
@@ -121,6 +128,8 @@ begin
   if not exists(select 1 from public.get_mobile_room_ratios() where id=source_id and present_count=3 and staff_count=1) then raise exception 'FAIL: pause did not restore home counts'; end if;
   perform pg_temp.impersonate('authenticated',educator_id);
   if host_id in(select public.my_classroom_ids()) or public.can_write_child(host_child) then raise exception 'FAIL: temporary access survived pause'; end if;
+  if exists(select 1 from public.incident_reports incident where incident.id=incident_id) then
+    raise exception 'FAIL: source educator retained partner-child incident access after pause'; end if;
   if (select count(*) from public.get_mobile_today_pickups(source_id))<>3 then
     raise exception 'FAIL: paused pickup list did not return to the home room'; end if;
   if jsonb_array_length(public.get_mobile_roll_call(source_id)->'children')<>3
@@ -150,4 +159,4 @@ begin
     raise exception 'FAIL: legacy plan activated without saving'; end if;
 end; $$;
 rollback;
-select 'PASS: combined counts/strict ratio, shared pickup and roll-call rosters, roll-call completion, capacity and check-in guards, temporary access, pause/resume, time boundaries and legacy safety; rolled back' as result;
+select 'PASS: combined counts/strict ratio, shared pickup and roll-call rosters, incident access, roll-call completion, capacity and check-in guards, temporary access, pause/resume, time boundaries and legacy safety; rolled back' as result;

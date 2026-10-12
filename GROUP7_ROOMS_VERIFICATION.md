@@ -303,6 +303,12 @@ Operational follow-up migrations also applied: `20260906000100_operational_room_
 - Pausing the combination restores each permanent-room roll and removes temporary partner access. No child assignment or historical attendance record is rewritten.
 - Applied `20261012000300_combined_room_roll_call.sql` to the linked project. The rollback-only operational combination, mobile attendance and first-day onboarding suites passed; linked database lint and mobile typecheck passed. The iPhone 17 Pro simulator opened the educator Attendance screen through accessibility controls; its normal single-room roll loaded without error. An active-combination visual pass remains to be done with a safe temporary fixture.
 
+### Shared-room incident handoff — October 12
+
+- The educator Incident hub now loads children and incidents from both temporary member rooms while the combination is active, labels home rooms in the child picker and recent reports, and returns to the selected room when the combination ends. Existing reports retain the child's permanent room; no incident or child assignment is rewritten.
+- Its query follows operating-room membership changes and discards stale in-flight results after switching rooms or leaving the screen. The rollback-only combination fixture confirmed partner-child incident creation/read and expiry of temporary access after pause. The educator→admin→parent incident handoff suite and mobile typecheck passed.
+- The iPhone 17 Pro simulator loaded the normal Preschool incident list and child picker through accessibility controls. Active-combination visual verification remains pending; no live room combination was activated merely to create a screenshot.
+
 ## Still required before calling Group 7 complete
 
 1. **7d remaining boundary:** future-opening room lead moves remain an explicit administrator decision; the opening-day review is visible but not an automatic transfer or notification. No licensing-rule authority/preset verification is claimed.

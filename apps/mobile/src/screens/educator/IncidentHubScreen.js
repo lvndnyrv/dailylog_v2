@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Modal,
@@ -59,14 +59,22 @@ function classroomInitials(name) {
 
 export default function IncidentHubScreen({ navigation }) {
   const { profile } = useAuth();
-  const { active } = useClassroom();
+  const { active, classrooms } = useClassroom();
   const adminMode = isAdminRole(profile?.role);
+  const roomKey = (active?.member_room_ids?.length ? active.member_room_ids : active?.id ? [active.id] : []).join(',');
+  const sharedRoom = !adminMode && roomKey.split(',').filter(Boolean).length > 1;
+  const roomNames = useMemo(
+    () => new Map(classrooms.map(room => [room.id, room.name])),
+    [classrooms],
+  );
   const [reports, setReports] = useState([]);
   const [children, setChildren] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showChildren, setShowChildren] = useState(false);
+  const requestId = useRef(0);
 
   const load = useCallback(async () => {
+    const currentRequest = ++requestId.current;
     if ((!active?.id && !adminMode) || !profile?.id) {
       setReports([]);
       setChildren([]);
@@ -94,18 +102,21 @@ export default function IncidentHubScreen({ navigation }) {
       childQuery = childQuery.eq('daycare_id', profile.daycare_id);
       incidentQuery = incidentQuery.eq('daycare_id', profile.daycare_id);
     } else {
-      childQuery = childQuery.eq('classroom_id', active.id);
-      incidentQuery = incidentQuery.eq('classroom_id', active.id);
+      const roomIds = roomKey.split(',').filter(Boolean);
+      childQuery = childQuery.in('classroom_id', roomIds);
+      incidentQuery = incidentQuery.in('classroom_id', roomIds);
     }
     const [{ data: childRows }, { data: incidentRows }] = await Promise.all([childQuery, incidentQuery]);
 
+    if (currentRequest !== requestId.current) return;
     setChildren(childRows || []);
     setReports(incidentRows || []);
     setLoading(false);
-  }, [active?.id, adminMode, profile?.daycare_id, profile?.id]);
+  }, [active?.id, adminMode, profile?.daycare_id, profile?.id, roomKey]);
 
   useFocusEffect(useCallback(() => {
     load();
+    return () => { requestId.current += 1; };
   }, [load]));
 
   const ownDrafts = useMemo(
@@ -161,6 +172,13 @@ export default function IncidentHubScreen({ navigation }) {
           </View>
           <Text style={styles.scopeText}>{adminMode ? 'All classrooms' : active?.name || 'Classroom'} · Today</Text>
         </View>
+
+        {sharedRoom && (
+          <View style={styles.sharedRoomNote}>
+            <Ionicons name="git-merge-outline" size={17} color={colors.primary} />
+            <Text style={styles.sharedRoomText}>Reports and children from both rooms are shown while they share care. Home rooms remain unchanged.</Text>
+          </View>
+        )}
 
         <Button
           label="+ Report an incident"
@@ -229,6 +247,8 @@ export default function IncidentHubScreen({ navigation }) {
                             </View>
                           </View>
                           <Text style={styles.reportSub} numberOfLines={2}>
+                            {sharedRoom && roomNames.get(report.child?.classroom_id)
+                              ? `${roomNames.get(report.child.classroom_id)} · ` : ''}
                             {report.injury_type} · {report.location} ·{' '}
                             {isToday(new Date(report.occurred_at))
                               ? format(new Date(report.occurred_at), 'h:mm a')
@@ -278,7 +298,7 @@ export default function IncidentHubScreen({ navigation }) {
             <View style={styles.sheetHeader}>
               <View>
                 <Text style={styles.sheetTitle}>Who was involved?</Text>
-                <Text style={styles.sheetSub}>Choose a child from {adminMode ? 'this center' : active?.name || 'this classroom'}.</Text>
+                <Text style={styles.sheetSub}>Choose a child from {adminMode ? 'this center' : sharedRoom ? 'the combined rooms' : active?.name || 'this classroom'}.</Text>
               </View>
               <TouchableOpacity
                 onPress={() => setShowChildren(false)}
@@ -298,7 +318,12 @@ export default function IncidentHubScreen({ navigation }) {
                   activeOpacity={0.72}
                 >
                   <ChildAvatar child={child} size={42} />
-                  <Text style={styles.childName}>{childName(child)}</Text>
+                  <View style={styles.childListCopy}>
+                    <Text style={styles.childName}>{childName(child)}</Text>
+                    {sharedRoom && roomNames.get(child.classroom_id) && (
+                      <Text style={styles.childHomeRoom}>{roomNames.get(child.classroom_id)} home room</Text>
+                    )}
+                  </View>
                   <Ionicons name="chevron-forward" size={18} color={colors.textFaint} />
                 </TouchableOpacity>
               ))}
@@ -347,6 +372,12 @@ const styles = StyleSheet.create({
   },
   scopeAvatarText: { fontSize: 11, fontFamily: fonts.bold, color: colors.primary },
   scopeText: { fontSize: 13.5, fontFamily: fonts.bold, color: colors.textPrimary },
+  sharedRoomNote: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm,
+    marginTop: spacing.md, padding: spacing.md, borderWidth: 1,
+    borderColor: colors.border, borderRadius: radius.lg, backgroundColor: colors.primaryLight,
+  },
+  sharedRoomText: { flex: 1, color: colors.textMuted, fontSize: 12, lineHeight: 17, fontFamily: fonts.regular },
   newButton: { marginTop: spacing.lg, marginBottom: spacing.lg },
   loader: { paddingVertical: 60 },
   draftCard: {
@@ -479,5 +510,7 @@ const styles = StyleSheet.create({
     padding: spacing.md,
   },
   childRowBorder: { borderTopWidth: 1, borderTopColor: colors.borderSoft },
+  childListCopy: { flex: 1, minWidth: 0 },
   childName: { flex: 1, fontSize: 14.5, fontFamily: fonts.bold, color: colors.textPrimary },
+  childHomeRoom: { marginTop: 2, color: colors.primary, fontSize: 11.5, fontFamily: fonts.regular },
 });

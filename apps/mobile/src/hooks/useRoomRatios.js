@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { AppState } from 'react-native';
 
 import { supabase } from '../lib/supabase';
 
@@ -10,8 +11,10 @@ export function useRoomRatios() {
   const [coverage, setCoverage] = useState([]);
   const [coverageError, setCoverageError] = useState(null);
   const mounted = useRef(true);
+  const latestRequest = useRef(0);
 
   const load = useCallback(async ({ quiet = false } = {}) => {
+    const request = ++latestRequest.current;
     if (!quiet) setLoading(true);
     const [live, contexts, invitations] = await Promise.all([
       supabase.rpc('get_mobile_room_ratios'),
@@ -21,16 +24,20 @@ export function useRoomRatios() {
     const data = live.data;
     const loadError = live.error || contexts.error;
 
-    if (!mounted.current) return;
+    // Realtime, focus and the clock can all refresh this screen at once. A
+    // response from an earlier operating-room window must not replace newer
+    // ratio counts, room context or coverage invitations.
+    if (!mounted.current || request !== latestRequest.current) return;
     setCoverageError(invitations.error);
     if (!invitations.error) setCoverage(invitations.data || []);
     if (loadError) {
+      setRooms([]);
       setError(loadError);
     } else {
       setRooms((data || []).map(room => ({ ...room, operating: contexts.data?.find(item => item.room_id === room.id) })));
       setError(null);
     }
-    if (!quiet) setLoading(false);
+    setLoading(false);
   }, []);
 
   const respondToCoverage = useCallback(async (assignmentId, response) => {
@@ -102,10 +109,15 @@ export function useRoomRatios() {
       })
       .subscribe();
     const poll = setInterval(refresh, 60_000);
+    const appState = AppState.addEventListener('change', state => {
+      if (state === 'active') refresh();
+    });
 
     return () => {
       mounted.current = false;
+      latestRequest.current += 1;
       clearInterval(poll);
+      appState.remove();
       supabase.removeChannel(channel);
     };
   }, [load, loadPendingNudge]);

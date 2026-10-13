@@ -357,6 +357,11 @@ Operational follow-up migrations also applied: `20260906000100_operational_room_
 - The pickup list is now keyed to the selected operating-room group. Switching rooms or pausing a combination immediately hides the former group's rows, ignores any older in-flight response, and shows an error without retaining an outdated pickup list. A periodic and foreground refresh also picks up the center's next day even if the screen remains open overnight.
 - Mobile typecheck and iOS production bundle export passed. On the iPhone 17 Pro simulator, accessibility controls opened Pickups, switched Infant to Preschool, and showed the correct selected room. With no child checked in today, both pickup lists were empty; a populated active-combination visual pass is still outstanding. No pickup or combination record was changed for this check.
 
+### Educator ratio refresh ordering — October 13
+
+- Room ratio counts, operating-room context and coverage invitations now discard an older response when a newer realtime, focus or clock refresh has started. The latest response always clears the loading state, including when it followed an earlier non-quiet request. A failed ratio refresh clears old counts rather than leaving a stale ratio alert active. Returning the app to the foreground refreshes ratios so a shared-room window change is not left on the previous view until the next timer tick.
+- Mobile typecheck and iOS production bundle export passed. The iPhone 17 Pro simulator opened the educator Room ratios screen through accessibility controls and loaded the normal four-room ratio list. A live active-combination visual/race pass remains outstanding; no combination or attendance data was changed for this check.
+
 ## Still required before calling Group 7 complete
 
 1. **7d remaining boundary:** future-opening room lead moves remain an explicit administrator decision. Opening-day review and reminder are available, but there is no automatic transfer. The final transfer is web-only; mobile links explain this. No licensing-rule authority/preset verification is claimed.

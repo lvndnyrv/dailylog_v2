@@ -17,6 +17,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRoomRatios } from '../../hooks/useRoomRatios';
 import { useAuth } from '../../hooks/useAuth';
 import AdminCoverageReviewCard from '../../components/AdminCoverageReviewCard';
+import AdminRoomMoveReviewCard from '../../components/AdminRoomMoveReviewCard';
 import CoverageInvitations from '../../components/CoverageInvitations';
 import { colors, fonts, radius, spacing } from '../../theme';
 
@@ -314,6 +315,14 @@ export default function RoomRatiosScreen({ navigation, route }) {
             assignmentId={route.params.assignmentId}
             daycareId={profile.daycare_id}
             onClose={() => navigation.setParams({ assignmentId: undefined })}
+          />
+        )}
+        {!isEducator && route.params?.transitionPlanId && profile?.daycare_id && (
+          <AdminRoomMoveReviewCard
+            key={route.params.transitionPlanId}
+            planId={route.params.transitionPlanId}
+            daycareId={profile.daycare_id}
+            onClose={() => navigation.setParams({ transitionPlanId: undefined })}
           />
         )}
         {isEducator && nudgeUnavailable && route.params?.nudgeId && (

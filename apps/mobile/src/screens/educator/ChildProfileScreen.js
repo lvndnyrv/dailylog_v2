@@ -1,10 +1,11 @@
-import React, { useCallback, useState, useEffect } from 'react';
+import React, { useCallback, useState, useEffect, useRef } from 'react';
 import {
   View, Text, TouchableOpacity,
   StyleSheet, Alert, Linking, ActivityIndicator, Modal, ScrollView
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
+import { isAdminRole } from '@dailylog/shared';
 import { KeyboardAwareScrollView } from '../../components/KeyboardAwareScrollView';
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
@@ -80,7 +81,7 @@ export default function ChildProfileScreen({ route, navigation }) {
 
 function ChildProfileContent({ child, route, navigation }) {
   const { profile } = useAuth();
-  const { classrooms, active: activeClassroom } = useClassroom();
+  const { classrooms } = useClassroom();
 
   const [firstName, setFirstName] = useState(child.first_name || '');
   const [lastName, setLastName]   = useState(child.last_name  || '');
@@ -93,10 +94,12 @@ function ChildProfileContent({ child, route, navigation }) {
   const [movingClass, setMovingClass] = useState(false);
   const [showMovePicker, setShowMovePicker] = useState(false);
   const [currentClassroomId, setCurrentClassroomId] = useState(child.classroom_id);
+  const [canEditChildren, setCanEditChildren] = useState(false);
 
   // Linked parents
   const [parents, setParents]         = useState([]);
   const [loadingParents, setLoadingParents] = useState(true);
+  const parentsRequest = useRef(0);
 
   // Invite new parent
   const [inviteEmail, setInviteEmail] = useState('');
@@ -151,6 +154,13 @@ function ChildProfileContent({ child, route, navigation }) {
     dob              !== (child.date_of_birth || '');
 
   const currentClassroom = classrooms.find((room) => room.id === currentClassroomId);
+  const canManageRecord = canEditChildren && (
+    isAdminRole(profile?.role)
+    || classrooms.some((room) => room.id === currentClassroomId && !room.temporary)
+  );
+  const moveTargets = classrooms.filter((room) =>
+    room.id !== currentClassroomId && (isAdminRole(profile?.role) || !room.temporary)
+  );
   const setupState = initialSetupState;
   const primaryEducatorName = String(setupState.primary_educator_name || '');
   const cubbyLabel = String(setupState.cubby_label || '');
@@ -185,9 +195,11 @@ function ChildProfileContent({ child, route, navigation }) {
 
   useEffect(() => {
     loadParents();
-    loadIncidents();
-    loadExistingParents();
-  }, []);
+    if (canManageRecord) loadExistingParents();
+    else setExistingParents([]);
+  }, [canManageRecord]);
+
+  useEffect(() => { loadIncidents(); }, []);
 
   const loadPickupPeople = useCallback(async ({ quiet = false } = {}) => {
     if (!quiet) setLoadingPickups(true);
@@ -206,6 +218,18 @@ function ChildProfileContent({ child, route, navigation }) {
   useFocusEffect(useCallback(() => {
     loadPickupPeople();
   }, [loadPickupPeople, route.params?.linkedAt, route.params?.pickupId]));
+
+  useFocusEffect(useCallback(() => {
+    let current = true;
+    setCanEditChildren(false);
+    if (profile?.id) {
+      supabase.rpc('has_permission', { p_area: 'children', p_action: 'edit' })
+        .then(({ data, error }) => {
+          if (current) setCanEditChildren(!error && data === true);
+        });
+    }
+    return () => { current = false; };
+  }, [profile?.id]));
 
   useEffect(() => {
     const channel = supabase
@@ -257,6 +281,7 @@ function ChildProfileContent({ child, route, navigation }) {
 
   // Load all parents in the daycare (for "link existing" picker)
   async function loadExistingParents() {
+    if (!canManageRecord) return;
     let query = supabase
       .from('profiles')
       .select('id, full_name, email')
@@ -284,6 +309,7 @@ function ChildProfileContent({ child, route, navigation }) {
   }
 
   async function linkExistingParent() {
+    if (!canManageRecord) return;
     const relationship = existingRelationship.trim();
     if (!relationship) {
       setExistingLinkError('Relationship is required.');
@@ -310,6 +336,7 @@ function ChildProfileContent({ child, route, navigation }) {
 
   // ─── PROFILE PHOTO ────────────────────────────────────────────────────────
   function handleChangePhoto() {
+    if (!canManageRecord) return;
     Alert.alert('Profile photo', 'Choose a source', [
       { text: 'Camera', onPress: () => pickPhoto('camera') },
       { text: 'Photo library', onPress: () => pickPhoto('library') },
@@ -349,7 +376,9 @@ function ChildProfileContent({ child, route, navigation }) {
   }
 
   async function uploadAvatar(uri) {
+    if (!canManageRecord) return;
     setUploadingPhoto(true);
+    let uploadedPath = null;
     try {
       // Resize to 400x400 for profile photos
       const manipResult = await ImageManipulator.manipulateAsync(
@@ -363,40 +392,46 @@ function ChildProfileContent({ child, route, navigation }) {
       const arrayBuffer = await response.arrayBuffer();
       const path = `${child.id}/avatar_${Date.now()}.jpg`;
 
-      // Remove old avatar if exists
-      if (photoUrl) {
-        await supabase.storage.from('child-avatars').remove([photoUrl]);
-      }
-
       // Upload new avatar
       const { error: uploadError } = await supabase.storage
         .from('child-avatars')
         .upload(path, arrayBuffer, { contentType: 'image/jpeg', upsert: true });
 
       if (uploadError) throw uploadError;
+      uploadedPath = path;
 
       // Update child record
-      const { error: dbError } = await supabase
+      const { data: updatedChild, error: dbError } = await supabase
         .from('children')
         .update({ photo_url: path })
-        .eq('id', child.id);
+        .eq('id', child.id)
+        .select('id')
+        .maybeSingle();
 
       if (dbError) throw dbError;
+      if (!updatedChild) throw new Error('Photo was not saved. Your child-record access may have changed.');
 
+      uploadedPath = null;
+      if (photoUrl) await supabase.storage.from('child-avatars').remove([photoUrl]);
       setPhotoUrl(path);
       Alert.alert('Photo updated ✓', `${firstName}'s profile photo has been set.`);
     } catch (err) {
+      if (uploadedPath) await supabase.storage.from('child-avatars').remove([uploadedPath]);
       Alert.alert('Upload failed', err.message);
     }
     setUploadingPhoto(false);
   }
 
   async function handleRemovePhoto() {
+    if (!canManageRecord) return;
     try {
+      const { data, error } = await supabase.from('children')
+        .update({ photo_url: null }).eq('id', child.id).select('id').maybeSingle();
+      if (error) throw error;
+      if (!data) throw new Error('Photo was not removed. Your child-record access may have changed.');
       if (photoUrl) {
         await supabase.storage.from('child-avatars').remove([photoUrl]);
       }
-      await supabase.from('children').update({ photo_url: null }).eq('id', child.id);
       setPhotoUrl(null);
     } catch (err) {
       Alert.alert('Error', err.message);
@@ -404,17 +439,19 @@ function ChildProfileContent({ child, route, navigation }) {
   }
 
   async function loadParents() {
+    const request = ++parentsRequest.current;
     setLoadingParents(true);
     const [parentRes, inviteRes] = await Promise.all([
       supabase.from('parent_children')
         .select('relationship, pickup_authorized, is_primary, parent:profiles(id, full_name, email, phone)')
         .eq('child_id', child.id),
-      supabase.from('child_invite_codes')
+      canManageRecord ? supabase.from('child_invite_codes')
         .select('id, email, relationship, code, created_at, expires_at')
         .eq('child_id', child.id)
         .is('used_at', null)
-        .order('created_at', { ascending: false }),
+        .order('created_at', { ascending: false }) : Promise.resolve({ data: [] }),
     ]);
+    if (request !== parentsRequest.current) return;
     setParents((parentRes.data || []).map(row => {
       const parent = Array.isArray(row.parent) ? row.parent[0] : row.parent;
       return parent ? { ...parent, relationship: row.relationship, pickup_authorized: row.pickup_authorized, is_primary: row.is_primary } : null;
@@ -441,6 +478,7 @@ function ChildProfileContent({ child, route, navigation }) {
     contacts: nextContacts = contacts,
     noKnownMedicalNeeds: nextNoKnownMedicalNeeds = noKnownMedicalNeeds,
   } = {}) {
+    if (!canManageRecord) return false;
     setSavingMedical(true);
     const { data, error } = await supabase.rpc('save_child_care_profile', {
       p_child_id: child.id,
@@ -505,6 +543,7 @@ function ChildProfileContent({ child, route, navigation }) {
   }
 
   async function handleSave() {
+    if (!canManageRecord) return;
     const errs = {};
     if (!firstName.trim()) errs.firstName = 'First name is required';
     if (!lastName.trim()) errs.lastName = 'Last name is required';
@@ -512,18 +551,20 @@ function ChildProfileContent({ child, route, navigation }) {
     if (Object.keys(errs).length > 0) return;
 
     setSaving(true);
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from('children')
       .update({
         first_name:    firstName.trim(),
         last_name:     lastName.trim(),
         date_of_birth: dob || null,
       })
-      .eq('id', child.id);
+      .eq('id', child.id)
+      .select('id')
+      .maybeSingle();
     setSaving(false);
 
-    if (error) {
-      Alert.alert('Error', error.message);
+    if (error || !data) {
+      Alert.alert('Could not save profile', error?.message || 'No record was changed. Your child-record access may have changed.');
     } else {
       Alert.alert('Saved ✓', `${firstName.trim()}'s profile has been updated.`, [
         { text: 'OK', onPress: () => navigation.goBack() }
@@ -532,6 +573,7 @@ function ChildProfileContent({ child, route, navigation }) {
   }
 
   async function handleInviteParent() {
+    if (!canManageRecord) return;
     const email = inviteEmail.trim().toLowerCase();
     const relationship = inviteRelationship.trim();
     const nextErrors = {};
@@ -574,6 +616,7 @@ function ChildProfileContent({ child, route, navigation }) {
   }
 
   function cancelInvite(invite) {
+    if (!canManageRecord) return;
     Alert.alert('Cancel family invite?', `${invite.email} will no longer be able to use this code.`, [
       { text: 'Keep invite', style: 'cancel' },
       {
@@ -594,6 +637,7 @@ function ChildProfileContent({ child, route, navigation }) {
   }
 
   async function resendInvite(invite) {
+    if (!canManageRecord) return;
     setBusyInviteId(invite.id);
     const { data: renewedInvite, error: updateError } = await supabase.rpc('admin_renew_parent_invite', {
       p_invite_id: invite.id,
@@ -621,6 +665,7 @@ function ChildProfileContent({ child, route, navigation }) {
   }
 
   async function handleUnlinkParent(parent) {
+    if (!canManageRecord) return;
     Alert.alert(
       'Unlink family member',
       `${parent.is_primary && parents.length > 1 ? 'This is the primary guardian. The next linked guardian will be promoted automatically.\n\n' : ''}Remove ${parent.full_name}'s access to ${child.first_name}'s daily logs?`,
@@ -646,6 +691,7 @@ function ChildProfileContent({ child, route, navigation }) {
   }
 
   function makePrimaryGuardian(parent) {
+    if (!canManageRecord) return;
     Alert.alert(
       'Make primary guardian?',
       `${parent.full_name} will become the main family contact for ${child.first_name}. The current primary guardian will remain linked.`,
@@ -673,23 +719,25 @@ function ChildProfileContent({ child, route, navigation }) {
   }
 
   async function handleMoveClassroom(targetRoom) {
-    if (targetRoom.id === currentClassroomId) return;
+    if (!canManageRecord || targetRoom.id === currentClassroomId || !moveTargets.some(room => room.id === targetRoom.id)) return;
     Alert.alert(
       'Move child',
-      `Move ${firstName} from "${activeClassroom?.name || 'current class'}" to "${targetRoom.name}"?\n\nAll their log history will be preserved.`,
+      `Move ${firstName} from "${currentClassroom?.name || 'current class'}" to "${targetRoom.name}"?\n\nAll their log history will be preserved.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Move', onPress: async () => {
             setMovingClass(true);
-            const { error } = await supabase
+            const { data, error } = await supabase
               .from('children')
               .update({ classroom_id: targetRoom.id })
-              .eq('id', child.id);
+              .eq('id', child.id)
+              .select('id')
+              .maybeSingle();
             setMovingClass(false);
             setShowMovePicker(false);
-            if (error) {
-              Alert.alert('Error', error.message);
+            if (error || !data) {
+              Alert.alert('Could not move child', error?.message || 'No record was changed. Your child-record access may have changed.');
             } else {
               setCurrentClassroomId(targetRoom.id);
               Alert.alert(
@@ -705,6 +753,7 @@ function ChildProfileContent({ child, route, navigation }) {
   }
 
   function handleRemove() {
+    if (!canManageRecord) return;
     Alert.alert(
       `Remove ${child.first_name}?`,
       'This will remove them from your classroom roster. Their log history will be kept.',
@@ -715,13 +764,15 @@ function ChildProfileContent({ child, route, navigation }) {
           onPress: async () => {
             setRemoving(true);
             // Soft delete — archiving preserves logs, incidents and parent links
-            const { error } = await supabase
+            const { data, error } = await supabase
               .from('children')
               .update({ archived_at: new Date().toISOString() })
-              .eq('id', child.id);
+              .eq('id', child.id)
+              .select('id')
+              .maybeSingle();
             setRemoving(false);
-            if (error) {
-              Alert.alert('Error', error.message);
+            if (error || !data) {
+              Alert.alert('Could not remove child', error?.message || 'No record was changed. Your child-record access may have changed.');
               return;
             }
             navigation.goBack();
@@ -750,29 +801,29 @@ function ChildProfileContent({ child, route, navigation }) {
           <Ionicons name="chevron-back" size={22} color={colors.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Child profile</Text>
-        <TouchableOpacity
-          onPress={handleSave}
-          disabled={saving}
-          style={[styles.saveBtn, saving && styles.saveBtnDisabled]}
-          accessibilityRole="button"
-          accessibilityLabel="Save child profile"
-        >
-          <Text style={styles.saveBtnText}>
-            {saving ? 'Saving...' : 'Save'}
-          </Text>
-        </TouchableOpacity>
+        {canManageRecord ? (
+          <TouchableOpacity
+            onPress={handleSave}
+            disabled={saving}
+            style={[styles.saveBtn, saving && styles.saveBtnDisabled]}
+            accessibilityRole="button"
+            accessibilityLabel="Save child profile"
+          >
+            <Text style={styles.saveBtnText}>{saving ? 'Saving...' : 'Save'}</Text>
+          </TouchableOpacity>
+        ) : <View style={styles.headerSide} />}
       </View>
 
       {/* Avatar — tap to change photo */}
-      <TouchableOpacity style={styles.avatarWrap} onPress={handleChangePhoto} activeOpacity={0.7}>
+      <TouchableOpacity style={styles.avatarWrap} onPress={handleChangePhoto} disabled={!canManageRecord} activeOpacity={0.7}>
         <View style={styles.avatarContainer}>
           <ChildAvatar
             child={{ ...child, first_name: firstName, last_name: lastName, photo_url: photoUrl }}
             size={88}
           />
-          <View style={styles.avatarBadge}>
+          {canManageRecord && <View style={styles.avatarBadge}>
             <Ionicons name="camera-outline" size={15} color={colors.white} />
-          </View>
+          </View>}
           {uploadingPhoto && (
             <View style={styles.avatarOverlay}>
               <ActivityIndicator color={colors.white} />
@@ -970,7 +1021,7 @@ function ChildProfileContent({ child, route, navigation }) {
       </Modal>
 
       {/* Profile completeness nudge */}
-      {!loadingParents && missingSections.length > 0 && (
+      {canManageRecord && !loadingParents && missingSections.length > 0 && (
         <View style={styles.completenessCard}>
           <View style={styles.completenessHeader}>
             <Text style={styles.completenessTitle}>Profile {profilePercent}% complete</Text>
@@ -992,6 +1043,15 @@ function ChildProfileContent({ child, route, navigation }) {
       {/* Details form */}
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Details</Text>
+        {!canManageRecord ? (
+          <>
+            <Text style={styles.medLabel}>Name</Text>
+            <Text style={styles.contactName}>{firstName} {lastName}</Text>
+            <Text style={styles.medLabel}>Date of birth</Text>
+            <Text style={styles.contactName}>{formatBirthDate(dob) || 'Not recorded'}</Text>
+            <Text style={styles.medHint}>This child’s permanent profile is managed by their home-room team or an administrator.</Text>
+          </>
+        ) : <>
         <Input
           label="First name (required)"
           value={firstName}
@@ -1007,9 +1067,10 @@ function ChildProfileContent({ child, route, navigation }) {
           error={errors.lastName}
         />
         <DatePickerField label="Date of birth (optional)" value={dob} onChange={setDob} />
+        </>}
       </View>
 
-      {hasChanges && (
+      {canManageRecord && hasChanges && (
         <Button label="Save changes" onPress={handleSave} loading={saving} style={styles.saveFullBtn} />
       )}
 
@@ -1025,7 +1086,7 @@ function ChildProfileContent({ child, route, navigation }) {
               <Text style={styles.classroomCurrentAge}>{currentClassroom.age_group}</Text>
             ) : null}
           </View>
-          {classrooms.length > 1 ? (
+          {canManageRecord && moveTargets.length > 0 ? (
             <TouchableOpacity
               onPress={() => setShowMovePicker(true)}
               style={styles.classMoveBtn}
@@ -1069,8 +1130,7 @@ function ChildProfileContent({ child, route, navigation }) {
               </TouchableOpacity>
             </View>
             <ScrollView style={styles.moveList}>
-              {classrooms
-                .filter(r => r.id !== currentClassroomId)
+              {moveTargets
                 .map(room => (
                   <TouchableOpacity
                     key={room.id}
@@ -1102,9 +1162,9 @@ function ChildProfileContent({ child, route, navigation }) {
 
         <TouchableOpacity
           onPress={toggleNoKnownMedicalNeeds}
-          disabled={savingMedical}
+          disabled={savingMedical || !canManageRecord}
           accessibilityRole="checkbox"
-          accessibilityState={{ checked: noKnownMedicalNeeds, disabled: savingMedical }}
+          accessibilityState={{ checked: noKnownMedicalNeeds, disabled: savingMedical || !canManageRecord }}
           style={[
             styles.medicalReviewRow,
             noKnownMedicalNeeds && styles.medicalReviewRowSelected,
@@ -1129,17 +1189,17 @@ function ChildProfileContent({ child, route, navigation }) {
               <TouchableOpacity
                 key={a}
                 style={styles.allergyChip}
-                onLongPress={() => Alert.alert('Remove allergy', `Remove "${a}"?`, [
+                onLongPress={canManageRecord ? () => Alert.alert('Remove allergy', `Remove "${a}"?`, [
                   { text: 'Cancel', style: 'cancel' },
                   { text: 'Remove', style: 'destructive', onPress: () => removeAllergy(a) },
-                ])}
+                ]) : undefined}
               >
-                <Text style={styles.allergyChipText}>{a}  ×</Text>
+                <Text style={styles.allergyChipText}>{a}{canManageRecord ? '  ×' : ''}</Text>
               </TouchableOpacity>
             ))}
           </View>
         )}
-        <View style={styles.medAddRow}>
+        {canManageRecord && <View style={styles.medAddRow}>
           <Input
             value={newAllergy}
             onChangeText={setNewAllergy}
@@ -1153,8 +1213,8 @@ function ChildProfileContent({ child, route, navigation }) {
           >
             <Text style={styles.medAddBtnText}>Add</Text>
           </TouchableOpacity>
-        </View>
-        {allergies.length > 0 && (
+        </View>}
+        {canManageRecord && allergies.length > 0 && (
           <Text style={styles.medHint}>Hold an allergy chip to remove it.</Text>
         )}
 
@@ -1170,11 +1230,12 @@ function ChildProfileContent({ child, route, navigation }) {
                 <Text style={styles.contactPhone}>📞 {c.phone}</Text>
               </TouchableOpacity>
             </View>
-            <TouchableOpacity onPress={() => removeContact(idx)} style={styles.unlinkBtn}>
+            {canManageRecord && <TouchableOpacity onPress={() => removeContact(idx)} style={styles.unlinkBtn}>
               <Text style={styles.unlinkBtnText}>Remove</Text>
-            </TouchableOpacity>
+            </TouchableOpacity>}
           </View>
         ))}
+        {canManageRecord && <>
         <Input
           value={newContact.name}
           onChangeText={t => setNewContact(p => ({ ...p, name: t }))}
@@ -1202,12 +1263,13 @@ function ChildProfileContent({ child, route, navigation }) {
         >
           <Text style={styles.medAddBtnText}>+ Add contact</Text>
         </TouchableOpacity>
+        </>}
 
         <Divider />
 
         {/* Medical notes */}
         <Text style={styles.medLabel}>Medical notes</Text>
-        <Input
+        {canManageRecord ? <Input
           value={medicalNotes}
           onChangeText={(value) => {
             setMedicalNotes(value);
@@ -1216,8 +1278,8 @@ function ChildProfileContent({ child, route, navigation }) {
           }}
           placeholder="e.g. Carries EpiPen; inhaler in cubby"
           multiline
-        />
-        <TouchableOpacity
+        /> : <Text style={styles.contactName}>{medicalNotes || 'No medical notes recorded.'}</Text>}
+        {canManageRecord && <TouchableOpacity
           onPress={() => saveMedical({ medicalNotes, noKnownMedicalNeeds: false })}
           disabled={savingMedical}
           style={[styles.medAddBtn, { alignSelf: 'flex-start' }]}
@@ -1225,7 +1287,7 @@ function ChildProfileContent({ child, route, navigation }) {
           {savingMedical
             ? <ActivityIndicator color={colors.white} size="small" />
             : <Text style={styles.medAddBtnText}>Save notes</Text>}
-        </TouchableOpacity>
+        </TouchableOpacity>}
 
         <Divider />
 
@@ -1307,7 +1369,7 @@ function ChildProfileContent({ child, route, navigation }) {
                     </View>
                     {parent.is_primary ? (
                       <View style={styles.parentAccessBadge}><Text style={styles.parentAccessBadgeText}>Primary</Text></View>
-                    ) : (
+                    ) : canManageRecord ? (
                       <TouchableOpacity
                         style={[styles.parentAccessBadge, styles.makePrimaryBadge]}
                         onPress={() => makePrimaryGuardian(parent)}
@@ -1318,7 +1380,7 @@ function ChildProfileContent({ child, route, navigation }) {
                           ? <ActivityIndicator size="small" color={colors.primary} />
                           : <Text style={styles.makePrimaryBadgeText}>Make primary</Text>}
                       </TouchableOpacity>
-                    )}
+                    ) : null}
                     <View style={[styles.parentAccessBadge, parent.pickup_authorized ? styles.parentAccessBadgeOk : styles.parentAccessBadgeMuted]}>
                       <Text style={[styles.parentAccessBadgeText, parent.pickup_authorized ? styles.parentAccessBadgeTextOk : styles.parentAccessBadgeTextMuted]}>
                         {parent.pickup_authorized ? 'Pickup allowed' : 'No pickup'}
@@ -1337,12 +1399,12 @@ function ChildProfileContent({ child, route, navigation }) {
                     <Text style={styles.noPhone}>No phone on file</Text>
                   )}
                 </View>
-                <TouchableOpacity
+                {canManageRecord && <TouchableOpacity
                   onPress={() => handleUnlinkParent(parent)}
                   style={styles.unlinkBtn}
                 >
                   <Text style={styles.unlinkBtnText}>Unlink</Text>
-                </TouchableOpacity>
+                </TouchableOpacity>}
               </View>
             </View>
           ))
@@ -1350,7 +1412,7 @@ function ChildProfileContent({ child, route, navigation }) {
 
         <Divider />
 
-        {pendingInvites.length > 0 && (
+        {canManageRecord && pendingInvites.length > 0 && (
           <View style={styles.pendingInviteBlock}>
             <View style={styles.pendingInviteHeading}>
               <Ionicons name="time-outline" size={17} color={colors.amber} />
@@ -1368,7 +1430,7 @@ function ChildProfileContent({ child, route, navigation }) {
                     </Text>
                     <Text style={styles.pendingInviteCode}>Code {invite.code}</Text>
                   </View>
-                  <TouchableOpacity
+                  {canManageRecord && <TouchableOpacity
                     style={styles.inviteIconButton}
                     onPress={() => resendInvite(invite)}
                     disabled={busyInviteId === invite.id}
@@ -1377,15 +1439,15 @@ function ChildProfileContent({ child, route, navigation }) {
                     {busyInviteId === invite.id
                       ? <ActivityIndicator color={colors.primary} size="small" />
                       : <Ionicons name="refresh-outline" size={18} color={colors.primary} />}
-                  </TouchableOpacity>
-                  <TouchableOpacity
+                  </TouchableOpacity>}
+                  {canManageRecord && <TouchableOpacity
                     style={[styles.inviteIconButton, styles.inviteDeleteButton]}
                     onPress={() => cancelInvite(invite)}
                     disabled={busyInviteId === invite.id}
                     accessibilityLabel={`Cancel invite for ${invite.email}`}
                   >
                     <Ionicons name="trash-outline" size={17} color={colors.danger} />
-                  </TouchableOpacity>
+                  </TouchableOpacity>}
                 </View>
               );
             })}
@@ -1394,7 +1456,7 @@ function ChildProfileContent({ child, route, navigation }) {
         )}
 
         {/* Link existing parent */}
-        {existingParents.filter(p => !parents.find(lp => lp.id === p.id)).length > 0 && (
+        {canManageRecord && existingParents.filter(p => !parents.find(lp => lp.id === p.id)).length > 0 && (
           <>
             <Text style={styles.inviteLabel}>Link an existing parent</Text>
             <TouchableOpacity
@@ -1410,6 +1472,7 @@ function ChildProfileContent({ child, route, navigation }) {
         )}
 
         {/* Invite / link parent by email */}
+        {canManageRecord && <>
         <Text style={styles.inviteLabel}>Invite a new family member</Text>
         <Input
           label="Email *"
@@ -1451,6 +1514,7 @@ function ChildProfileContent({ child, route, navigation }) {
         <Text style={styles.inviteHint}>
           The code is email-bound, single-use and expires after seven days. Linking completes only after the family signs in and accepts it.
         </Text>
+        </>}
       </View>
 
       {/* Parent picker modal */}
@@ -1588,7 +1652,7 @@ function ChildProfileContent({ child, route, navigation }) {
       </View>
 
       {/* Danger zone */}
-      <View style={styles.dangerCard}>
+      {canManageRecord && <View style={styles.dangerCard}>
         <Text style={styles.dangerTitle}>Remove from classroom</Text>
         <Text style={styles.dangerDesc}>
           Removes {firstName} from your roster. Their log history is kept and can be restored by re-adding them.
@@ -1600,7 +1664,7 @@ function ChildProfileContent({ child, route, navigation }) {
           variant="danger"
           style={{ marginTop: spacing.md }}
         />
-      </View>
+      </View>}
 
       <View style={{ height: spacing.xxxl }} />
     </KeyboardAwareScrollView>

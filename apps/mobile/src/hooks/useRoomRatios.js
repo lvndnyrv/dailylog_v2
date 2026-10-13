@@ -2,8 +2,11 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 
 import { supabase } from '../lib/supabase';
+import { useAuth } from './useAuth';
 
 export function useRoomRatios() {
+  const { profile } = useAuth();
+  const isEducator = profile?.role === 'educator';
   const [rooms, setRooms] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -22,7 +25,7 @@ export function useRoomRatios() {
     const [live, contexts, invitations] = await Promise.all([
       supabase.rpc('get_mobile_room_ratios'),
       supabase.rpc('get_room_operating_context'),
-      supabase.rpc('get_my_room_coverage'),
+      isEducator ? supabase.rpc('get_my_room_coverage') : Promise.resolve({ data: [], error: null }),
     ]);
     const data = live.data;
     const loadError = live.error || contexts.error;
@@ -41,7 +44,7 @@ export function useRoomRatios() {
       setError(null);
     }
     setLoading(false);
-  }, []);
+  }, [isEducator]);
 
   const respondToCoverage = useCallback(async (assignmentId, response) => {
     const { error: responseError } = await supabase.rpc('respond_to_room_coverage', {
@@ -72,6 +75,13 @@ export function useRoomRatios() {
   }, [load]);
 
   const loadPendingNudge = useCallback(async (targetId = undefined) => {
+    if (!isEducator) {
+      latestNudgeRequest.current += 1;
+      requestedNudgeId.current = null;
+      setPendingNudge(null);
+      setNudgeUnavailable(false);
+      return null;
+    }
     if (targetId !== undefined && targetId !== requestedNudgeId.current) {
       requestedNudgeId.current = targetId;
       // Never leave a previous room's actionable card visible while a newly
@@ -99,7 +109,7 @@ export function useRoomRatios() {
     setPendingNudge(data || null);
     setNudgeUnavailable(Boolean(activeTarget && !data));
     return data || null;
-  }, []);
+  }, [isEducator]);
 
   const respondToNudge = useCallback(async (nudgeId, response) => {
     latestNudgeRequest.current += 1;

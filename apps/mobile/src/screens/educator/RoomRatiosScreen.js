@@ -15,6 +15,8 @@ import { useIsFocused } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useRoomRatios } from '../../hooks/useRoomRatios';
+import { useAuth } from '../../hooks/useAuth';
+import AdminCoverageReviewCard from '../../components/AdminCoverageReviewCard';
 import CoverageInvitations from '../../components/CoverageInvitations';
 import { colors, fonts, radius, spacing } from '../../theme';
 
@@ -199,6 +201,8 @@ function FloaterSheet({ room, visible, onClose, loadFloaters, assignFloater }) {
 }
 
 export default function RoomRatiosScreen({ navigation, route }) {
+  const { profile } = useAuth();
+  const isEducator = profile?.role === 'educator';
   const {
     rooms,
     loading,
@@ -224,11 +228,11 @@ export default function RoomRatiosScreen({ navigation, route }) {
   }, [isFocused, load]);
 
   useEffect(() => {
-    if (isFocused) loadPendingNudge(route.params?.nudgeId || null).catch(() => {});
-  }, [isFocused, loadPendingNudge, route.params?.nudgeId]);
+    if (isFocused && isEducator) loadPendingNudge(route.params?.nudgeId || null).catch(() => {});
+  }, [isFocused, isEducator, loadPendingNudge, route.params?.nudgeId]);
 
   async function replyToNudge(response) {
-    if (!pendingNudge || replying) return;
+    if (!isEducator || !pendingNudge || replying) return;
     setReplying(response);
     try {
       await respondToNudge(pendingNudge.id, response);
@@ -287,8 +291,16 @@ export default function RoomRatiosScreen({ navigation, route }) {
           />
         )}
       >
-        <CoverageInvitations rows={coverage} error={coverageError} onRespond={respondToCoverage} onRetry={() => load()} />
-        {nudgeUnavailable && route.params?.nudgeId && (
+        {isEducator ? <CoverageInvitations rows={coverage} error={coverageError} onRespond={respondToCoverage} onRetry={() => load()} /> : null}
+        {!isEducator && route.params?.assignmentId && profile?.daycare_id && (
+          <AdminCoverageReviewCard
+            key={route.params.assignmentId}
+            assignmentId={route.params.assignmentId}
+            daycareId={profile.daycare_id}
+            onClose={() => navigation.setParams({ assignmentId: undefined })}
+          />
+        )}
+        {isEducator && nudgeUnavailable && route.params?.nudgeId && (
           <View style={styles.nudgeCard}>
             <Text style={styles.nudgeSender}>This check-in is no longer open</Text>
             <Text style={styles.nudgeMessage}>It may have been answered or your room access may have changed.</Text>
@@ -302,7 +314,7 @@ export default function RoomRatiosScreen({ navigation, route }) {
             </TouchableOpacity>
           </View>
         )}
-        {pendingNudge && (
+        {isEducator && pendingNudge && (
           <View style={styles.nudgeCard}>
             <View style={styles.nudgeHeader}>
               <View style={styles.nudgeAvatar}>

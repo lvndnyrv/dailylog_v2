@@ -175,6 +175,7 @@ export function resolveNotificationRoute(payload = {}, role = 'parent') {
       params: {
         roomId: value(payload, 'roomId', 'room_id'),
         nudgeId: value(payload, 'nudgeId', 'nudge_id'),
+        assignmentId: value(payload, 'assignmentId', 'assignment_id'),
         leadHandoff: type === 'room_lead_handoff',
       },
     };

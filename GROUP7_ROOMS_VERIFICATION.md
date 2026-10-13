@@ -381,6 +381,11 @@ Operational follow-up migrations also applied: `20260906000100_operational_room_
 - Applied `20261013000300_future_coverage_clearance.sql` and `20261013000400_future_coverage_candidate_clearance.sql` to the linked development project. The rollback-only availability fixture covers a currently valid clearance expiring before the planned shift, a rejected direct insert, and a successful expiry-day assignment. The demand-forecast, admin-room and admin/educator coverage-handoff regression suites passed; linked schema lint found no errors. Previously saved assignments are not automatically cancelled if clearance is later changed; live counting and the dated forecast still reevaluate eligibility.
 - The existing coverage-review worker was verified with the same later-expiry scenario: it flags the saved assignment, queues educator and administrator review alerts without cancelling an accepted commitment, and clears the warning after renewal. This check was added to the rollback-only multi-segment coverage suite; no duplicate review workflow was introduced.
 
+### Admin mobile coverage-review destination — October 13
+
+- The shared mobile Room ratios screen no longer loads or presents educator-only coverage invitations or front-office nudge reply buttons to admins. An administrator opening a coverage-review notification now sees the exact current assignment, educator, room, center-local time, status and review warning. An admin with room-editing permission may cancel it after confirmation; replacement scheduling remains in the admin web planner.
+- Notification routing retains the assignment ID, so this destination is not merely a generic ratio list. Mobile typecheck and iOS bundle export passed. A notification-tap visual pass with a populated admin account is still outstanding; no live coverage was cancelled for this check.
+
 ## Still required before calling Group 7 complete
 
 1. **7d remaining boundary:** future-opening room lead moves remain an explicit administrator decision. Opening-day review and reminder are available, but there is no automatic transfer. The final transfer is web-only; mobile links explain this. No licensing-rule authority/preset verification is claimed.

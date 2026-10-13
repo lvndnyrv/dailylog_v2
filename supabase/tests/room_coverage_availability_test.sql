@@ -4,7 +4,7 @@ do $$
 declare
   center uuid := '10000000-0000-4000-a000-000000000001';
   owner_id uuid := '00000000-0000-4000-a000-000000000001';
-  person uuid:=gen_random_uuid(); member uuid; room uuid; other_room uuid; shift_id uuid; cover uuid;
+  person uuid:=gen_random_uuid(); member uuid; room uuid; other_room uuid; shift_id uuid; cover uuid; clearance_document uuid;
   day date:=current_date+30; a timestamptz; b timestamptz; x record;
 begin
   update public.daycares set timezone='America/Toronto',opens_at='06:30',closes_at='19:30' where id=center;
@@ -72,6 +72,35 @@ begin
   set local role authenticated;
   select * into x from public.get_coverage_candidates(room,day,'14:00','15:00') where profile_id=person;
   if x.available then raise exception 'FAIL: pending clearance offered'; end if;
+  reset role;
+  insert into public.documents(daycare_id,profile_id,title,category,storage_path,mime_type,size_bytes,uploaded_by)
+    values(center,person,'Rollback future clearance','staff_credential_renewal',
+      'test/coverage-clearance/'||gen_random_uuid()::text,'application/pdf',100,person)
+    returning id into clearance_document;
+  insert into public.staff_credentials(
+    daycare_id,staff_member_id,name,required,completed_on,expires_on,document_id
+  ) values(center,member,'Background check',true,current_date,day-1,clearance_document);
+  if not public.staff_is_ratio_eligible(member) then
+    raise exception 'FAIL: future-expiring clearance is not valid today'; end if;
+  set local role authenticated;
+  select * into x from public.get_coverage_candidates(room,day,'14:00','15:00') where profile_id=person;
+  if x.available or x.reason not like 'Required background clearance will not be valid%' then
+    raise exception 'FAIL: future-expired clearance offered for coverage'; end if;
+  begin
+    insert into public.room_coverage_assignments(daycare_id,classroom_id,staff_member_id,starts_at,ends_at)
+      values(center,room,member,(day+time '14:00') at time zone 'America/Toronto',
+        (day+time '15:00') at time zone 'America/Toronto');
+    raise exception 'FAIL: direct coverage insert bypassed future clearance expiry';
+  exception when check_violation then null; end;
+  reset role;
+  update public.staff_credentials set expires_on=day where staff_member_id=member;
+  set local role authenticated;
+  select * into x from public.get_coverage_candidates(room,day,'14:00','15:00') where profile_id=person;
+  if not x.available then raise exception 'FAIL: clearance valid through coverage date was rejected: %',x.reason; end if;
+  cover:=public.assign_planned_room_coverage(person,room,day,'14:00','15:00');
+  if not exists(select 1 from public.room_coverage_assignments where id=cover and status='assigned') then
+    raise exception 'FAIL: date-valid clearance could not be assigned'; end if;
+  update public.room_coverage_assignments set status='cancelled' where id=cover;
   reset role;
   update public.staff_members set background_check_required=false where id=member;
   set local role authenticated;

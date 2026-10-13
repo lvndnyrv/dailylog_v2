@@ -19,6 +19,7 @@ import {
   type RoomActionState,
 } from "@/lib/rooms/actions";
 import { TransitionCapacityPreview } from "./transition-capacity-preview";
+import { TransitionStaffingReview } from "./transition-staffing-review";
 
 export function PlanTransitionModal({
   transition,
@@ -84,6 +85,9 @@ export function PlanTransitionModal({
       {plan?.review_issue && (
         <Notice tone="error">This saved move needs review: {plan.review_issue}. Choose a valid date or destination and save the updated plan. Nothing has been changed automatically.</Notice>
       )}
+
+      {plan && moveOn === plan.move_on && destinationId === plan.to_classroom_id &&
+        <TransitionStaffingReview planId={plan.id} />}
 
       {plan ? (
         <form

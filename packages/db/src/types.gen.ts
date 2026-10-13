@@ -8819,6 +8819,15 @@ export type Database = {
           updated_at: string
         }[]
       }
+      get_room_transition_staffing_review: {
+        Args: { p_plan_id: string }
+        Returns: {
+          status: string
+          message: string
+          segments: number
+          maximum_shortfall: number
+        }[]
+      }
       get_room_transitions: {
         Args: { p_horizon_months?: number }
         Returns: {

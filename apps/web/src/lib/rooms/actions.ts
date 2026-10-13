@@ -375,6 +375,12 @@ export async function previewRoomTransition(childId: string, roomId: string, fro
   return { data: data ?? [], error: error?.message };
 }
 
+export async function reviewRoomTransitionStaffing(planId: string) {
+  const supabase = await getServerSupabase();
+  const { data, error } = await supabase.rpc("get_room_transition_staffing_review", { p_plan_id: planId });
+  return { review: data?.[0] ?? null, error: error?.message };
+}
+
 export async function cancelRoomTransitionAction(_prev: RoomActionState, formData: FormData): Promise<RoomActionState> {
   const supabase = await getServerSupabase();
   const { error } = await supabase.rpc("cancel_room_transition_plan", {

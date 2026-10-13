@@ -4,7 +4,7 @@ do $$
 declare
   center uuid:='10000000-0000-4000-a000-000000000001'; owner_id uuid:='00000000-0000-4000-a000-000000000001';
   source uuid; target uuid; people uuid[]:=array[gen_random_uuid(),gen_random_uuid()]; members uuid[]:='{}';
-  kids uuid[]:='{}'; kid uuid; p uuid; m uuid; day date:=current_date+20; x record; cover uuid; break_shift uuid; report uuid; third_room uuid; move_id uuid; plan uuid:=gen_random_uuid(); failed_plan uuid:=gen_random_uuid(); segments jsonb; ids uuid[]; repeated uuid[]; before_count integer; first_alert_count integer;
+  kids uuid[]:='{}'; kid uuid; p uuid; m uuid; day date:=current_date+20; x record; cover uuid; break_shift uuid; report uuid; third_room uuid; move_id uuid; plan uuid:=gen_random_uuid(); failed_plan uuid:=gen_random_uuid(); segments jsonb; ids uuid[]; repeated uuid[]; before_count integer; first_alert_count integer; clearance_document uuid; clearance_id uuid; clearance_assignment uuid; previous_review_total integer;
 begin
   while extract(isodow from day)>5 loop day:=day+1; end loop;
   update public.daycares set timezone='America/Toronto',opens_at='07:00',closes_at='18:00' where id=center;
@@ -100,13 +100,55 @@ begin
   perform set_config('request.jwt.claims','{"role":"service_role"}',true);
   perform public.enqueue_room_coverage_review_alerts();
   if exists(select 1 from public.room_coverage_assignments where id=any(ids) and review_issue is not null) then raise exception 'FAIL: resolved coverage review issue was not cleared'; end if;
+  insert into public.documents(daycare_id,profile_id,title,category,storage_path,mime_type,size_bytes,uploaded_by)
+    values(center,people[1],'Rollback coverage clearance','staff_credential_renewal',
+      'test/coverage-review/'||gen_random_uuid()::text,'application/pdf',100,people[1])
+    returning id into clearance_document;
+  insert into public.staff_credentials(daycare_id,staff_member_id,name,required,completed_on,expires_on,document_id)
+    values(center,members[1],'Background check',true,current_date,day+1,clearance_document)
+    returning id into clearance_id;
+  select id into clearance_assignment from public.room_coverage_assignments
+    where plan_id=plan and staff_member_id=members[1];
+  update public.staff_members set background_check_required=true where id=members[1];
+  update public.staff_credentials set expires_on=day-1 where id=clearance_id;
+  perform set_config('request.jwt.claims',json_build_object('sub',owner_id,'role','authenticated')::text,true);
+  set local role authenticated;
+  if not exists(select 1 from public.get_room_coverage_review(day)
+    where assignment_id=clearance_assignment and reason like 'Educator eligibility%') then
+    raise exception 'FAIL: future-expired clearance did not flag saved coverage (eligible %, review %)',
+      public._forecast_staff_eligible(members[1],day),
+      (select coalesce(jsonb_agg(to_jsonb(review)), '[]'::jsonb)
+        from public.get_room_coverage_review(day) review where assignment_id=clearance_assignment); end if;
+  reset role;
+  perform set_config('request.jwt.claims','{"role":"service_role"}',true);
+  perform public.enqueue_room_coverage_review_alerts();
+  if not exists(select 1 from public.room_coverage_assignments
+    where id=clearance_assignment and review_issue like 'Educator eligibility%' and status='accepted')
+    or not exists(select 1 from public.notification_outbox
+      where recipient_id=people[1] and kind='coverage_review'
+        and payload->>'assignmentId'=clearance_assignment::text and payload->>'reason' like 'Educator eligibility%')
+    or not exists(select 1 from public.notification_outbox
+      where recipient_id=owner_id and kind='coverage_review'
+        and payload->>'assignmentId'=clearance_assignment::text and payload->>'reason' like 'Educator eligibility%') then
+    raise exception 'FAIL: expired saved clearance was not preserved and alerted for review'; end if;
+  update public.staff_credentials set expires_on=day+1 where id=clearance_id;
+  perform public.enqueue_room_coverage_review_alerts();
+  if exists(select 1 from public.room_coverage_assignments
+    where id=clearance_assignment and review_issue is not null) then
+    raise exception 'FAIL: renewed clearance did not clear the review warning'; end if;
+  select sum(review_alert_version) into previous_review_total
+    from public.room_coverage_assignments where id=any(ids);
   perform set_config('request.jwt.claims',json_build_object('sub',owner_id,'role','authenticated')::text,true);
   set local role authenticated;
   perform public.save_attendance_bookings(day,jsonb_build_array(jsonb_build_object('child_id',kids[3],'state','expected','arrives_at','09:00','leaves_at','15:00')));
   reset role;
   perform set_config('request.jwt.claims','{"role":"service_role"}',true);
   perform public.enqueue_room_coverage_review_alerts();
-  if (select count(*) from public.room_coverage_assignments where id=any(ids) and review_alert_version=2)<>2 then raise exception 'FAIL: recurring review issue did not advance its alert version'; end if;
+  if (select count(*) from public.room_coverage_assignments
+      where id=any(ids) and review_issue like 'Source room can no longer%')<>2
+    or (select sum(review_alert_version) from public.room_coverage_assignments
+      where id=any(ids))<>previous_review_total+2 then
+    raise exception 'FAIL: recurring review issue did not advance its alert version'; end if;
   perform set_config('request.jwt.claims',json_build_object('sub',people[2],'role','authenticated')::text,true);
   set local role authenticated;
   begin

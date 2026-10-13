@@ -333,6 +333,12 @@ Operational follow-up migrations also applied: `20260906000100_operational_room_
 - During a combination, each report row labels the child's permanent home room so the shared end-of-day handoff is clear. No child assignment or previously sent report is changed.
 - Mobile typecheck and iOS production bundle export passed. The rollback-only operational-combinations and daily-report-publication tests passed against the linked project. Simulator verification remains pending because the Mac was locked; no live combination was activated for this check.
 
+### Permanent child and family record boundary — October 12
+
+- Temporary shared-room or coverage access still permits the existing day-to-day care workflows, but no longer authorizes a delegated educator to enroll a child, move or edit a permanent child profile, or change durable child–family links and invitations in the partner room. A permanent assignment or administrator role is required. The table guards also cover security-definer profile and family RPCs, rather than relying only on mobile controls.
+- The educator Classroom screen now hides Add Child, family unlink and invitation controls when the current room is temporary or the signed-in role lacks children-edit permission. Temporary care shows an explicit explanation and keeps care tools available. Maria's seeded account has an explicit children-edit role permission and two permanent room assignments, so its normal Add Child control correctly remains visible in the iPhone simulator; no test record was created there.
+- Applied `20261012000500_temporary_room_child_record_boundary.sql` and `20261012000600_temporary_room_family_access_boundary.sql` to the linked project and refreshed generated types. A rollback-only fixture verified permanent educator/admin edits and denied temporary-room enrollment, profile edits, moves, family invites and links. Child-profile, first-day, shared-room, household and parent-invite regressions passed. Database lint found no schema errors; mobile typecheck and iOS bundle export passed. A live temporary-room device pass remains pending.
+
 ## Still required before calling Group 7 complete
 
 1. **7d remaining boundary:** future-opening room lead moves remain an explicit administrator decision; the opening-day review is visible but not an automatic transfer or notification. No licensing-rule authority/preset verification is claimed.

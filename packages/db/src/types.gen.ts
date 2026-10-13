@@ -8930,6 +8930,10 @@ export type Database = {
         }
         Returns: string
       }
+      has_permanent_educator_room: {
+        Args: { p_classroom_id: string }
+        Returns: boolean
+      }
       has_permission: {
         Args: { p_action?: string; p_area: string }
         Returns: boolean

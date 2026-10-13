@@ -262,6 +262,7 @@ export default function ManageScreen({ navigation, route }) {
   const [tab, setTab]                 = useState('children');
   const [searchQuery, setSearchQuery] = useState('');
   const [showAddChild, setShowAddChild] = useState(false);
+  const [canEditChildren, setCanEditChildren] = useState(false);
   const { rooms: ratioRooms } = useRoomRatios();
   const roomsOverRatio = ratioRooms.filter((room) => room.is_over_ratio);
 
@@ -303,6 +304,19 @@ export default function ManageScreen({ navigation, route }) {
   useEffect(() => {
     if (isFocused && profile) load(true);
   }, [isFocused, profile?.classroom_id, activeClassroom?.id]);
+
+  useEffect(() => {
+    let current = true;
+    if (!isFocused || !profile?.id) {
+      setCanEditChildren(false);
+      return () => { current = false; };
+    }
+    supabase.rpc('has_permission', { p_area: 'children', p_action: 'edit' })
+      .then(({ data, error }) => {
+        if (current) setCanEditChildren(!error && data === true);
+      });
+    return () => { current = false; };
+  }, [isFocused, profile?.id]);
 
   // Remove the old focus listener useEffect
 
@@ -531,6 +545,26 @@ export default function ManageScreen({ navigation, route }) {
         <Ionicons name="chevron-forward" size={18} color={colors.textFaint} />
       </TouchableOpacity>
 
+      {activeClassroom?.temporary ? (
+        <View style={styles.temporaryRoomCard}>
+          <Ionicons name="information-circle-outline" size={22} color={colors.primary} />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.temporaryRoomTitle}>Temporary care room</Text>
+            <Text style={styles.temporaryRoomText}>
+              Use Kids, Quick log and the daily tools for shared care. To add a child or manage their permanent record and family access, switch to an assigned room or ask an administrator.
+            </Text>
+          </View>
+        </View>
+      ) : (
+      <>
+      {!canEditChildren && (
+        <View style={styles.temporaryRoomCard}>
+          <Ionicons name="information-circle-outline" size={22} color={colors.primary} />
+          <Text style={[styles.temporaryRoomText, { flex: 1, marginTop: 0 }]}>
+            You can view this room's roster. An administrator manages child records and family access.
+          </Text>
+        </View>
+      )}
       {/* Tabs */}
       <View style={styles.tabs}>
         {['children', 'parents'].map(t => (
@@ -550,15 +584,15 @@ export default function ManageScreen({ navigation, route }) {
 
       {tab === 'children' ? (
         <>
-          {/* Add child button - always accessible at top */}
-          <TouchableOpacity
+          {/* Permanent roster changes require children-edit permission. */}
+          {canEditChildren && <TouchableOpacity
             style={styles.addChildBtn}
             onPress={() => setShowAddChild(true)}
             activeOpacity={0.7}
           >
             <Ionicons name="add" size={19} color={colors.primary} />
             <Text style={styles.addChildBtnText}>Add new child</Text>
-          </TouchableOpacity>
+          </TouchableOpacity>}
 
           <View style={styles.searchBar}>
             <Ionicons name="search-outline" size={18} color={colors.textFaint} />
@@ -665,29 +699,32 @@ export default function ManageScreen({ navigation, route }) {
                         <Text style={styles.noPhone}>No phone on file</Text>
                       )}
                     </View>
-                    <TouchableOpacity
+                    {canEditChildren && <TouchableOpacity
                       onPress={() => unlinkParent(link.parent?.id, link.child?.id, link.is_primary)}
                       style={styles.removeBtn}
                     >
                       <Text style={styles.removeBtnText}>Unlink</Text>
-                    </TouchableOpacity>
+                    </TouchableOpacity>}
                   </View>
                 </View>
               ))}
             </View>
           )}
-          {children.length > 0
+          {canEditChildren && children.length > 0
             ? <InviteParentForm daycareId={profile.daycare_id} children={children} />
-            : <Text style={styles.emptyNote}>Add children first before inviting parents.</Text>
+            : canEditChildren ? <Text style={styles.emptyNote}>Add children first before inviting parents.</Text> : null
           }
         </>
+      )}
+
+      </>
       )}
 
       <View style={{ height: spacing.xxxl }} />
 
       {/* Add child bottom sheet */}
       <AddChildSheet
-        visible={showAddChild}
+        visible={showAddChild && canEditChildren && !activeClassroom?.temporary}
         onClose={() => setShowAddChild(false)}
         classroomId={activeClassroom?.id || profile.classroom_id}
         onAdded={load}
@@ -704,6 +741,13 @@ const styles = StyleSheet.create({
     paddingTop: spacing.md,
     paddingBottom: spacing.xxxl,
   },
+  temporaryRoomCard: {
+    flexDirection: 'row', gap: spacing.sm, padding: spacing.lg,
+    marginTop: spacing.lg, backgroundColor: colors.primaryLight,
+    borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border,
+  },
+  temporaryRoomTitle: { fontSize: 15, fontFamily: fonts.bold, color: colors.textPrimary },
+  temporaryRoomText: { fontSize: 12.5, lineHeight: 18, fontFamily: fonts.regular, color: colors.textSecondary, marginTop: 4 },
   pageTitle: {
     fontSize: 23,
     lineHeight: 29,

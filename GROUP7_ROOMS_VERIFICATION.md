@@ -367,6 +367,12 @@ Operational follow-up migrations also applied: `20260906000100_operational_room_
 - The educator Rooms & ratios coverage list now puts unanswered invitations ahead of accepted, declined and cancelled entries, with explicit status and next-step text for each. A flagged invitation no longer falsely claims the educator has already committed; it says not to accept until the front office resolves the review. A cancelled or declined entry does not display a stale review warning or an accept action.
 - The existing server response guard still rejects a withdrawn or already-answered invitation, and the client reloads after that error. The status presentation was typechecked and included in an iOS production bundle; a populated invitation device pass remains outstanding.
 
+### Room nudge recipient boundary — October 13
+
+- Educator read access to front-office room nudges now follows their current room assignments, including accepted active coverage and temporary combined-room membership. The general rooms-view permission no longer exposes every unanswered room nudge to an educator. Replies require an active educator account as well as the existing open-nudge and room-membership checks; an administrator cannot reply on an educator's behalf.
+- A front-office nudge now also queues a notification and push for an active coverage educator in that room, without duplicating permanent-assignment recipients. The mobile nudge card discards older fetches, refreshes after replies and on foreground/room-combination changes, and clears a card that is no longer readable rather than leaving a wrong-room action visible.
+- Applied `20261013000100_room_nudge_recipient_boundary.sql` to the linked development project. The rollback-only recipient-boundary and existing Group 9 dashboard suites passed; linked schema lint, mobile typecheck and iOS bundle export passed. No live nudge was sent outside the rollback-only test. A populated active-combination device pass remains outstanding.
+
 ## Still required before calling Group 7 complete
 
 1. **7d remaining boundary:** future-opening room lead moves remain an explicit administrator decision. Opening-day review and reminder are available, but there is no automatic transfer. The final transfer is web-only; mobile links explain this. No licensing-rule authority/preset verification is claimed.

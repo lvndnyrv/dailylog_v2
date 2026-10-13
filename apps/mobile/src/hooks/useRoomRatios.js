@@ -12,6 +12,7 @@ export function useRoomRatios() {
   const [coverageError, setCoverageError] = useState(null);
   const mounted = useRef(true);
   const latestRequest = useRef(0);
+  const latestNudgeRequest = useRef(0);
 
   const load = useCallback(async ({ quiet = false } = {}) => {
     const request = ++latestRequest.current;
@@ -69,6 +70,7 @@ export function useRoomRatios() {
   }, [load]);
 
   const loadPendingNudge = useCallback(async () => {
+    const request = ++latestNudgeRequest.current;
     const { data, error: nudgeError } = await supabase
       .from('room_activity_nudges')
       .select('id, classroom_id, message, created_at, classroom:classrooms(name), sender:profiles!room_activity_nudges_sent_by_fkey(full_name)')
@@ -77,20 +79,26 @@ export function useRoomRatios() {
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle();
-    if (nudgeError) throw nudgeError;
-    if (mounted.current) setPendingNudge(data || null);
+    if (!mounted.current || request !== latestNudgeRequest.current) return null;
+    if (nudgeError) {
+      setPendingNudge(null);
+      throw nudgeError;
+    }
+    setPendingNudge(data || null);
     return data || null;
   }, []);
 
   const respondToNudge = useCallback(async (nudgeId, response) => {
+    latestNudgeRequest.current += 1;
     const { data, error: responseError } = await supabase.rpc('respond_room_activity_nudge', {
       p_nudge_id: nudgeId,
       p_response: response,
     });
-    if (responseError) throw responseError;
     if (mounted.current) setPendingNudge(null);
+    await loadPendingNudge().catch(() => {});
+    if (responseError) throw responseError;
     return data;
-  }, []);
+  }, [loadPendingNudge]);
 
   useEffect(() => {
     mounted.current = true;
@@ -103,19 +111,29 @@ export function useRoomRatios() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'attendance_records' }, refresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'room_coverage_assignments' }, refresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'staff_time_entries' }, refresh)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'room_combinations' }, refresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'room_combinations' }, () => {
+        refresh();
+        loadPendingNudge().catch(() => {});
+      })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'room_activity_nudges' }, () => {
         loadPendingNudge().catch(() => {});
       })
       .subscribe();
-    const poll = setInterval(refresh, 60_000);
+    const poll = setInterval(() => {
+      refresh();
+      loadPendingNudge().catch(() => {});
+    }, 60_000);
     const appState = AppState.addEventListener('change', state => {
-      if (state === 'active') refresh();
+      if (state === 'active') {
+        refresh();
+        loadPendingNudge().catch(() => {});
+      }
     });
 
     return () => {
       mounted.current = false;
       latestRequest.current += 1;
+      latestNudgeRequest.current += 1;
       clearInterval(poll);
       appState.remove();
       supabase.removeChannel(channel);

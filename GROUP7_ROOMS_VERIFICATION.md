@@ -352,6 +352,11 @@ Operational follow-up migrations also applied: `20260906000100_operational_room_
 - The classroom provider now discards out-of-order operational-room responses and masks room data from a previous signed-in scope. The Kids roster similarly waits for the current room/date request to finish instead of briefly showing a former room's children; older roster, attendance, and nap responses cannot overwrite the new room after a switch or shared-room pause.
 - Mobile typecheck and iOS production bundle export passed. On the iPhone 17 Pro simulator, accessibility controls switched Preschool (10 children) to Infant (6), and the Infant roster appeared correctly. The Mac locked before restoring the prior selection or running an active-combination visual pass. No live combination or child data was changed for this verification.
 
+### Educator pickup-list freshness — October 13
+
+- The pickup list is now keyed to the selected operating-room group. Switching rooms or pausing a combination immediately hides the former group's rows, ignores any older in-flight response, and shows an error without retaining an outdated pickup list. A periodic and foreground refresh also picks up the center's next day even if the screen remains open overnight.
+- Mobile typecheck and iOS production bundle export passed. On the iPhone 17 Pro simulator, accessibility controls opened Pickups, switched Infant to Preschool, and showed the correct selected room. With no child checked in today, both pickup lists were empty; a populated active-combination visual pass is still outstanding. No pickup or combination record was changed for this check.
+
 ## Still required before calling Group 7 complete
 
 1. **7d remaining boundary:** future-opening room lead moves remain an explicit administrator decision. Opening-day review and reminder are available, but there is no automatic transfer. The final transfer is web-only; mobile links explain this. No licensing-rule authority/preset verification is claimed.

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { AppState } from 'react-native';
 import { format } from 'date-fns';
 import { supabase } from '../lib/supabase';
 
@@ -39,37 +40,53 @@ export function dedupeParentPickupOptions(rows = []) {
 }
 
 export function useTodayPickups(classroomId, operatingRoomKey = '') {
-  const [pickups, setPickups] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const scope = `${classroomId || ''}:${operatingRoomKey}`;
+  const [result, setResult] = useState({ scope: null, pickups: [], loading: true, error: null });
   const latestRequest = useRef(0);
+  const currentScope = useRef(scope);
+  currentScope.current = scope;
+  const current = result.scope === scope;
+  const pickups = current ? result.pickups : [];
+  const loading = !current || result.loading;
+  const error = current ? result.error : null;
 
   const load = useCallback(async ({ quiet = false } = {}) => {
     const requestId = ++latestRequest.current;
+    const stillCurrent = () => requestId === latestRequest.current && scope === currentScope.current;
     if (!classroomId) {
-      setPickups([]);
-      setLoading(false);
+      setResult({ scope, pickups: [], loading: false, error: null });
       return [];
     }
-    if (!quiet) setLoading(true);
+    setResult(previous => previous.scope === scope && quiet
+      ? previous
+      : { scope, pickups: previous.scope === scope ? previous.pickups : [], loading: true, error: null });
     const { data, error: queryError } = await supabase.rpc('get_mobile_today_pickups', {
       p_classroom_id: classroomId,
     });
-    if (requestId !== latestRequest.current) return [];
+    if (!stillCurrent()) return [];
     if (queryError) {
-      setError(queryError);
-      setLoading(false);
+      setResult({ scope, pickups: [], loading: false, error: queryError });
       return [];
     }
-    setError(null);
-    setPickups(data || []);
-    setLoading(false);
+    setResult({ scope, pickups: data || [], loading: false, error: null });
     return data || [];
-  }, [classroomId, operatingRoomKey]);
+  }, [classroomId, scope]);
 
   useEffect(() => {
     load();
+    return () => { latestRequest.current += 1; };
   }, [load]);
+
+  // A pickup list also changes when the center's day rolls over, without a
+  // database event. Refresh on the clock and when the app returns to front.
+  useEffect(() => {
+    if (!classroomId) return undefined;
+    const timer = setInterval(() => load({ quiet: true }), 60_000);
+    const appState = AppState.addEventListener('change', state => {
+      if (state === 'active') load({ quiet: true });
+    });
+    return () => { clearInterval(timer); appState.remove(); };
+  }, [classroomId, load]);
 
   useEffect(() => {
     if (!classroomId) return undefined;

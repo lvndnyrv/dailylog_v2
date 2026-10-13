@@ -8,11 +8,13 @@ export function useRoomRatios() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [pendingNudge, setPendingNudge] = useState(null);
+  const [nudgeUnavailable, setNudgeUnavailable] = useState(false);
   const [coverage, setCoverage] = useState([]);
   const [coverageError, setCoverageError] = useState(null);
   const mounted = useRef(true);
   const latestRequest = useRef(0);
   const latestNudgeRequest = useRef(0);
+  const requestedNudgeId = useRef(null);
 
   const load = useCallback(async ({ quiet = false } = {}) => {
     const request = ++latestRequest.current;
@@ -69,22 +71,33 @@ export function useRoomRatios() {
     return data;
   }, [load]);
 
-  const loadPendingNudge = useCallback(async () => {
+  const loadPendingNudge = useCallback(async (targetId = undefined) => {
+    if (targetId !== undefined && targetId !== requestedNudgeId.current) {
+      requestedNudgeId.current = targetId;
+      // Never leave a previous room's actionable card visible while a newly
+      // opened notification is being resolved.
+      setPendingNudge(null);
+      setNudgeUnavailable(false);
+    }
+    const activeTarget = requestedNudgeId.current;
     const request = ++latestNudgeRequest.current;
-    const { data, error: nudgeError } = await supabase
+    let query = supabase
       .from('room_activity_nudges')
       .select('id, classroom_id, message, created_at, classroom:classrooms(name), sender:profiles!room_activity_nudges_sent_by_fkey(full_name)')
       .eq('mode', 'nudge')
-      .is('response', null)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
+      .is('response', null);
+    query = activeTarget
+      ? query.eq('id', activeTarget)
+      : query.order('created_at', { ascending: false }).limit(1);
+    const { data, error: nudgeError } = await query.maybeSingle();
     if (!mounted.current || request !== latestNudgeRequest.current) return null;
     if (nudgeError) {
       setPendingNudge(null);
+      setNudgeUnavailable(false);
       throw nudgeError;
     }
     setPendingNudge(data || null);
+    setNudgeUnavailable(Boolean(activeTarget && !data));
     return data || null;
   }, []);
 
@@ -94,6 +107,7 @@ export function useRoomRatios() {
       p_nudge_id: nudgeId,
       p_response: response,
     });
+    if (!responseError && requestedNudgeId.current === nudgeId) requestedNudgeId.current = null;
     if (mounted.current) setPendingNudge(null);
     await loadPendingNudge().catch(() => {});
     if (responseError) throw responseError;
@@ -148,6 +162,7 @@ export function useRoomRatios() {
     loadFloaters,
     assignFloater,
     pendingNudge,
+    nudgeUnavailable,
     loadPendingNudge,
     respondToNudge,
     coverage,

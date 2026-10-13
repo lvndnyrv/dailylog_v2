@@ -207,6 +207,7 @@ export default function RoomRatiosScreen({ navigation, route }) {
     loadFloaters,
     assignFloater,
     pendingNudge,
+    nudgeUnavailable,
     loadPendingNudge,
     respondToNudge,
     coverage,
@@ -223,7 +224,7 @@ export default function RoomRatiosScreen({ navigation, route }) {
   }, [isFocused, load]);
 
   useEffect(() => {
-    if (isFocused || route.params?.nudgeId) loadPendingNudge().catch(() => {});
+    if (isFocused) loadPendingNudge(route.params?.nudgeId || null).catch(() => {});
   }, [isFocused, loadPendingNudge, route.params?.nudgeId]);
 
   async function replyToNudge(response) {
@@ -231,6 +232,7 @@ export default function RoomRatiosScreen({ navigation, route }) {
     setReplying(response);
     try {
       await respondToNudge(pendingNudge.id, response);
+      if (route.params?.nudgeId === pendingNudge.id) navigation.setParams({ nudgeId: undefined });
       if (response === 'send_help') {
         Alert.alert('Front office notified', 'Your help request is now visible to the administrators.');
       }
@@ -286,6 +288,20 @@ export default function RoomRatiosScreen({ navigation, route }) {
         )}
       >
         <CoverageInvitations rows={coverage} error={coverageError} onRespond={respondToCoverage} onRetry={() => load()} />
+        {nudgeUnavailable && route.params?.nudgeId && (
+          <View style={styles.nudgeCard}>
+            <Text style={styles.nudgeSender}>This check-in is no longer open</Text>
+            <Text style={styles.nudgeMessage}>It may have been answered or your room access may have changed.</Text>
+            <TouchableOpacity
+              style={styles.nudgeReply}
+              onPress={() => navigation.setParams({ nudgeId: undefined })}
+              accessibilityRole="button"
+              accessibilityLabel="Show other room check-ins"
+            >
+              <Text style={styles.nudgeReplyText}>Show other check-ins</Text>
+            </TouchableOpacity>
+          </View>
+        )}
         {pendingNudge && (
           <View style={styles.nudgeCard}>
             <View style={styles.nudgeHeader}>
@@ -293,7 +309,7 @@ export default function RoomRatiosScreen({ navigation, route }) {
                 <Text style={styles.nudgeAvatarText}>{initials(pendingNudge.sender?.full_name || 'Front office')}</Text>
               </View>
               <View style={styles.nudgeHeadingCopy}>
-                <Text style={styles.nudgeEyebrow}>FRONT OFFICE · JUST NOW</Text>
+                <Text style={styles.nudgeEyebrow}>FRONT OFFICE · {pendingNudge.classroom?.name?.toUpperCase() || 'ROOM CHECK-IN'}</Text>
                 <Text style={styles.nudgeSender}>{pendingNudge.sender?.full_name || 'Front office'}</Text>
               </View>
             </View>

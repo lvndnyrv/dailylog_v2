@@ -61,6 +61,7 @@ export function RoomsView({
   pendingFloaterInvites,
   transitions,
   transitionPlans,
+  focusTransitionPlanId,
   transitionWaits,
   combinations,
   coverageAssignments,
@@ -82,6 +83,7 @@ export function RoomsView({
   pendingFloaterInvites: PendingStaffInvite[];
   transitions: RoomTransition[];
   transitionPlans: RoomTransitionPlanRow[];
+  focusTransitionPlanId?: string;
   transitionWaits: RoomTransitionWaitRow[];
   combinations: Tables<"room_combinations">[];
   coverageAssignments: RoomCoverageAssignmentRow[];
@@ -100,6 +102,9 @@ export function RoomsView({
 }) {
   const router = useRouter();
   const [modal, setModal] = useState<ModalState>(() => {
+    const focusedPlan = transitionPlans.find((plan) => plan.id === focusTransitionPlanId);
+    const focusedTransition = focusedPlan && transitions.find((transition) => transition.child_id === focusedPlan.child_id);
+    if (focusedTransition) return { kind: "transition", transition: focusedTransition };
     if (initialModal === "add" || initialModal === "rules" || initialModal === "combine") {
       return initialModal;
     }
@@ -108,7 +113,7 @@ export function RoomsView({
 
   const closeModal = () => {
     setModal("none");
-    if (initialModal) router.replace("/rooms", { scroll: false });
+    if (initialModal || focusTransitionPlanId) router.replace("/rooms", { scroll: false });
   };
   const activeCombinationCount = combinations.filter((item) => item.enabled).length;
   const leadHandoffs = rooms.flatMap((room) => {

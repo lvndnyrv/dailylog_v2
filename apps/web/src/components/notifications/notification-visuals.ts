@@ -206,7 +206,9 @@ export function notificationPresentation(
         accentClassName: "bg-warning",
         category: "alerts",
         source: overrides.source ?? "Rooms & ratios",
-        href: overrides.href ?? "/rooms",
+        href: notification.kind === "room_transition_review" && payloadString(payload, "planId")
+          ? `/rooms?transitionPlan=${encodeURIComponent(payloadString(payload, "planId")!)}#room-transitions`
+          : overrides.href ?? "/rooms",
         actionLabel: overrides.actionLabel ?? "Review coverage",
         urgent: notification.kind === "coverage_review" || notification.kind === "room_lead_handoff" || notification.kind === "room_transition_review"
           || payloadString(payload, "response") === "declined",

@@ -24,7 +24,7 @@ import { getServerSupabase } from "@/lib/supabase/server";
 export default async function RoomsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ modal?: string; coverageDate?: string; coverageAssignment?: string }>;
+  searchParams: Promise<{ modal?: string; coverageDate?: string; coverageAssignment?: string; transitionPlan?: string }>;
 }) {
   const params = await searchParams;
   const supabase = await getServerSupabase();
@@ -87,7 +87,7 @@ export default async function RoomsPage({
         }
       />
       <RoomsView
-        key={params.modal ?? "overview"}
+        key={params.transitionPlan ?? params.modal ?? "overview"}
         rooms={rooms}
         floaters={floaters}
         pendingFloaterInvites={pendingInvites.filter(
@@ -95,6 +95,7 @@ export default async function RoomsPage({
         )}
         transitions={transitions}
         transitionPlans={transitionPlans}
+        focusTransitionPlanId={params.transitionPlan}
         transitionWaits={transitionWaits}
         combinations={combinations}
         coverageAssignments={coverageAssignments}

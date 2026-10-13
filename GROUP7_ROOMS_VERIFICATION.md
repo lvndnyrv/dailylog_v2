@@ -362,6 +362,11 @@ Operational follow-up migrations also applied: `20260906000100_operational_room_
 - Room ratio counts, operating-room context and coverage invitations now discard an older response when a newer realtime, focus or clock refresh has started. The latest response always clears the loading state, including when it followed an earlier non-quiet request. A failed ratio refresh clears old counts rather than leaving a stale ratio alert active. Returning the app to the foreground refreshes ratios so a shared-room window change is not left on the previous view until the next timer tick.
 - Mobile typecheck and iOS production bundle export passed. The iPhone 17 Pro simulator opened the educator Room ratios screen through accessibility controls and loaded the normal four-room ratio list. A live active-combination visual/race pass remains outstanding; no combination or attendance data was changed for this check.
 
+### Educator coverage invitation states — October 13
+
+- The educator Rooms & ratios coverage list now puts unanswered invitations ahead of accepted, declined and cancelled entries, with explicit status and next-step text for each. A flagged invitation no longer falsely claims the educator has already committed; it says not to accept until the front office resolves the review. A cancelled or declined entry does not display a stale review warning or an accept action.
+- The existing server response guard still rejects a withdrawn or already-answered invitation, and the client reloads after that error. The status presentation was typechecked and included in an iOS production bundle; a populated invitation device pass remains outstanding.
+
 ## Still required before calling Group 7 complete
 
 1. **7d remaining boundary:** future-opening room lead moves remain an explicit administrator decision. Opening-day review and reminder are available, but there is no automatic transfer. The final transfer is web-only; mobile links explain this. No licensing-rule authority/preset verification is claimed.

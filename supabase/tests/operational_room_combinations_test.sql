@@ -13,7 +13,7 @@ declare
   member_id uuid; child_id uuid; host_child uuid; third_child uuid; fourth_child uuid;
   combination_id uuid; source_count integer; host_count integer; counted_staff integer;
   before_home uuid; test_zone text; monday date := '2026-09-14'; record_id uuid;
-  incident_id uuid; conversation_id uuid;
+  incident_id uuid; conversation_id uuid; nudge_id uuid;
   initial_rules jsonb; v_consents jsonb; current_day date; p uuid;
 begin
   -- Choose a zone with a current weekday so public now()-based APIs are exercised.
@@ -69,6 +69,24 @@ begin
   if not exists(select 1 from public.get_mobile_room_ratios() where id=host_id and present_count=3 and staff_count=2 and max_children_per_staff=2) then
     raise exception 'FAIL: mobile did not use the combined stricter ratio'; end if;
   if (select classroom_id from public.children where id=child_id)<>source_id then raise exception 'FAIL: home room changed'; end if;
+  nudge_id := (public.create_room_activity_nudge(source_id,'nudge')->>'id')::uuid;
+  perform pg_temp.impersonate('postgres',owner_id);
+  if (select count(*) from public.notifications
+      where profile_id=other_educator and kind='room_activity_nudge'
+        and payload->>'nudgeId'=nudge_id::text)<>1
+    or (select count(*) from public.notification_outbox
+      where recipient_id=other_educator and kind='room_activity_nudge'
+        and payload->>'nudgeId'=nudge_id::text)<>1
+    or (select count(*) from public.notifications
+      where profile_id=educator_id and kind='room_activity_nudge'
+        and payload->>'nudgeId'=nudge_id::text)<>1 then
+    raise exception 'FAIL: combined-room nudge did not reach each educator exactly once'; end if;
+  perform pg_temp.impersonate('authenticated',other_educator);
+  if not exists(select 1 from public.room_activity_nudges where id=nudge_id) then
+    raise exception 'FAIL: host educator could not read source-room nudge'; end if;
+  perform public.respond_room_activity_nudge(nudge_id,'all_good');
+  if not exists(select 1 from public.room_activity_nudges where id=nudge_id and responded_by=other_educator) then
+    raise exception 'FAIL: host educator could not answer source-room nudge'; end if;
   perform pg_temp.impersonate('authenticated',educator_id);
   if not exists(select 1 from public.notifications where profile_id=educator_id and kind='room_combination' and payload->>'screen'='RoomRatios') then
     raise exception 'FAIL: missing routed educator notification'; end if;

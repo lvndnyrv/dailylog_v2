@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   RefreshControl,
@@ -31,7 +31,7 @@ function reportSummary(log) {
   return details.length ? details.join(' · ') : 'No daily details yet';
 }
 
-function ReportRow({ item, busy, onOpen, onSend }) {
+function ReportRow({ item, busy, onOpen, onSend, homeRoomName }) {
   const sent = Boolean(item.log?.sent_to_parents);
   const ready = isDailyLogReady(item.log);
   const attended = Boolean(item.attendance?.checked_in_at || item.log);
@@ -59,6 +59,7 @@ function ReportRow({ item, busy, onOpen, onSend }) {
         <ChildAvatar child={item.child} size={42} fontSize={13} />
         <View style={styles.reportCopy}>
           <Text style={styles.childName}>{item.child.first_name} {item.child.last_name}</Text>
+          {homeRoomName ? <Text style={styles.homeRoom}>{homeRoomName} home room</Text> : null}
           <Text style={styles.reportDetails} numberOfLines={2}>{reportSummary(item.log)}</Text>
           {sent && item.log?.sent_at ? (
             <Text style={styles.sentTime}>Sent {format(new Date(item.log.sent_at), 'h:mm a')}</Text>
@@ -86,22 +87,33 @@ function ReportRow({ item, busy, onOpen, onSend }) {
 }
 
 export default function DailyReportReviewScreen({ navigation, route }) {
-  const { active: activeClassroom } = useClassroom();
+  const { active: activeClassroom, classrooms } = useClassroom();
   const isFocused = useIsFocused();
   const reportDate = route.params?.date || format(new Date(), 'yyyy-MM-dd');
   const roomIds = activeClassroom?.member_room_ids?.length
     ? activeClassroom.member_room_ids
     : activeClassroom?.id ? [activeClassroom.id] : [];
   const roomKey = roomIds.join(',');
-  const [items, setItems] = useState([]);
+  const reportKey = `${reportDate}:${roomKey}`;
+  const [loadedReports, setLoadedReports] = useState({ key: null, items: [] });
+  const requestId = useRef(0);
+  const currentReportKey = useRef(reportKey);
+  currentReportKey.current = reportKey;
+  const items = loadedReports.key === reportKey ? loadedReports.items : [];
+  const homeRoomNames = useMemo(() => new Map(
+    classrooms.map(room => [room.id, room.name]),
+  ), [classrooms]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [sendingIds, setSendingIds] = useState(new Set());
   const [sendingAll, setSendingAll] = useState(false);
 
   const load = useCallback(async () => {
+    const thisRequest = ++requestId.current;
+    const stillCurrent = () => thisRequest === requestId.current && reportKey === currentReportKey.current;
+    setLoading(true);
     if (!roomIds.length) {
-      setItems([]);
+      setLoadedReports({ key: reportKey, items: [] });
       setLoading(false);
       setRefreshing(false);
       return;
@@ -113,8 +125,10 @@ export default function DailyReportReviewScreen({ navigation, route }) {
       .in('classroom_id', roomIds)
       .is('archived_at', null)
       .order('first_name');
+    if (!stillCurrent()) return;
     if (childError) {
       showToast("We couldn't load this classroom's reports.", 'error');
+      setLoadedReports({ key: reportKey, items: [] });
       setLoading(false);
       setRefreshing(false);
       return;
@@ -122,7 +136,7 @@ export default function DailyReportReviewScreen({ navigation, route }) {
 
     const childIds = (children || []).map(child => child.id);
     if (!childIds.length) {
-      setItems([]);
+      setLoadedReports({ key: reportKey, items: [] });
       setLoading(false);
       setRefreshing(false);
       return;
@@ -140,8 +154,10 @@ export default function DailyReportReviewScreen({ navigation, route }) {
         .in('child_id', childIds)
         .eq('date', reportDate),
     ]);
+    if (!stillCurrent()) return;
     if (logError) {
       showToast("We couldn't load today's daily reports.", 'error');
+      setLoadedReports({ key: reportKey, items: [] });
       setLoading(false);
       setRefreshing(false);
       return;
@@ -159,6 +175,7 @@ export default function DailyReportReviewScreen({ navigation, route }) {
         supabase.from('activity_entries').select('daily_log_id').in('daily_log_id', logIds),
       ])
       : [{ data: [] }, { data: [] }, { data: [] }, { data: [] }];
+    if (!stillCurrent()) return;
 
     const counts = new Map();
     const add = (logId, key) => {
@@ -176,14 +193,14 @@ export default function DailyReportReviewScreen({ navigation, route }) {
       { ...log, ...(counts.get(log.id) || {}) },
     ]));
     const attendanceByChild = new Map((attendance || []).map(record => [record.child_id, record]));
-    setItems((children || []).map(child => ({
+    setLoadedReports({ key: reportKey, items: (children || []).map(child => ({
       child,
       log: logsByChild.get(child.id) || null,
       attendance: attendanceByChild.get(child.id) || null,
-    })));
+    })) });
     setLoading(false);
     setRefreshing(false);
-  }, [reportDate, roomKey]);
+  }, [reportKey]);
 
   useEffect(() => {
     if (isFocused) load();
@@ -198,7 +215,7 @@ export default function DailyReportReviewScreen({ navigation, route }) {
   )).length, [items]);
 
   async function publish(item) {
-    if (!item.log?.id || !isDailyLogReady(item.log)) return false;
+    if (reportKey !== currentReportKey.current || !item.log?.id || !isDailyLogReady(item.log)) return false;
     setSendingIds(current => new Set(current).add(item.log.id));
     const { error } = await supabase.rpc('publish_daily_log', { p_daily_log_id: item.log.id });
     setSendingIds(current => {
@@ -236,9 +253,11 @@ export default function DailyReportReviewScreen({ navigation, route }) {
         {
           text: 'Send ready reports',
           onPress: async () => {
+            if (reportKey !== currentReportKey.current) return;
             setSendingAll(true);
             let sent = 0;
             for (const item of readyItems) {
+              if (reportKey !== currentReportKey.current) break;
               const { error } = await supabase.rpc('publish_daily_log', { p_daily_log_id: item.log.id });
               if (error) break;
               sent += 1;
@@ -256,7 +275,7 @@ export default function DailyReportReviewScreen({ navigation, route }) {
     );
   }
 
-  if (loading) return <LoadingScreen />;
+  if (loading || loadedReports.key !== reportKey) return <LoadingScreen />;
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
@@ -302,6 +321,7 @@ export default function DailyReportReviewScreen({ navigation, route }) {
                 <ReportRow
                   item={item}
                   busy={sendingIds.has(item.log?.id)}
+                  homeRoomName={roomIds.length > 1 ? homeRoomNames.get(item.child.classroom_id) : null}
                   onOpen={child => navigation.navigate('DailyLog', { child, date: reportDate })}
                   onSend={confirmPublish}
                 />
@@ -337,6 +357,7 @@ const styles = StyleSheet.create({
   reportMain: { minHeight: 78, flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingHorizontal: spacing.md, paddingVertical: spacing.md },
   reportCopy: { flex: 1, minWidth: 0 },
   childName: { color: colors.textPrimary, fontFamily: fonts.bold, fontSize: 14.5 },
+  homeRoom: { color: colors.primary, fontFamily: fonts.bold, fontSize: 11.5, marginTop: 2 },
   reportDetails: { color: colors.textMuted, fontFamily: fonts.regular, fontSize: 11.5, lineHeight: 16, marginTop: 3 },
   sentTime: { color: colors.success, fontFamily: fonts.bold, fontSize: 10.5, marginTop: 3 },
   status: { borderRadius: radius.full, paddingHorizontal: 10, paddingVertical: 6 },

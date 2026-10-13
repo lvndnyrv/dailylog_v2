@@ -327,6 +327,12 @@ Operational follow-up migrations also applied: `20260906000100_operational_room_
 - Temporary care access no longer presents the classroom settings edit shortcut. Educators see classroom details but cannot enter the admin-only room editor from this screen. The editor now reports a failed delete instead of silently navigating away or removing the educator's own permanent classroom membership.
 - The iPhone 17 Pro simulator loaded Quick log, switched from Preschool to Infant using accessibility elements, and showed the correct six Infant children. An actual coverage-expiry/revocation device pass remains pending. Mobile typecheck and iOS production bundle export passed; no live room combination or child record was changed.
 
+### Shared-room end-of-day report review — October 12
+
+- The educator review now keys loaded reports to the current operating-room group and report date. A room switch or paused combination immediately hides the previous group while the new request runs, and an older response cannot overwrite the current list. A stale confirmation cannot start publishing reports for a previous group; the existing child-scoped server permission remains the final write guard.
+- During a combination, each report row labels the child's permanent home room so the shared end-of-day handoff is clear. No child assignment or previously sent report is changed.
+- Mobile typecheck and iOS production bundle export passed. The rollback-only operational-combinations and daily-report-publication tests passed against the linked project. Simulator verification remains pending because the Mac was locked; no live combination was activated for this check.
+
 ## Still required before calling Group 7 complete
 
 1. **7d remaining boundary:** future-opening room lead moves remain an explicit administrator decision; the opening-day review is visible but not an automatic transfer or notification. No licensing-rule authority/preset verification is claimed.

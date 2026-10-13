@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { isAdminRole } from '@dailylog/shared';
 import { AppState } from 'react-native';
 import { supabase } from '../lib/supabase';
@@ -11,6 +11,11 @@ export function ClassroomProvider({ children }) {
   const [classrooms, setClassrooms]     = useState([]);
   const [active, setActive]             = useState(null);
   const [loading, setLoading]           = useState(true);
+  const [loadedScope, setLoadedScope]   = useState(null);
+  const loadVersion = useRef(0);
+  const scope = `${profile?.id || ''}:${profile?.role || ''}:${profile?.daycare_id || ''}`;
+  const currentScope = useRef(scope);
+  currentScope.current = scope;
 
   useEffect(() => {
     if (profile?.role === 'educator' && profile?.daycare_id) {
@@ -18,8 +23,10 @@ export function ClassroomProvider({ children }) {
     } else if (isAdminRole(profile?.role) && profile?.daycare_id) {
       loadAllClassrooms();
     } else {
+      loadVersion.current += 1;
       setClassrooms([]);
       setActive(null);
+      setLoadedScope(null);
       setLoading(false);
     }
   }, [profile?.id, profile?.role, profile?.daycare_id]);
@@ -49,18 +56,27 @@ export function ClassroomProvider({ children }) {
 
   // Admins see every classroom in the daycare (no junction membership needed)
   async function loadAllClassrooms() {
+    const version = ++loadVersion.current;
+    const requestedScope = scope;
     setLoading(true);
-    const { data } = await supabase.rpc('get_my_operational_classrooms');
+    const { data, error } = await supabase.rpc('get_my_operational_classrooms');
+    if (version !== loadVersion.current || requestedScope !== currentScope.current) return;
+    if (error) { setLoading(false); return; }
     const rooms = data || [];
     setClassrooms(rooms);
-    setActive(rooms.find(r => r.id === profile.classroom_id) || rooms[0] || null);
+    setActive(current => rooms.find(r => r.id === current?.id)
+      || rooms.find(r => r.id === profile.classroom_id) || rooms[0] || null);
+    setLoadedScope(requestedScope);
     setLoading(false);
   }
 
   async function loadClassrooms({ quiet = false } = {}) {
+    const version = ++loadVersion.current;
+    const requestedScope = scope;
     if (!quiet) setLoading(true);
 
     const { data, error } = await supabase.rpc('get_my_operational_classrooms');
+    if (version !== loadVersion.current || requestedScope !== currentScope.current) return;
     if (error) {
       if (!quiet) setLoading(false);
       return;
@@ -69,6 +85,7 @@ export function ClassroomProvider({ children }) {
     setClassrooms(rooms);
     setActive(current => rooms.find(room => room.id === current?.id)
       || rooms.find(room => room.id === profile.classroom_id) || rooms[0] || null);
+    setLoadedScope(requestedScope);
     if (!quiet) setLoading(false);
   }
 
@@ -143,8 +160,8 @@ export function ClassroomProvider({ children }) {
 
   return (
     <ClassroomContext.Provider value={{
-      classrooms,
-      active,
+      classrooms: loadedScope === scope ? classrooms : [],
+      active: loadedScope === scope ? active : null,
       loading,
       switchClassroom,
       joinClassroom,

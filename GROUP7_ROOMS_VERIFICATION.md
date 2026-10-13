@@ -347,6 +347,11 @@ Operational follow-up migrations also applied: `20260906000100_operational_room_
 - The Rooms transition row and planning dialog show the current warning and direct the admin to choose a valid date or destination. Completion retains its existing live capacity and ratio checks.
 - Applied `20261012000800_room_transition_plan_review_alerts.sql` to the linked project. The rollback-only review-alert fixture passed, as did web typecheck, lint, production build, and linked schema lint. This does not claim future staffing or billing-proration guarantees.
 
+### Educator room-switch freshness — October 12
+
+- The classroom provider now discards out-of-order operational-room responses and masks room data from a previous signed-in scope. The Kids roster similarly waits for the current room/date request to finish instead of briefly showing a former room's children; older roster, attendance, and nap responses cannot overwrite the new room after a switch or shared-room pause.
+- Mobile typecheck and iOS production bundle export passed. On the iPhone 17 Pro simulator, accessibility controls switched Preschool (10 children) to Infant (6), and the Infant roster appeared correctly. The Mac locked before restoring the prior selection or running an active-combination visual pass. No live combination or child data was changed for this verification.
+
 ## Still required before calling Group 7 complete
 
 1. **7d remaining boundary:** future-opening room lead moves remain an explicit administrator decision. Opening-day review and reminder are available, but there is no automatic transfer. The final transfer is web-only; mobile links explain this. No licensing-rule authority/preset verification is claimed.

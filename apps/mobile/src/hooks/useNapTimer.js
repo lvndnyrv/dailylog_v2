@@ -6,6 +6,8 @@ import { showToast } from '../components/Toast';
 import { format } from 'date-fns';
 import { useClassroom } from './useClassroom';
 
+const EMPTY_NAPS = {};
+
 /**
  * Nap timer hook — manages live nap timers for a classroom.
  * - startNap: creates sleep_entry with end_time = null
@@ -14,19 +16,28 @@ import { useClassroom } from './useClassroom';
  * - Auto-close yesterday's open naps on mount
  */
 export function useNapTimer(classroomId) {
-  const [activeNaps, setActiveNaps] = useState({});
+  const [napRows, setActiveNaps] = useState({});
+  const [loadedScope, setLoadedScope] = useState(null);
+  const latestRequest = useRef(0);
   const { classrooms = [] } = useClassroom();
   const roomKey = (classrooms.find(room => room.id === classroomId)?.member_room_ids || [classroomId]).join(',');
   const reminderInterval = useRef(null);
   const remindedSet = useRef(new Set());
   const today = format(new Date(), 'yyyy-MM-dd');
+  const scope = `${classroomId || ''}:${roomKey}:${today}`;
+  const currentScope = useRef(scope);
+  currentScope.current = scope;
+  const activeNaps = loadedScope === scope ? napRows : EMPTY_NAPS;
 
   const loadActiveNaps = useCallback(async () => {
-    if (!classroomId) return;
+    const request = ++latestRequest.current;
+    const stillCurrent = () => request === latestRequest.current && scope === currentScope.current;
+    if (!classroomId) { setActiveNaps({}); setLoadedScope(scope); return; }
     const { data: kids } = await supabase
       .from('children').select('id, first_name')
       .in('classroom_id', roomKey.split(',')).is('archived_at', null);
-    if (!kids?.length) { setActiveNaps({}); return; }
+    if (!stillCurrent()) return;
+    if (!kids?.length) { setActiveNaps({}); setLoadedScope(scope); return; }
 
     const childNames = {};
     kids.forEach(k => { childNames[k.id] = k.first_name; });
@@ -34,7 +45,8 @@ export function useNapTimer(classroomId) {
     const { data: logs } = await supabase
       .from('daily_logs').select('id, child_id')
       .in('child_id', kids.map(k => k.id)).eq('log_date', today);
-    if (!logs?.length) { setActiveNaps({}); return; }
+    if (!stillCurrent()) return;
+    if (!logs?.length) { setActiveNaps({}); setLoadedScope(scope); return; }
 
     const logToChild = {};
     logs.forEach(l => { logToChild[l.id] = l.child_id; });
@@ -42,6 +54,7 @@ export function useNapTimer(classroomId) {
     const { data: openSleeps } = await supabase
       .from('sleep_entries').select('id, daily_log_id, start_time')
       .in('daily_log_id', logs.map(l => l.id)).is('end_time', null);
+    if (!stillCurrent()) return;
 
     const naps = {};
     (openSleeps || []).forEach(s => {
@@ -54,9 +67,13 @@ export function useNapTimer(classroomId) {
       }
     });
     setActiveNaps(naps);
-  }, [classroomId, today, roomKey]);
+    setLoadedScope(scope);
+  }, [classroomId, today, roomKey, scope]);
 
-  useEffect(() => { loadActiveNaps(); }, [loadActiveNaps]);
+  useEffect(() => {
+    loadActiveNaps();
+    return () => { latestRequest.current += 1; };
+  }, [loadActiveNaps]);
 
   // Auto-close yesterday's open naps
   useEffect(() => {
@@ -102,6 +119,7 @@ export function useNapTimer(classroomId) {
   }, [activeNaps]);
 
   async function startNap(childId, logId, childName = 'Child') {
+    const actionScope = scope;
     const now = format(new Date(), 'HH:mm');
     const id = newId();
     const row = { id, daily_log_id: logId, start_time: now, end_time: null };
@@ -110,13 +128,14 @@ export function useNapTimer(classroomId) {
       [childId]: { sleepEntryId: id, startTime: now, logId, childName },
     }));
     const { error } = await mutate({ type: 'insert', table: 'sleep_entries', data: row });
-    if (error) {
+    if (error && actionScope === currentScope.current) {
       setActiveNaps(prev => { const next = { ...prev }; delete next[childId]; return next; });
       showToast(`Couldn't start nap: ${error.message}`, 'error');
     }
   }
 
   async function endNap(childId, endTimeOverride) {
+    const actionScope = scope;
     const nap = activeNaps[childId];
     if (!nap) return;
     const endTime = endTimeOverride || format(new Date(), 'HH:mm');
@@ -126,7 +145,7 @@ export function useNapTimer(classroomId) {
       type: 'update', table: 'sleep_entries',
       id: nap.sleepEntryId, data: { end_time: endTime },
     });
-    if (error) {
+    if (error && actionScope === currentScope.current) {
       setActiveNaps(prev => ({ ...prev, [childId]: nap }));
       showToast(`Couldn't end nap: ${error.message}`, 'error');
     }

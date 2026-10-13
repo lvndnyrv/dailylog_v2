@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Image,
   RefreshControl,
@@ -277,6 +277,8 @@ export default function RosterScreen({ navigation }) {
   const [medicationLogsToday, setMedicationLogsToday] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadedRosterKey, setLoadedRosterKey] = useState(null);
+  const requestId = useRef(0);
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedBuckets, setExpandedBuckets] = useState({});
   const [now, setNow] = useState(new Date());
@@ -285,6 +287,11 @@ export default function RosterScreen({ navigation }) {
   const classroomId = activeClassroom?.id || profile?.classroom_id;
   const roomKey = (activeClassroom?.member_room_ids || [classroomId]).join(',');
   const today = format(now, 'yyyy-MM-dd');
+  const rosterKey = `${classroomId || ''}:${roomKey}:${today}`;
+  const currentRosterKey = useRef(rosterKey);
+  currentRosterKey.current = rosterKey;
+  const loadedRosterKeyRef = useRef(loadedRosterKey);
+  loadedRosterKeyRef.current = loadedRosterKey;
   const phase = getKidsDayPhase(now);
 
   const {
@@ -304,15 +311,20 @@ export default function RosterScreen({ navigation }) {
   }, []);
 
   const load = useCallback(async () => {
+    const request = ++requestId.current;
+    const isCurrent = () => request === requestId.current && rosterKey === currentRosterKey.current;
     if (!classroomId) {
       setChildren([]);
       setLogStatus({});
       setMedicationAuthorizations([]);
       setMedicationLogsToday([]);
+      setLoadedRosterKey(rosterKey);
       setLoading(false);
       setRefreshing(false);
       return;
     }
+
+    if (loadedRosterKeyRef.current !== rosterKey) setLoading(true);
 
     const { data: kids, error: kidsError } = await supabase
       .from('children')
@@ -320,10 +332,12 @@ export default function RosterScreen({ navigation }) {
       .in('classroom_id', roomKey.split(','))
       .is('archived_at', null)
       .order('first_name');
+    if (!isCurrent()) return;
 
     if (kidsError) {
       showToast("We couldn't load this classroom.", 'error');
       setChildren([]);
+      setLoadedRosterKey(rosterKey);
       setLoading(false);
       setRefreshing(false);
       return;
@@ -354,6 +368,7 @@ export default function RosterScreen({ navigation }) {
         .in('child_id', childIds)
         .eq('active', true),
     ]);
+    if (!isCurrent()) return;
 
     if (medicationError) {
       showToast("We couldn't load today's medication schedule.", 'error');
@@ -371,6 +386,7 @@ export default function RosterScreen({ navigation }) {
           .in('authorization_id', activeAuthorizations.map(item => item.id))
           .gte('administered_at', dayStart.toISOString())
           .lte('administered_at', dayEnd.toISOString());
+        if (!isCurrent()) return;
         if (doseError) {
           showToast("We couldn't confirm today's medication doses.", 'error');
           setMedicationLogsToday([]);
@@ -391,6 +407,7 @@ export default function RosterScreen({ navigation }) {
         supabase.from('activity_entries').select('daily_log_id').in('daily_log_id', logIds),
       ])
       : [{ data: [] }, { data: [] }, { data: [] }, { data: [] }];
+    if (!isCurrent()) return;
 
     const byLog = {};
     const ensure = id => {
@@ -418,12 +435,15 @@ export default function RosterScreen({ navigation }) {
     setLogStatus(nextStatus);
 
     await Promise.all([refreshAttendance(), refreshNaps()]);
+    if (!isCurrent()) return;
+    setLoadedRosterKey(rosterKey);
     setLoading(false);
     setRefreshing(false);
-  }, [classroomId, refreshAttendance, refreshNaps, today, roomKey]);
+  }, [classroomId, refreshAttendance, refreshNaps, today, roomKey, rosterKey]);
 
   useEffect(() => {
     if (isFocused) load();
+    return () => { requestId.current += 1; };
   }, [isFocused, load]);
 
   const rosterItems = useMemo(() => children.map(child => {
@@ -601,7 +621,7 @@ export default function RosterScreen({ navigation }) {
     load();
   }
 
-  if (loading) return <LoadingScreen />;
+  if (loading || loadedRosterKey !== rosterKey) return <LoadingScreen />;
 
   const firstName = profile?.display_name
     || profile?.full_name?.split(' ')[0]

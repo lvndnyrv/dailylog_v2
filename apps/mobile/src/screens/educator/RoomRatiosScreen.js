@@ -220,12 +220,20 @@ export default function RoomRatiosScreen({ navigation, route }) {
   } = useRoomRatios();
   const [selectedRoom, setSelectedRoom] = useState(null);
   const [replying, setReplying] = useState(null);
+  const [focusedCoverageReady, setFocusedCoverageReady] = useState(null);
   const handledRoute = useRef(null);
   const isFocused = useIsFocused();
 
   useEffect(() => {
-    if (isFocused) load({ quiet: rooms.length > 0 });
-  }, [isFocused, load]);
+    if (!isFocused) return;
+    const assignmentId = isEducator ? route.params?.assignmentId : null;
+    let current = true;
+    if (assignmentId) setFocusedCoverageReady(null);
+    load({ quiet: rooms.length > 0 }).finally(() => {
+      if (current && assignmentId) setFocusedCoverageReady(assignmentId);
+    });
+    return () => { current = false; };
+  }, [isFocused, isEducator, load, route.params?.assignmentId]);
 
   useEffect(() => {
     if (isFocused && isEducator) loadPendingNudge(route.params?.nudgeId || null).catch(() => {});
@@ -291,7 +299,15 @@ export default function RoomRatiosScreen({ navigation, route }) {
           />
         )}
       >
-        {isEducator ? <CoverageInvitations rows={coverage} error={coverageError} onRespond={respondToCoverage} onRetry={() => load()} /> : null}
+        {isEducator ? <CoverageInvitations
+          rows={coverage}
+          error={coverageError}
+          onRespond={respondToCoverage}
+          onRetry={() => load()}
+          focusedId={route.params?.assignmentId}
+          focusedReady={focusedCoverageReady === route.params?.assignmentId}
+          onClearFocus={() => navigation.setParams({ assignmentId: undefined })}
+        /> : null}
         {!isEducator && route.params?.assignmentId && profile?.daycare_id && (
           <AdminCoverageReviewCard
             key={route.params.assignmentId}

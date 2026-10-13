@@ -10,7 +10,7 @@ const STATUS = {
 const STATUS_ORDER = { assigned: 0, accepted: 1, declined: 2, cancelled: 3 };
 
 // Completes the invitation destination used by admin coverage notifications.
-export default function CoverageInvitations({ rows, error, onRespond, onRetry }) {
+export default function CoverageInvitations({ rows, error, onRespond, onRetry, focusedId, focusedReady, onClearFocus }) {
   const [saving, setSaving] = useState(null);
   async function respond(row, response) {
     if (saving) return;
@@ -19,10 +19,17 @@ export default function CoverageInvitations({ rows, error, onRespond, onRetry })
     catch (failure) { Alert.alert('Could not update coverage', failure.message || 'Please refresh and try again.'); }
     finally { setSaving(null); }
   }
+  if (focusedId && !focusedReady) return <View style={styles.card}><ActivityIndicator color="#2F7CD8" accessibilityLabel="Loading coverage assignment" /></View>;
   if (error) return <View style={styles.card}><Text style={styles.title}>Your coverage could not load</Text><TouchableOpacity accessibilityRole="button" onPress={onRetry}><Text style={styles.link}>Try again</Text></TouchableOpacity></View>;
+  if (focusedId && !rows.some(row => row.id === focusedId)) return <View style={styles.card}>
+    <Text style={styles.title}>This coverage is no longer upcoming</Text>
+    <Text style={styles.hint}>It may have ended, been withdrawn, or become unavailable. Your current assignments are shown here when they are available.</Text>
+    <TouchableOpacity accessibilityRole="button" onPress={onClearFocus}><Text style={styles.link}>View other coverage</Text></TouchableOpacity>
+  </View>;
   if (!rows.length) return null;
   const orderedRows = [...rows].sort((a, b) =>
-    (STATUS_ORDER[a.status] ?? 4) - (STATUS_ORDER[b.status] ?? 4)
+    (a.id === focusedId ? -1 : b.id === focusedId ? 1 : 0)
+    || (STATUS_ORDER[a.status] ?? 4) - (STATUS_ORDER[b.status] ?? 4)
     || Date.parse(a.starts_at) - Date.parse(b.starts_at));
   const hasInvitations = rows.some(row => row.status === 'assigned');
   return <View style={styles.card}>
@@ -34,7 +41,8 @@ export default function CoverageInvitations({ rows, error, onRespond, onRetry })
       const date = new Intl.DateTimeFormat('en-CA', { timeZone: row.timezone, month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(row.starts_at));
       const time = value => new Intl.DateTimeFormat('en-CA', { timeZone: row.timezone, hour: 'numeric', minute: '2-digit' }).format(new Date(value));
       const status = STATUS[row.status] || { label: row.status, detail: '' };
-      return <View key={row.id} style={styles.row}>
+      return <View key={row.id} style={[styles.row, row.id === focusedId && styles.focusedRow]}>
+        {row.id === focusedId && <Text style={styles.focusedLabel}>FROM YOUR NOTIFICATION</Text>}
         <View style={styles.rowHeading}>
           <Text style={styles.name}>{row.room_name}</Text>
           <Text style={[styles.status, row.status === 'accepted' && styles.acceptedStatus,
@@ -69,6 +77,8 @@ const styles = StyleSheet.create({
   pendingStatus: { color:'#A66A14' },
   hint: { fontFamily:'Lato_400Regular', fontSize:14, lineHeight:21, color:'#5B6B82' },
   row: { borderTopWidth:1, borderTopColor:'#EDF3FB', paddingTop:12, gap:6 },
+  focusedRow: { backgroundColor:'#F2F7FD', borderRadius:14, padding:12, borderTopWidth:0 },
+  focusedLabel: { fontFamily:'Lato_700Bold', fontSize:10, letterSpacing:0.8, color:'#2F7CD8' },
   reviewAlert: { backgroundColor:'#FFF4E1', borderWidth:1, borderColor:'#F2D39A', borderRadius:14, padding:12, gap:4, marginTop:6 },
   reviewTitle: { fontFamily:'Lato_700Bold', fontSize:14, color:'#9A6412' },
   reviewText: { fontFamily:'Lato_700Bold', fontSize:14, lineHeight:20, color:'#17335B' },

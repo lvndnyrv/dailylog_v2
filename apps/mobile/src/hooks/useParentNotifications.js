@@ -4,6 +4,7 @@ import React, {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 import { AppState } from 'react-native';
@@ -94,14 +95,21 @@ export async function markNotificationPayloadRead(payload) {
 
 export function ParentNotificationsProvider({ children }) {
   const { profile } = useAuth();
-  const [notifications, setNotifications] = useState([]);
+  const [notificationState, setNotificationState] = useState({ profileId: null, rows: [] });
+  const profileIdRef = useRef(profile?.id || null);
+  const refreshRequest = useRef(0);
+  profileIdRef.current = profile?.id || null;
+  const notificationsReady = notificationState.profileId === (profile?.id || null);
+  const notifications = notificationsReady ? notificationState.rows : [];
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
 
   const refresh = useCallback(async ({ silent = false } = {}) => {
-    if (!profile?.id) {
-      setNotifications([]);
+    const profileId = profile?.id || null;
+    const request = ++refreshRequest.current;
+    if (!profileId) {
+      setNotificationState({ profileId: null, rows: [] });
       setLoading(false);
       setRefreshing(false);
       return [];
@@ -113,18 +121,24 @@ export function ParentNotificationsProvider({ children }) {
       const { data, error: loadError } = await supabase
         .from('notifications')
         .select('*')
-        .eq('profile_id', profile.id)
+        .eq('profile_id', profileId)
         .order('created_at', { ascending: false })
         .limit(100);
       if (loadError) throw loadError;
-      setNotifications(data || []);
+      if (profileIdRef.current === profileId && request === refreshRequest.current) {
+        setNotificationState({ profileId, rows: data || [] });
+      }
       return data || [];
     } catch (loadError) {
-      setError(loadError.message || 'Your notifications could not be loaded.');
+      if (profileIdRef.current === profileId && request === refreshRequest.current) {
+        setError(loadError.message || 'Your notifications could not be loaded.');
+      }
       throw loadError;
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (profileIdRef.current === profileId && request === refreshRequest.current) {
+        setLoading(false);
+        setRefreshing(false);
+      }
     }
   }, [profile?.id, profile?.role]);
 
@@ -141,13 +155,17 @@ export function ParentNotificationsProvider({ children }) {
         event: '*', schema: 'public', table: 'notifications',
         filter: `profile_id=eq.${profile.id}`,
       }, (event) => {
-        setNotifications((current) => {
+        setNotificationState((current) => {
+          if (profileIdRef.current !== profile.id || current.profileId !== profile.id) return current;
           if (event.eventType === 'DELETE') {
-            return current.filter((row) => row.id !== event.old.id);
+            return { ...current, rows: current.rows.filter((row) => row.id !== event.old.id) };
           }
           const next = event.new;
-          return [next, ...current.filter((row) => row.id !== next.id)]
-            .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+          return {
+            ...current,
+            rows: [next, ...current.rows.filter((row) => row.id !== next.id)]
+              .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0)),
+          };
         });
       })
       .subscribe();
@@ -163,37 +181,47 @@ export function ParentNotificationsProvider({ children }) {
   const markRead = useCallback(async (notificationId) => {
     const existing = notifications.find((row) => row.id === notificationId);
     if (!existing || existing.read_at) return;
+    const profileId = profile?.id;
     const readAt = new Date().toISOString();
-    setNotifications((current) => current.map((row) => (
-      row.id === notificationId ? { ...row, read_at: readAt } : row
-    )));
+    setNotificationState((current) => current.profileId === profileId ? {
+      ...current,
+      rows: current.rows.map((row) => (
+        row.id === notificationId ? { ...row, read_at: readAt } : row
+      )),
+    } : current);
     const { error: saveError } = await supabase
       .from('notifications')
       .update({ read_at: readAt })
-      .eq('id', notificationId);
+      .eq('id', notificationId)
+      .eq('profile_id', profileId);
     if (saveError) {
-      setNotifications((current) => current.map((row) => (
-        row.id === notificationId ? existing : row
-      )));
+      setNotificationState((current) => current.profileId === profileId ? {
+        ...current,
+        rows: current.rows.map((row) => row.id === notificationId ? existing : row),
+      } : current);
       throw saveError;
     }
-  }, [notifications]);
+  }, [notifications, profile?.id]);
 
   const markAllRead = useCallback(async () => {
     const unread = notifications.filter((row) => !row.read_at);
     if (!unread.length) return;
+    const profileId = profile?.id;
     const readAt = new Date().toISOString();
-    setNotifications((current) => current.map((row) => ({ ...row, read_at: row.read_at || readAt })));
+    setNotificationState((current) => current.profileId === profileId ? {
+      ...current,
+      rows: current.rows.map((row) => ({ ...row, read_at: row.read_at || readAt })),
+    } : current);
     const { error: saveError } = await supabase
       .from('notifications')
       .update({ read_at: readAt })
-      .eq('profile_id', profile.id)
+      .eq('profile_id', profileId)
       .is('read_at', null);
     if (saveError) {
-      setNotifications((current) => current.map((row) => {
-        const original = unread.find((item) => item.id === row.id);
-        return original || row;
-      }));
+      setNotificationState((current) => current.profileId === profileId ? {
+        ...current,
+        rows: current.rows.map((row) => unread.find((item) => item.id === row.id) || row),
+      } : current);
       throw saveError;
     }
   }, [notifications, profile?.id]);
@@ -217,14 +245,14 @@ export function ParentNotificationsProvider({ children }) {
   const value = useMemo(() => ({
     notifications,
     unreadCount,
-    loading,
+    loading: loading || !notificationsReady,
     refreshing,
     error,
     refresh,
     markRead,
     markAllRead,
     open,
-  }), [error, loading, markAllRead, markRead, notifications, open, refresh, refreshing, unreadCount]);
+  }), [error, loading, markAllRead, markRead, notifications, notificationsReady, open, refresh, refreshing, unreadCount]);
 
   return (
     <ParentNotificationsContext.Provider value={value}>

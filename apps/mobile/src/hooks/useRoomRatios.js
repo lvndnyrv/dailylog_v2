@@ -22,26 +22,33 @@ export function useRoomRatios() {
   const load = useCallback(async ({ quiet = false } = {}) => {
     const request = ++latestRequest.current;
     if (!quiet) setLoading(true);
-    const [live, contexts, invitations] = await Promise.all([
-      supabase.rpc('get_mobile_room_ratios'),
-      supabase.rpc('get_room_operating_context'),
-      isEducator ? supabase.rpc('get_my_room_coverage') : Promise.resolve({ data: [], error: null }),
-    ]);
-    const data = live.data;
-    const loadError = live.error || contexts.error;
+    try {
+      const [live, contexts, invitations] = await Promise.all([
+        supabase.rpc('get_mobile_room_ratios'),
+        supabase.rpc('get_room_operating_context'),
+        isEducator ? supabase.rpc('get_my_room_coverage') : Promise.resolve({ data: [], error: null }),
+      ]);
+      const loadError = live.error || contexts.error;
 
-    // Realtime, focus and the clock can all refresh this screen at once. A
-    // response from an earlier operating-room window must not replace newer
-    // ratio counts, room context or coverage invitations.
-    if (!mounted.current || request !== latestRequest.current) return;
-    setCoverageError(invitations.error);
-    if (!invitations.error) setCoverage(invitations.data || []);
-    if (loadError) {
+      // Realtime, focus and the clock can all refresh this screen at once. A
+      // response from an earlier operating-room window must not replace newer
+      // ratio counts, room context or coverage invitations.
+      if (!mounted.current || request !== latestRequest.current) return;
+      setCoverageError(invitations.error);
+      if (!invitations.error) setCoverage(invitations.data || []);
+      if (loadError) {
+        setRooms([]);
+        setError(loadError);
+      } else {
+        setRooms((live.data || []).map(room => ({ ...room, operating: contexts.data?.find(item => item.room_id === room.id) })));
+        setError(null);
+      }
+    } catch (loadError) {
+      if (!mounted.current || request !== latestRequest.current) return;
+      setCoverageError(loadError);
+      setCoverage([]);
       setRooms([]);
       setError(loadError);
-    } else {
-      setRooms((data || []).map(room => ({ ...room, operating: contexts.data?.find(item => item.room_id === room.id) })));
-      setError(null);
     }
     setLoading(false);
   }, [isEducator]);

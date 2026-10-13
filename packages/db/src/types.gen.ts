@@ -7493,6 +7493,10 @@ export type Database = {
         }
         Returns: boolean
       }
+      _can_review_room_lead_handoff: {
+        Args: { p_profile_id: string }
+        Returns: boolean
+      }
       _center_registration_code_hash: {
         Args: { p_code: string }
         Returns: string
@@ -8364,6 +8368,7 @@ export type Database = {
         Returns: string
       }
       enqueue_room_coverage_review_alerts: { Args: never; Returns: number }
+      enqueue_room_lead_opening_reviews: { Args: never; Returns: number }
       enqueue_staff_credential_expiry_reminders: {
         Args: never
         Returns: number

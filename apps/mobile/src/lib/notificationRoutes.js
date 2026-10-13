@@ -169,12 +169,13 @@ export function resolveNotificationRoute(payload = {}, role = 'parent') {
     return null;
   }
 
-  if (screen === 'RoomRatios' || ['ratio_alert', 'room_activity_nudge', 'coverage_review'].includes(type)) {
+  if (screen === 'RoomRatios' || ['ratio_alert', 'room_activity_nudge', 'coverage_review', 'room_lead_handoff'].includes(type)) {
     return {
       name: 'RoomRatios',
       params: {
         roomId: value(payload, 'roomId', 'room_id'),
         nudgeId: value(payload, 'nudgeId', 'nudge_id'),
+        leadHandoff: type === 'room_lead_handoff',
       },
     };
   }

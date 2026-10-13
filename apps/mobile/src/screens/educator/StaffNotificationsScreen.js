@@ -44,6 +44,7 @@ const PRESENTATION = {
   credential_reminder: { icon: 'ribbon-outline', tone: 'amber' },
   compliance_due: { icon: 'shield-checkmark-outline', tone: 'amber' },
   room_activity_nudge_response: { icon: 'chatbubble-ellipses-outline', tone: 'green' },
+  room_lead_handoff: { icon: 'people-outline', tone: 'amber' },
 };
 
 const TONES = {

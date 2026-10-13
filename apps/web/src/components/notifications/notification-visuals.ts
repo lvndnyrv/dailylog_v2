@@ -198,6 +198,7 @@ export function notificationPresentation(
       };
     case "coverage_response":
     case "coverage_review":
+    case "room_lead_handoff":
       return {
         icon: UsersRound,
         iconClassName: "bg-warning-bg text-warning-text",
@@ -206,7 +207,7 @@ export function notificationPresentation(
         source: overrides.source ?? "Rooms & ratios",
         href: overrides.href ?? "/rooms",
         actionLabel: overrides.actionLabel ?? "Review coverage",
-        urgent: notification.kind === "coverage_review"
+        urgent: notification.kind === "coverage_review" || notification.kind === "room_lead_handoff"
           || payloadString(payload, "response") === "declined",
       };
     case "new_device_sign_in":

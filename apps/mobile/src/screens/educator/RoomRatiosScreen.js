@@ -252,6 +252,15 @@ export default function RoomRatiosScreen({ navigation, route }) {
     navigation.setParams({ openAssigner: false });
   }, [navigation, rooms, route.params?.openAssigner, route.params?.roomId]);
 
+  useEffect(() => {
+    if (!isFocused || !route.params?.leadHandoff) return;
+    navigation.setParams({ leadHandoff: false });
+    Alert.alert(
+      'Lead transfer needs review',
+      'This room is opening, but its lead still has another home room. Review published shifts and regular schedules, then confirm the home-room transfer in admin web Rooms & ratios.',
+    );
+  }, [isFocused, navigation, route.params?.leadHandoff]);
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.header}>

@@ -290,6 +290,7 @@ Operational follow-up migrations also applied: `20260906000100_operational_room_
 
 - Rooms & ratios now lists future-opening and opening-due rooms whose designated lead still has another home room. Each row links to a room-detail review card with the educator's current room and the appropriate opening-day action.
 - The review deliberately does not move staff automatically. Once the room is open, the administrator can use the existing explicit, atomic home-room transfer after checking published shifts and regular schedules. Web typecheck, lint and production build passed.
+- A center-time-zone hourly worker now sends one in-app and push reminder when an active room opens with its lead still assigned elsewhere. It catches up for up to seven days, excludes archived/inactive records and admins without both room-edit and staff-edit rights, and never changes an educator's assignment. The web notification opens the exact handoff review; mobile explains that the final transfer is currently completed in admin web. The linked rollback test covered future vs due rooms, duplicate runs, restricted admins and no automatic transfer; the prior atomic transfer test, database lint, web build and iOS export passed. No test records were retained.
 
 ### Shared-room pickup handoff — October 12
 
@@ -342,7 +343,7 @@ Operational follow-up migrations also applied: `20260906000100_operational_room_
 
 ## Still required before calling Group 7 complete
 
-1. **7d remaining boundary:** future-opening room lead moves remain an explicit administrator decision; the opening-day review is visible but not an automatic transfer or notification. No licensing-rule authority/preset verification is claimed.
+1. **7d remaining boundary:** future-opening room lead moves remain an explicit administrator decision. Opening-day review and reminder are available, but there is no automatic transfer. The final transfer is web-only; mobile links explain this. No licensing-rule authority/preset verification is claimed.
 2. **7e remaining handoffs:** the waiting queue recomputes when an admin opens the page but does not silently create/publish moves in the background. Completed moves, closed or automatically expired offers, and configured child departures feed an explicit reviewed waitlist offer; offers are never sent without admin confirmation. Effective transition rates now change future recurring invoices, but mid-period proration is not claimed. Background invalidation warnings remain beyond the conditional capacity preview.
 3. **Final UI/device pass:** all design variants with realistic busy-day fixtures, narrow layouts, permission-restricted administrators, and educator simulator navigation, including active shared-room workflows and return to home-room access.
 

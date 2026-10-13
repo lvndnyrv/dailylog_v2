@@ -6212,6 +6212,9 @@ export type Database = {
           new_tuition_cents: number | null
           notes: string | null
           published_at: string | null
+          review_alert_version: number
+          review_issue: string | null
+          review_issue_detected_at: string | null
           status: string
           to_classroom_id: string
           transition_ends_on: string | null
@@ -6234,6 +6237,9 @@ export type Database = {
           new_tuition_cents?: number | null
           notes?: string | null
           published_at?: string | null
+          review_alert_version?: number
+          review_issue?: string | null
+          review_issue_detected_at?: string | null
           status?: string
           to_classroom_id: string
           transition_ends_on?: string | null
@@ -6256,6 +6262,9 @@ export type Database = {
           new_tuition_cents?: number | null
           notes?: string | null
           published_at?: string | null
+          review_alert_version?: number
+          review_issue?: string | null
+          review_issue_detected_at?: string | null
           status?: string
           to_classroom_id?: string
           transition_ends_on?: string | null
@@ -7714,6 +7723,10 @@ export type Database = {
           projected_children: number
         }[]
       }
+      _room_transition_plan_review_reason: {
+        Args: { p_plan_id: string }
+        Returns: string
+      }
       _room_vacancy_offer_candidate: {
         Args: { p_review_id: string }
         Returns: {
@@ -8369,6 +8382,7 @@ export type Database = {
       }
       enqueue_room_coverage_review_alerts: { Args: never; Returns: number }
       enqueue_room_lead_opening_reviews: { Args: never; Returns: number }
+      enqueue_room_transition_plan_review_alerts: { Args: never; Returns: number }
       enqueue_staff_credential_expiry_reminders: {
         Args: never
         Returns: number

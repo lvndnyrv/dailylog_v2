@@ -65,6 +65,7 @@ export interface RoomTransitionPlanRow {
   published_at: string | null;
   status: string;
   notes: string | null;
+  review_issue: string | null;
   child: { id: string; first_name: string; last_name: string } | null;
   from_room: { id: string; name: string } | null;
   to_room: { id: string; name: string } | null;
@@ -161,7 +162,7 @@ export async function listRoomTransitionPlans(client: Client): Promise<RoomTrans
       `id, updated_at, child_id, from_classroom_id, to_classroom_id, move_on, transition_week,
        transition_starts_on, transition_ends_on, current_tuition_cents,
        new_tuition_cents, currency, family_message, family_visible, published_at,
-       status, notes, child:children(id, first_name, last_name),
+       status, notes, review_issue, child:children(id, first_name, last_name),
        from_room:classrooms!room_transition_plans_from_classroom_id_fkey(id, name),
        to_room:classrooms!room_transition_plans_to_classroom_id_fkey(id, name)`,
     )

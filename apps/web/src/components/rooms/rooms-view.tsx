@@ -601,7 +601,9 @@ function TransitionsPanel({
               <div
                 key={transition.child_id}
                 className={`flex items-center gap-3 rounded-[12px] border px-3 py-2.5 ${
-                  plan
+                  plan?.review_issue
+                    ? "border-[#EFCF94] bg-[#FFF9EF]"
+                    : plan
                     ? "border-[#CBE7D8] bg-[#F5FBF8]"
                     : waiting
                       ? "border-[#EFCF94] bg-[#FFF9EF]"
@@ -614,10 +616,11 @@ function TransitionsPanel({
                   <span className="block text-[11px] text-muted">
                     {transition.room_name} → {transition.next_room_name ?? "destination needed"} · {transitionThreshold(transition)}
                   </span>
+                  {plan?.review_issue && <span className="block text-[11px] font-semibold text-[#A86D13]">Needs review: {plan.review_issue}</span>}
                 </span>
                 {plan ? (
-                  <button type="button" onClick={() => onPlan(transition)} className="rounded-full bg-[#E4F3EC] px-3 py-1.5 text-[11px] font-bold text-success hover:bg-[#D7EDE3]">
-                    Planned · {formatDate(plan.move_on)}
+                  <button type="button" onClick={() => onPlan(transition)} className={`rounded-full px-3 py-1.5 text-[11px] font-bold ${plan.review_issue ? "bg-warning-bg text-warning-text hover:bg-[#FCE6BD]" : "bg-[#E4F3EC] text-success hover:bg-[#D7EDE3]"}`}>
+                    {plan.review_issue ? "Review move" : "Planned"} · {formatDate(plan.move_on)}
                   </button>
                 ) : (
                   <span className="flex flex-col items-end gap-1">

@@ -81,6 +81,10 @@ export function PlanTransitionModal({
         </p>
       </div>
 
+      {plan?.review_issue && (
+        <Notice tone="error">This saved move needs review: {plan.review_issue}. Choose a valid date or destination and save the updated plan. Nothing has been changed automatically.</Notice>
+      )}
+
       {plan ? (
         <form
           action={completeAction}

@@ -418,6 +418,12 @@ Operational follow-up migrations also applied: `20260906000100_operational_room_
 - Applied `20261013001000_daycare_stats_center_date.sql` to the linked development project so the stats RPC uses `center_today()`. A rollback-only fixture reproduced the mismatch before the migration (0 to 0 after a center-local check-in), then passed after it. Existing Group 7 Rooms and Group 8 Attendance regression fixtures also passed. The test child and attendance were rolled back; no live child was checked in.
 - The mobile dashboard now also refreshes its stats on attendance changes, each minute, and when the app returns to the foreground. Older in-flight stats responses cannot overwrite a newer refresh. Mobile typecheck, iOS production bundle export, and linked schema lint passed; a populated live check-in/realtime simulator pass remains to be done without changing the shared seed data.
 
+### Center-local admin dashboard date and export — October 13
+
+- The admin mobile dashboard's greeting/date and room attendance export previously used the phone's timezone even though its live count and room ratios use the center's timezone. A traveling administrator could see the wrong calendar day and export the wrong 30-day range near midnight.
+- The dashboard now loads the center timezone, displays its local date and greeting, and derives the export dates from that same center-local day. Calendar-day subtraction uses date components rather than elapsed hours, so daylight-saving changes do not shift the range. If the timezone cannot be loaded, export stops with a retry message instead of silently using UTC.
+- Mobile typecheck and iOS production bundle export passed. A deterministic timezone-boundary check confirmed Toronto and Kiritimati derive their different local dates and export ranges from the same instant. No attendance rows were exported or modified during this check.
+
 ## Still required before calling Group 7 complete
 
 1. **7d remaining boundary:** future-opening room lead moves remain an explicit administrator decision. Opening-day review and reminder are available, but there is no automatic transfer. The final transfer is web-only; mobile links explain this. No licensing-rule authority/preset verification is claimed.

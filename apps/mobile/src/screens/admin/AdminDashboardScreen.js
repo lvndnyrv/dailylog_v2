@@ -6,7 +6,6 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useIsFocused } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { format, subDays } from 'date-fns';
 
 import { EmptyState, LoadingScreen } from '../../components/ui';
 import { showToast } from '../../components/Toast';
@@ -17,9 +16,25 @@ import { exportAttendanceCsv } from '../../lib/export';
 import { supabase } from '../../lib/supabase';
 import { colors, fonts, radius, spacing } from '../../theme';
 
-function greetingFor(date = new Date()) {
-  if (date.getHours() < 12) return 'Good morning';
-  if (date.getHours() < 17) return 'Good afternoon';
+function centerDate(instant, timezone) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(instant);
+  const part = name => parts.find(item => item.type === name)?.value;
+  return `${part('year')}-${part('month')}-${part('day')}`;
+}
+
+function daysBefore(date, days) {
+  const [year, month, day] = date.split('-').map(Number);
+  return new Date(Date.UTC(year, month - 1, day - days)).toISOString().slice(0, 10);
+}
+
+function greetingFor(timezone, instant = new Date()) {
+  const hour = Number(new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone, hour: '2-digit', hourCycle: 'h23',
+  }).format(instant));
+  if (hour < 12) return 'Good morning';
+  if (hour < 17) return 'Good afternoon';
   return 'Good evening';
 }
 
@@ -198,7 +213,7 @@ export default function AdminDashboardScreen({ navigation }) {
       supabase.rpc('get_daycare_stats'),
       supabase.from('classrooms').select('id, name, age_group, capacity')
         .eq('daycare_id', profile.daycare_id).is('archived_at', null).order('name'),
-      supabase.from('daycares').select('id, name, address')
+      supabase.from('daycares').select('id, name, address, timezone')
         .eq('id', profile.daycare_id).maybeSingle(),
       supabase.from('incident_reports').select('id', { count: 'exact', head: true })
         .eq('daycare_id', profile.daycare_id).eq('status', 'submitted'),
@@ -258,10 +273,12 @@ export default function AdminDashboardScreen({ navigation }) {
   }, [load, notifications.refresh, ratioState.load]);
 
   async function handleExportAttendance(room) {
-    const to = new Date();
-    const from = subDays(to, 30);
-    const fromStr = format(from, 'yyyy-MM-dd');
-    const toStr = format(to, 'yyyy-MM-dd');
+    if (!daycare?.timezone) {
+      Alert.alert('Export unavailable', 'The center timezone could not be loaded. Refresh the dashboard and try again.');
+      return;
+    }
+    const toStr = centerDate(new Date(), daycare.timezone);
+    const fromStr = daysBefore(toStr, 30);
     const { data: rows, error } = await supabase.rpc('get_attendance_range', {
       p_classroom_id: room.id, p_start: fromStr, p_end: toStr,
     });
@@ -294,6 +311,10 @@ export default function AdminDashboardScreen({ navigation }) {
   const unreadCount = notifications.unreadCount || 0;
   const attentionCount = overRatioRooms.length + pendingIncidents + pendingCredentials;
   const location = daycare?.address?.split(',')?.[0]?.trim() || daycare?.name || 'Your center';
+  const timezone = daycare?.timezone;
+  const todayLabel = timezone ? new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone, weekday: 'long', month: 'long', day: 'numeric',
+  }).format(new Date()) : 'Center date unavailable';
   const reviewCoverage = overRatioRooms.length > 0 || !ratiosReady;
   const ratioDetail = !ratiosReady
     ? ratioState.loading ? 'Checking live ratios' : 'Live ratios unavailable'
@@ -317,10 +338,10 @@ export default function AdminDashboardScreen({ navigation }) {
       >
         <View style={styles.header}>
           <View style={styles.headerCopy}>
-            <Text style={styles.greeting}>{greetingFor()}, {firstName(profile)}</Text>
+            <Text style={styles.greeting}>{greetingFor(timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC')}, {firstName(profile)}</Text>
             <View style={styles.locationRow}>
               <Ionicons name="location-outline" size={14} color={colors.textMuted} />
-              <Text style={styles.locationText} numberOfLines={1}>{format(new Date(), 'EEEE, MMMM d')} · {location}</Text>
+              <Text style={styles.locationText} numberOfLines={1}>{todayLabel} · {location}</Text>
             </View>
           </View>
           <TouchableOpacity

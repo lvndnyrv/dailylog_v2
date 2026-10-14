@@ -177,7 +177,7 @@ export function resolveNotificationRoute(payload = {}, role = 'parent') {
         nudgeId: value(payload, 'nudgeId', 'nudge_id'),
         assignmentId: value(payload, 'assignmentId', 'assignment_id'),
         transitionPlanId: value(payload, 'planId', 'plan_id'),
-        leadHandoff: type === 'room_lead_handoff',
+        leadHandoffRoomId: type === 'room_lead_handoff' ? value(payload, 'roomId', 'room_id') : undefined,
       },
     };
   }

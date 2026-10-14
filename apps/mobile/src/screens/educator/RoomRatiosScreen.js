@@ -17,6 +17,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRoomRatios } from '../../hooks/useRoomRatios';
 import { useAuth } from '../../hooks/useAuth';
 import AdminCoverageReviewCard from '../../components/AdminCoverageReviewCard';
+import AdminLeadHandoffReviewCard from '../../components/AdminLeadHandoffReviewCard';
 import AdminRoomMoveReviewCard from '../../components/AdminRoomMoveReviewCard';
 import CoverageInvitations from '../../components/CoverageInvitations';
 import { colors, fonts, radius, spacing } from '../../theme';
@@ -270,15 +271,6 @@ export default function RoomRatiosScreen({ navigation, route }) {
     navigation.setParams({ openAssigner: false });
   }, [navigation, rooms, route.params?.openAssigner, route.params?.roomId]);
 
-  useEffect(() => {
-    if (!isFocused || !route.params?.leadHandoff) return;
-    navigation.setParams({ leadHandoff: false });
-    Alert.alert(
-      'Lead transfer needs review',
-      'This room is opening, but its lead still has another home room. Review published shifts and regular schedules, then confirm the home-room transfer in admin web Rooms & ratios.',
-    );
-  }, [isFocused, navigation, route.params?.leadHandoff]);
-
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.header}>
@@ -326,6 +318,15 @@ export default function RoomRatiosScreen({ navigation, route }) {
             planId={route.params.transitionPlanId}
             daycareId={profile.daycare_id}
             onClose={() => navigation.setParams({ transitionPlanId: undefined })}
+          />
+        )}
+        {!isEducator && route.params?.leadHandoffRoomId && profile?.daycare_id && (
+          <AdminLeadHandoffReviewCard
+            key={route.params.leadHandoffRoomId}
+            roomId={route.params.leadHandoffRoomId}
+            daycareId={profile.daycare_id}
+            onClose={() => navigation.setParams({ leadHandoffRoomId: undefined })}
+            onTransferred={() => load({ quiet: true })}
           />
         )}
         {isEducator && nudgeUnavailable && route.params?.nudgeId && (

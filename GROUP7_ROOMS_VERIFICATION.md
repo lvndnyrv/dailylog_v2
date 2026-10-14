@@ -409,6 +409,7 @@ Operational follow-up migrations also applied: `20260906000100_operational_room_
 
 - With no children checked in, mobile Room ratios now labels each room **No children** instead of reporting the mathematically meaningless **OK · 0:1**. Its indicator is neutral and unfilled; existing over-ratio and populated-room statuses remain unchanged. A room combined into another host also uses a neutral badge.
 - Mobile typecheck passed. After relaunching the iPhone 17 Pro simulator, the seeded owner opened Room ratios and all four empty rooms showed the neutral status and unfilled track. No attendance or staffing data was changed.
+- The admin mobile dashboard now applies that same neutral state to its room cards. Its **Rooms in ratio** metric covers occupied rooms only, displays a dash before any child checks in, and does not turn a missing or failed ratio response into a compliant room. The overview text also distinguishes the empty-center and unavailable-data states. Mobile typecheck passed; after relaunch, the owner dashboard showed a neutral metric and all four empty room cards reported no children. The existing historical coverage alert also opened the exact cancelled assignment review on-device, without changing it.
 
 ## Still required before calling Group 7 complete
 

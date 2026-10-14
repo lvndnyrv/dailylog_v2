@@ -77,7 +77,7 @@ begin
       'Registration Guard Test Center',
       '100 Test Street',
       '416-555-0100',
-      '[{"name":"Infant","age_group":"Infant"}]'::jsonb,
+      '[{"name":"Infant","age_group":"Infant","min_age_months":"0","max_age_months":"18","capacity":"6","ratio":"3"}]'::jsonb,
       '[]'::jsonb,
       'DL-INVALID-CODE'
     );
@@ -89,11 +89,36 @@ begin
   end if;
   raise notice 'PASS: random signups cannot create a daycare owner account';
 
+  v_failed := false;
+  begin
+    perform public.complete_center_setup(
+      'Registration Guard Test Center',
+      '100 Test Street',
+      '416-555-0100',
+      '[{"name":"Infant","age_group":"Infant"}]'::jsonb,
+      '[]'::jsonb,
+      v_code
+    );
+  exception when others then
+    v_failed := true;
+  end;
+  if not v_failed then
+    raise exception 'FAIL: incomplete classroom settings completed center setup';
+  end if;
+  perform pg_temp.impersonate('postgres');
+  if exists (select 1 from public.center_registration_codes
+      where code_hash = public._center_registration_code_hash(v_code)
+        and (daycare_id is not null or consumed_at is not null)) then
+    raise exception 'FAIL: incomplete setup consumed its registration code';
+  end if;
+  perform pg_temp.impersonate('authenticated', v_user);
+  raise notice 'PASS: incomplete room cannot consume the registration code';
+
   v_result := public.complete_center_setup(
     'Registration Guard Test Center',
     '100 Test Street',
     '416-555-0100',
-    '[{"name":"Infant","age_group":"Infant"}]'::jsonb,
+    '[{"name":"Infant","age_group":"Infant","min_age_months":"0","max_age_months":"18","capacity":"6","ratio":"3"}]'::jsonb,
     '[]'::jsonb,
     v_code
   );
@@ -118,7 +143,9 @@ begin
   select count(*) into v_count
     from public.classrooms
    where daycare_id = v_daycare
-     and name = 'Infant';
+     and name = 'Infant'
+     and min_age_months = 0 and max_age_months = 18
+     and capacity = 6 and ratio_children_per_educator = 3;
   if v_count <> 1 then
     raise exception 'FAIL: approved setup did not create its classroom atomically';
   end if;

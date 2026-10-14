@@ -24,10 +24,27 @@ const ROOM_AGE_GROUPS = [
   'Mixed ages',
 ];
 
-const DEFAULT_ROOMS = [
-  { id: 'setup-preschool', name: 'Preschool', age_group: '3–4 years' },
-  { id: 'setup-toddler', name: 'Toddler', age_group: '18 months–3 years' },
-];
+const DEFAULT_ROOMS = [];
+
+const emptyRoom = () => ({ name: '', age_group: '', min_age_months: '', max_age_months: '', capacity: '', ratio: '' });
+
+function validateSetupRoom(room) {
+  const errors = {};
+  if (!room.name.trim() || room.name.trim().length > 100) errors.name = 'Enter a room name (up to 100 characters).';
+  if (!room.age_group.trim() || room.age_group.trim().length > 100) errors.age_group = 'Choose an age band.';
+  for (const [key, min, max] of [
+    ['min_age_months', 0, 215], ['max_age_months', 1, 216], ['capacity', 1, 9999], ['ratio', 1, 999],
+  ]) {
+    if (!/^\d+$/.test(room[key]) || Number(room[key]) < min || Number(room[key]) > max) {
+      errors[key] = `Enter a whole number from ${min} to ${max}.`;
+    }
+  }
+  if (!errors.min_age_months && !errors.max_age_months &&
+      Number(room.max_age_months) <= Number(room.min_age_months)) {
+    errors.max_age_months = 'Oldest age must be after youngest age.';
+  }
+  return errors;
+}
 
 function ProgressHeader({ step, onBack }) {
   return (
@@ -188,7 +205,7 @@ function ClassroomCard({ room, onEdit }) {
       </View>
       <View style={styles.roomCopy}>
         <Text style={styles.roomName}>{room.name}</Text>
-        <Text style={styles.roomAge}>{room.age_group || 'Age group not set'}</Text>
+        <Text style={styles.roomAge}>{room.age_group} · capacity {room.capacity} · 1:{room.ratio}</Text>
       </View>
       <Ionicons name="pencil-outline" size={18} color={colors.textFaint} />
     </TouchableOpacity>
@@ -196,26 +213,26 @@ function ClassroomCard({ room, onEdit }) {
 }
 
 function ClassroomEditor({ visible, room, onClose, onSave, onRemove }) {
-  const [name, setName] = useState('');
-  const [ageGroup, setAgeGroup] = useState('');
-  const [error, setError] = useState(null);
+  const [values, setValues] = useState(emptyRoom);
+  const [errors, setErrors] = useState({});
 
   React.useEffect(() => {
     if (!visible) return;
-    setName(room?.name || '');
-    setAgeGroup(room?.age_group || '');
-    setError(null);
+    setValues({ ...emptyRoom(), ...room });
+    setErrors({});
   }, [room, visible]);
 
+  function change(key, value) {
+    setValues(current => ({ ...current, [key]: value }));
+    setErrors(current => ({ ...current, [key]: '' }));
+  }
+
   function save() {
-    if (!name.trim()) {
-      setError('Please enter a classroom name.');
-      return;
-    }
+    const nextErrors = validateSetupRoom(values);
+    if (Object.keys(nextErrors).length) { setErrors(nextErrors); return; }
     onSave({
       id: room?.id || `setup-${Date.now()}`,
-      name: name.trim(),
-      age_group: ageGroup,
+      ...Object.fromEntries(Object.entries(values).filter(([key]) => key !== 'id').map(([key, value]) => [key, value.trim()])),
     });
   }
 
@@ -244,24 +261,21 @@ function ClassroomEditor({ visible, room, onClose, onSave, onRemove }) {
         >
           <Input
             label="Classroom name"
-            value={name}
-            onChangeText={(next) => {
-              setName(next);
-              setError(null);
-            }}
+            required value={values.name}
+            onChangeText={(next) => change('name', next)}
             placeholder="e.g. Preschool"
             autoCapitalize="words"
-            error={error}
+            error={errors.name}
           />
-          <Text style={styles.fieldLabel}>Age group</Text>
+          <Text style={styles.fieldLabel}>Age band <Text style={styles.required}>*</Text></Text>
           <View style={styles.ageOptions}>
             {ROOM_AGE_GROUPS.map((option) => {
               const [, label = option] = option.split(' · ');
-              const selected = ageGroup === label;
+              const selected = values.age_group === label;
               return (
                 <TouchableOpacity
                   key={option}
-                  onPress={() => setAgeGroup(label)}
+                  onPress={() => change('age_group', label)}
                   style={[styles.ageOption, selected && styles.ageOptionSelected]}
                   accessibilityRole="radio"
                   accessibilityState={{ selected }}
@@ -276,6 +290,20 @@ function ClassroomEditor({ visible, room, onClose, onSave, onRemove }) {
               );
             })}
           </View>
+          <InlineError>{errors.age_group}</InlineError>
+          <Text style={styles.roomRuleNote}>Enter your center's own capacity and staffing rule. DailyLog does not verify these against licensing limits.</Text>
+          <Input label="Youngest (months)" required value={values.min_age_months}
+            onChangeText={next => change('min_age_months', next)} keyboardType="number-pad"
+            placeholder="e.g. 36" error={errors.min_age_months} />
+          <Input label="Oldest (months)" required value={values.max_age_months}
+            onChangeText={next => change('max_age_months', next)} keyboardType="number-pad"
+            placeholder="e.g. 60" error={errors.max_age_months} />
+          <Input label="Capacity" required value={values.capacity}
+            onChangeText={next => change('capacity', next)} keyboardType="number-pad"
+            placeholder="e.g. 16" error={errors.capacity} />
+          <Input label="Children per educator" required value={values.ratio}
+            onChangeText={next => change('ratio', next)} keyboardType="number-pad"
+            placeholder="e.g. 8" error={errors.ratio} />
           {room ? (
             <TouchableOpacity onPress={onRemove} style={styles.removeRoomButton}>
               <Text style={styles.removeRoomText}>Remove classroom</Text>
@@ -300,7 +328,7 @@ function ClassroomsStep({
     <WizardFrame step={2} onBack={onBack}>
       <WizardTitle
         title="Add your classrooms"
-        description="Group children by room or age. You can add or rename these anytime."
+        description="Add each room's age band, capacity and staffing rule. You can skip this step and set up rooms later."
       />
       <View style={styles.roomList}>
         {rooms.map((room) => (
@@ -517,6 +545,10 @@ function CenterSetupWizard() {
   }
 
   function continueRooms() {
+    if (rooms.some(room => Object.keys(validateSetupRoom(room)).length)) {
+      setErrors({ rooms: 'Complete each room’s age range, capacity and staffing rule before continuing.' });
+      return;
+    }
     const names = rooms.map((room) => room.name.trim().toLowerCase());
     if (new Set(names).size !== names.length) {
       setErrors({ rooms: 'Each classroom needs a unique name.' });
@@ -578,6 +610,10 @@ function CenterSetupWizard() {
   }
 
   async function finishSetup(invites = educatorEmails) {
+    if (rooms.some(room => Object.keys(validateSetupRoom(room)).length)) {
+      setErrors({ finish: 'Go back and complete each classroom, or skip classroom setup for now.' });
+      return;
+    }
     if (!registrationCode) {
       setErrors((current) => ({
         ...current,
@@ -591,9 +627,10 @@ function CenterSetupWizard() {
       p_center_name: name.trim(),
       p_address: address.trim(),
       p_phone: phone.trim(),
-      p_classrooms: rooms.map(({ name: roomName, age_group }) => ({
+      p_classrooms: rooms.map(({ name: roomName, age_group, min_age_months, max_age_months, capacity, ratio }) => ({
         name: roomName.trim(),
-        age_group: age_group || null,
+        age_group,
+        min_age_months, max_age_months, capacity, ratio,
       })),
       p_educator_emails: invites,
       p_registration_code: registrationCode,
@@ -720,28 +757,33 @@ function CenterSetupWizard() {
   );
 }
 
-function EducatorRoomPicker({ daycareId, onCreateNew }) {
+function EducatorRoomPicker({ daycareId }) {
   const { profile, user, fetchProfile } = useAuth();
   const [rooms, setRooms] = useState(null);
   const [error, setError] = useState(null);
   const [selecting, setSelecting] = useState(false);
+  const [loadingRooms, setLoadingRooms] = useState(false);
+  const roomLoadVersion = React.useRef(0);
+
+  const loadRooms = React.useCallback(async () => {
+    const version = ++roomLoadVersion.current;
+    setLoadingRooms(true);
+    const { data, error: roomError } = await supabase
+      .from('classrooms')
+      .select('id, name, age_group')
+      .eq('daycare_id', daycareId)
+      .is('archived_at', null)
+      .order('name');
+    if (version !== roomLoadVersion.current) return;
+    setError(roomError?.message || null);
+    if (!roomError) setRooms(data || []);
+    setLoadingRooms(false);
+  }, [daycareId]);
 
   React.useEffect(() => {
-    let active = true;
-    async function load() {
-      const { data, error: roomError } = await supabase
-        .from('classrooms')
-        .select('id, name, age_group')
-        .eq('daycare_id', daycareId)
-        .is('archived_at', null)
-        .order('name');
-      if (!active) return;
-      setError(roomError?.message || null);
-      setRooms(data || []);
-    }
-    load();
-    return () => { active = false; };
-  }, [daycareId]);
+    loadRooms();
+    return () => { roomLoadVersion.current += 1; };
+  }, [loadRooms]);
 
   async function pickRoom(room) {
     setSelecting(true);
@@ -772,7 +814,7 @@ function EducatorRoomPicker({ daycareId, onCreateNew }) {
             ? "Loading your daycare's rooms…"
             : rooms.length
               ? 'Choose the room you work in. You can switch rooms later.'
-              : 'No classrooms exist yet. Ask your director to add one, or create it here if you have permission.'}
+              : 'No classrooms exist yet. Ask your director to complete classroom setup.'}
         </Text>
         {(rooms || []).map((room) => (
           <TouchableOpacity
@@ -792,89 +834,10 @@ function EducatorRoomPicker({ daycareId, onCreateNew }) {
           </TouchableOpacity>
         ))}
         <InlineError>{error}</InlineError>
-        {!rooms?.length ? (
-          <Button
-            label="Create a classroom"
-            variant="ghost"
-            onPress={onCreateNew}
-            style={styles.educatorAction}
-          />
+        {!rooms?.length || error ? (
+          <Button label="Check for classrooms again" variant="ghost" onPress={loadRooms}
+            loading={loadingRooms} style={styles.educatorAction} />
         ) : null}
-      </KeyboardAwareScrollView>
-    </SafeAreaView>
-  );
-}
-
-function EducatorRoomCreator({ daycareId, onBack }) {
-  const { profile, user, fetchProfile } = useAuth();
-  const [name, setName] = useState('');
-  const [ageGroup, setAgeGroup] = useState('');
-  const [error, setError] = useState(null);
-  const [saving, setSaving] = useState(false);
-
-  async function save() {
-    if (!name.trim()) {
-      setError('Enter a classroom name.');
-      return;
-    }
-    setSaving(true);
-    const { data: room, error: roomError } = await supabase
-      .from('classrooms')
-      .insert({
-        daycare_id: daycareId,
-        name: name.trim(),
-        age_group: ageGroup || null,
-      })
-      .select('id')
-      .single();
-    if (roomError) {
-      setSaving(false);
-      setError(roomError.message);
-      return;
-    }
-    const { error: profileError } = await supabase
-      .from('profiles')
-      .update({ classroom_id: room.id })
-      .eq('id', profile.id);
-    if (!profileError) {
-      await supabase.from('educator_classrooms').upsert(
-        { educator_id: profile.id, classroom_id: room.id },
-        { onConflict: 'educator_id,classroom_id', ignoreDuplicates: true }
-      );
-      await fetchProfile(user.id);
-    } else {
-      setError(profileError.message);
-    }
-    setSaving(false);
-  }
-
-  return (
-    <SafeAreaView style={styles.educatorScreen}>
-      <KeyboardAwareScrollView contentContainerStyle={styles.educatorContent}>
-        <TouchableOpacity onPress={onBack} style={styles.backButton}>
-          <Ionicons name="chevron-back" size={22} color={colors.textPrimary} />
-        </TouchableOpacity>
-        <Text style={styles.educatorTitle}>Create a classroom</Text>
-        <Text style={styles.educatorDescription}>
-          Add the first room for your center.
-        </Text>
-        <Input
-          label="Classroom name"
-          value={name}
-          onChangeText={(next) => {
-            setName(next);
-            setError(null);
-          }}
-          placeholder="e.g. Preschool"
-          error={error}
-        />
-        <Input
-          label="Age group (optional)"
-          value={ageGroup}
-          onChangeText={setAgeGroup}
-          placeholder="e.g. 3–4 years"
-        />
-        <Button label="Create classroom" onPress={save} loading={saving} />
       </KeyboardAwareScrollView>
     </SafeAreaView>
   );
@@ -937,8 +900,7 @@ export default function OnboardingScreen() {
   const { profile, user, fetchProfile } = useAuth();
   const centerSetupPending = user?.user_metadata?.setup_center_pending === true;
   const isCenterSetup = isAdminRole(profile?.role) || centerSetupPending;
-  const [educatorDaycareId, setEducatorDaycareId] = useState(profile?.daycare_id || null);
-  const [educatorView, setEducatorView] = useState('pick');
+  const educatorDaycareId = profile?.daycare_id || null;
 
   if (isCenterSetup) return <CenterSetupWizard />;
   if (!educatorDaycareId) {
@@ -946,20 +908,7 @@ export default function OnboardingScreen() {
       if (user?.id) await fetchProfile(user.id);
     }} />;
   }
-  if (educatorView === 'create') {
-    return (
-      <EducatorRoomCreator
-        daycareId={educatorDaycareId}
-        onBack={() => setEducatorView('pick')}
-      />
-    );
-  }
-  return (
-    <EducatorRoomPicker
-      daycareId={educatorDaycareId}
-      onCreateNew={() => setEducatorView('create')}
-    />
-  );
+  return <EducatorRoomPicker daycareId={educatorDaycareId} />;
 }
 
 const styles = StyleSheet.create({
@@ -1168,6 +1117,8 @@ const styles = StyleSheet.create({
     fontSize: 13.5,
     marginBottom: spacing.sm,
   },
+  required: { color: colors.danger },
+  roomRuleNote: { color: colors.textMuted, fontFamily: fonts.regular, fontSize: 13, lineHeight: 19, marginVertical: spacing.lg },
   ageOptions: {
     gap: spacing.sm,
   },

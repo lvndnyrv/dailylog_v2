@@ -456,6 +456,12 @@ Operational follow-up migrations also applied: `20260906000100_operational_room_
 - That shortcut now opens the existing admin Classrooms add-room sheet with all six required fields. The unused direct-insert creation helper was removed. Educators still only switch among their authorized rooms.
 - Mobile typecheck passed. On the iPhone 17 Pro simulator, the owner opened Infant's room picker, followed **Add another classroom** to the six-field form, submitted it blank to confirm per-field errors, then closed it. The list still showed four rooms; nothing was created.
 
+### First-center room setup completeness — October 14
+
+- Initial owner onboarding prefilled two incomplete rooms and its room editor collected only a name and age label. A center could therefore finish registration with operational rooms missing age limits, capacity and ratio. The wizard now starts with no assumed rooms, still permits explicitly skipping room setup, and requires all six settings for every room the owner chooses to add.
+- The guarded `complete_center_setup` transaction validates each supplied room and stores those settings before consuming the platform registration code. An incomplete room rolls the whole setup back; retrying an already completed setup stays read-only. Applied `20261014000200_complete_center_setup_rooms.sql` to the linked development project; the rollback-only registration-guard suite passed, including incomplete-room rejection and complete-room persistence. Linked schema lint and mobile typecheck passed.
+- Educators no longer see a legacy two-field room-creation path. When no room exists yet, they are directed to their administrator and can refresh the picker after setup. A stale center ID in the legacy join path was also removed so a successful profile refresh can advance to the room picker. A fresh-account onboarding device pass is still outstanding; no new real center or educator account was created for this verification.
+
 ## Still required before calling Group 7 complete
 
 1. **7d remaining boundary:** future-opening room lead moves remain an explicit administrator decision. Opening-day review and reminder are available, but there is no automatic transfer. The final transfer is web-only; mobile links explain this. No licensing-rule authority/preset verification is claimed.

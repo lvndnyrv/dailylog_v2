@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Modal,
   RefreshControl,
   ScrollView,
@@ -68,30 +67,78 @@ function QuickAction({ icon, label, onPress }) {
   );
 }
 
-function CreateRoomSheet({ visible, onClose, onCreated }) {
+function CreateRoomSheet({ visible, daycareId, onClose, onCreated, onRefresh }) {
   const [values, setValues] = useState({
     name: '', age_group: '', min_age_months: '', max_age_months: '', capacity: '', ratio: '',
   });
   const [saving, setSaving] = useState(false);
+  const [verifying, setVerifying] = useState(false);
+  const [saveUncertain, setSaveUncertain] = useState(false);
+  const [saveNotice, setSaveNotice] = useState('');
   const [errors, setErrors] = useState({});
 
   function change(key, value) {
+    if (saveUncertain) return;
     setValues(current => ({ ...current, [key]: value }));
     setErrors(current => ({ ...current, [key]: '' }));
+    setSaveNotice('');
   }
 
   function reset() {
     setValues({ name: '', age_group: '', min_age_months: '', max_age_months: '', capacity: '', ratio: '' });
     setErrors({});
+    setSaveUncertain(false);
+    setSaveNotice('');
   }
 
   function close() {
-    if (saving) return;
+    if (saving || verifying) return;
+    const shouldRefresh = saveUncertain;
     reset();
     onClose();
+    if (shouldRefresh) onRefresh();
+  }
+
+  async function verifySave() {
+    if (!saveUncertain || !daycareId || verifying) return;
+    setVerifying(true);
+    let data;
+    let error;
+    try {
+      ({ data, error } = await supabase.from('classrooms')
+        .select('id, name, age_group, min_age_months, max_age_months, capacity, ratio_children_per_educator')
+        .eq('daycare_id', daycareId).is('archived_at', null));
+    } catch (caughtError) {
+      error = caughtError;
+    }
+    setVerifying(false);
+    if (error) {
+      setSaveNotice('Could not check the classroom list. Check your connection and try again.');
+      return;
+    }
+    const namedRoom = (data || []).find(room => room.name?.trim().toLowerCase() === values.name.trim().toLowerCase());
+    if (!namedRoom) {
+      setSaveUncertain(false);
+      setSaveNotice('No classroom with this name was found. You can try saving again.');
+      return;
+    }
+    const matches = namedRoom.age_group?.trim() === values.age_group.trim()
+      && Number(namedRoom.min_age_months) === Number(values.min_age_months)
+      && Number(namedRoom.max_age_months) === Number(values.max_age_months)
+      && Number(namedRoom.capacity) === Number(values.capacity)
+      && Number(namedRoom.ratio_children_per_educator) === Number(values.ratio);
+    if (!matches) {
+      setSaveNotice('A classroom with this name exists, but its details differ. Close this form and review it in the classroom list.');
+      return;
+    }
+    const roomName = namedRoom.name;
+    reset();
+    onClose();
+    await onCreated({ id: namedRoom.id, name: roomName }, { verified: true });
   }
 
   async function create() {
+    if (saving || verifying || saveUncertain) return;
     const nextErrors = {};
     if (!values.name.trim() || values.name.trim().length > 100) nextErrors.name = 'Enter a room name (up to 100 characters).';
     if (!values.age_group.trim() || values.age_group.trim().length > 100) nextErrors.age_group = 'Enter an age-band name (up to 100 characters).';
@@ -111,6 +158,7 @@ function CreateRoomSheet({ visible, onClose, onCreated }) {
       setErrors(nextErrors);
       return;
     }
+    setSaveNotice('');
     setSaving(true);
     let roomId;
     try {
@@ -123,7 +171,8 @@ function CreateRoomSheet({ visible, onClose, onCreated }) {
       if (!data) throw new Error('The room save returned no room ID.');
       roomId = data;
     } catch (error) {
-      Alert.alert('Could not confirm room setup', `${error.message}\n\nRefresh the classroom list before trying again.`);
+      setSaveUncertain(true);
+      setSaveNotice('We could not confirm whether the classroom was saved. Check the classroom list before trying again.');
       setSaving(false);
       return;
     }
@@ -167,6 +216,7 @@ function CreateRoomSheet({ visible, onClose, onCreated }) {
                   placeholder={placeholder}
                   placeholderTextColor={colors.textFaint}
                   style={[styles.input, errors[key] && styles.inputError]}
+                  editable={!saving && !verifying && !saveUncertain}
                   keyboardType={numeric ? 'number-pad' : 'default'}
                   autoCapitalize={numeric ? 'none' : 'words'}
                   accessibilityLabel={`${label} required`}
@@ -175,13 +225,19 @@ function CreateRoomSheet({ visible, onClose, onCreated }) {
               </View>
             ))}
             <Text style={styles.sheetSubtitle}>These are center-configured values, not verified licensing limits. Confirm them against your center’s requirements before saving.</Text>
+            {saveNotice ? <View style={styles.saveNotice}>
+              <Ionicons name="information-circle-outline" size={18} color={colors.amber} />
+              <Text style={styles.saveNoticeText}>{saveNotice}</Text>
+            </View> : null}
             <TouchableOpacity
-              style={[styles.primaryButton, saving && styles.disabledButton]}
-              onPress={create}
-              disabled={saving}
+              style={[styles.primaryButton, (saving || verifying) && styles.disabledButton]}
+              onPress={saveUncertain ? verifySave : create}
+              disabled={saving || verifying}
               accessibilityRole="button"
+              accessibilityLabel={saveUncertain ? 'Check classroom list before saving again' : 'Create classroom'}
             >
-              {saving ? <ActivityIndicator color={colors.white} /> : <Text style={styles.primaryButtonText}>Create classroom</Text>}
+              {saving || verifying ? <ActivityIndicator color={colors.white} />
+                : <Text style={styles.primaryButtonText}>{saveUncertain ? 'Check classroom list' : 'Create classroom'}</Text>}
             </TouchableOpacity>
           </ScrollView>
         </View>
@@ -367,9 +423,9 @@ export default function AdminClassroomsScreen({ navigation, route }) {
     rootNavigate('RollCall', { classroomId: room.id, classroomName: room.name });
   }
 
-  async function roomCreated(room) {
+  async function roomCreated(room, { verified = false } = {}) {
     await Promise.all([classroom.reload?.(), ratioState.load({ quiet: true })]);
-    showToast(`${room.name} was created`, 'success');
+    showToast(verified ? `${room.name} is already on the classroom list` : `${room.name} was created`, 'success');
   }
 
   if (loading && !rooms.length) return <LoadingScreen />;
@@ -468,8 +524,10 @@ export default function AdminClassroomsScreen({ navigation, route }) {
 
       <CreateRoomSheet
         visible={showCreate && canEditRooms}
+        daycareId={profile?.daycare_id}
         onClose={() => setShowCreate(false)}
         onCreated={roomCreated}
+        onRefresh={refresh}
       />
     </SafeAreaView>
   );
@@ -549,6 +607,8 @@ const styles = StyleSheet.create({
   input: { minHeight: 52, paddingHorizontal: spacing.md, borderWidth: 1.5, borderColor: colors.border, borderRadius: radius.md, backgroundColor: colors.surface, fontFamily: fonts.regular, fontSize: 16, color: colors.textPrimary },
   inputError: { borderColor: colors.coral, backgroundColor: colors.dangerLight },
   errorText: { fontFamily: fonts.regular, fontSize: 12, color: colors.coral, marginTop: 5 },
+  saveNotice: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm, padding: spacing.md, marginTop: spacing.md, borderRadius: radius.md, backgroundColor: colors.amberLight },
+  saveNoticeText: { flex: 1, fontFamily: fonts.regular, fontSize: 13, lineHeight: 19, color: colors.textPrimary },
   primaryButton: { minHeight: 52, alignItems: 'center', justifyContent: 'center', borderRadius: radius.md, backgroundColor: colors.primary, marginTop: spacing.xl },
   disabledButton: { opacity: 0.55 },
   primaryButtonText: { fontFamily: fonts.bold, fontSize: 15, color: colors.white },

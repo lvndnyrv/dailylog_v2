@@ -477,6 +477,11 @@ Operational follow-up migrations also applied: `20260906000100_operational_room_
 - Mobile admin Classrooms cards previously grouped every active-status staff record by `profiles.classroom_id`, including admins whose room selection had been saved as a preference. In the linked development data, three of nine such records were not educators. The card now lists only non-archived educator profiles with active, non-archived employment in the same center and a permanent home-room ID; it does not claim these people are on floor or counted toward the live ratio.
 - A request-version guard prevents an older room-card query from replacing data after a refresh, navigation change or account switch. The linked read-only aggregate found six eligible home-room educators. No staff assignment or attendance data was changed.
 
+### Uncertain mobile room creation — October 14
+
+- A lost response to **Create classroom** previously left the form ready for another save even though the first request might have committed. The form now keeps the entered settings, blocks another save and offers **Check classroom list**. It checks active rooms in the signed-in center: matching settings confirm the room is present; no matching name permits a retry; a name with different settings directs the admin to inspect that room. Closing an unresolved form refreshes the list.
+- The guarded `save_room_settings` RPC serializes room writes for the center and rejects an active duplicate name, so a retry after a completed list check cannot insert a second active room with that name. This UI recovery was checked by typecheck and iOS bundle export; a simulated lost-response device test is still outstanding.
+
 ## Still required before calling Group 7 complete
 
 1. **7d remaining boundary:** future-opening room lead moves remain an explicit administrator decision. Opening-day review and reminder are available, but there is no automatic transfer. The final transfer is web-only; mobile links explain this. No licensing-rule authority/preset verification is claimed.

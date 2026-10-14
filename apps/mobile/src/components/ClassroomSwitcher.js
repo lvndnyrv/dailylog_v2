@@ -15,6 +15,7 @@ export function ClassroomSwitcher({ compact = false, childCount }) {
   const { profile } = useAuth();
   const { classrooms, active, switchClassroom } = useClassroom();
   const [showPicker, setShowPicker] = useState(false);
+  const [switching, setSwitching] = useState(false);
 
   const dateStr = format(new Date(), 'EEEE, MMMM d');
   const canAddClassroom = isAdminRole(profile?.role);
@@ -23,6 +24,16 @@ export function ClassroomSwitcher({ compact = false, childCount }) {
   function openRoomSetup() {
     setShowPicker(false);
     navigation.navigate('AdminTabs', { screen: 'ManageTab', params: { openCreateRoom: true } });
+  }
+
+  async function selectRoom(roomId) {
+    if (switching) return;
+    setSwitching(true);
+    try {
+      if (await switchClassroom(roomId)) setShowPicker(false);
+    } finally {
+      setSwitching(false);
+    }
   }
 
   return (
@@ -93,7 +104,10 @@ export function ClassroomSwitcher({ compact = false, childCount }) {
                 <TouchableOpacity
                   key={room.id}
                   style={[styles.roomRow, room.id === active?.id && styles.roomRowActive]}
-                  onPress={() => { switchClassroom(room.id); setShowPicker(false); }}
+                  onPress={() => selectRoom(room.id)}
+                  disabled={switching}
+                  accessibilityRole="button"
+                  accessibilityState={{ disabled: switching, selected: room.id === active?.id }}
                 >
                   <View style={[styles.roomIcon, room.id === active?.id && styles.roomIconActive]}>
                     <Ionicons

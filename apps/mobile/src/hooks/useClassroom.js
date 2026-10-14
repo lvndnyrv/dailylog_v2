@@ -3,6 +3,7 @@ import { isAdminRole } from '@dailylog/shared';
 import { AppState } from 'react-native';
 import { supabase } from '../lib/supabase';
 import { useAuth } from './useAuth';
+import { showToast } from '../components/Toast';
 
 const ClassroomContext = createContext({});
 
@@ -91,49 +92,36 @@ export function ClassroomProvider({ children }) {
 
   async function switchClassroom(classroomId) {
     const room = classrooms.find(c => c.id === classroomId);
-    if (!room) return;
-
-    setActive(room);
+    if (!room) return false;
+    const requestedScope = scope;
 
     // Visiting a combined/coverage room must never make it a permanent home room.
-    if (room.temporary) return;
+    // Admin room browsing is also a local view, not a staff-room assignment.
+    if (room.temporary || isAdminRole(profile?.role)) {
+      setActive(room);
+      return true;
+    }
 
-    // Update profile's active classroom
-    await supabase
+    // Educators can persist only an administrator-assigned permanent room.
+    // Do not show a new active room if that guarded update was rejected.
+    const { data, error } = await supabase
       .from('profiles')
       .update({ classroom_id: classroomId })
-      .eq('id', profile.id);
+      .eq('id', profile.id)
+      .select('id')
+      .maybeSingle();
+    if (requestedScope !== currentScope.current) return false;
+    if (error || !data) {
+      showToast(error?.message || 'Could not switch classrooms. Please try again.', 'error');
+      return false;
+    }
+    setActive(room);
 
     // Keep profile.classroom_id in sync without showing the app-level auth
     // loading gate. A full refresh unmounts the navigator and would send the
     // user back to their role's initial tab after every classroom switch.
     if (user) await fetchProfile(user.id, { silent: true });
-  }
-
-  async function joinClassroom(classroomId) {
-    await supabase
-      .from('educator_classrooms')
-      .upsert({ educator_id: profile.id, classroom_id: classroomId }, { onConflict: 'educator_id,classroom_id' });
-    await switchClassroom(classroomId);
-    await loadClassrooms();
-  }
-
-  async function leaveClassroom(classroomId) {
-    await supabase
-      .from('educator_classrooms')
-      .delete()
-      .eq('educator_id', profile.id)
-      .eq('classroom_id', classroomId);
-
-    // If leaving the active classroom, switch to another
-    if (active?.id === classroomId) {
-      const remaining = classrooms.filter(c => c.id !== classroomId);
-      if (remaining.length) {
-        await switchClassroom(remaining[0].id);
-      }
-    }
-
-    await loadClassrooms();
+    return true;
   }
 
   return (
@@ -142,8 +130,6 @@ export function ClassroomProvider({ children }) {
       active: loadedScope === scope ? active : null,
       loading,
       switchClassroom,
-      joinClassroom,
-      leaveClassroom,
       reload: isAdminRole(profile?.role) ? loadAllClassrooms : loadClassrooms,
     }}>
       {children}

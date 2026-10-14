@@ -72,7 +72,7 @@ function RatioCard({ room, onAssign }) {
           {room.staff_count} {room.staff_count === 1 ? 'staff' : 'staff'}
         </Text>
       </View>}
-      {ruleMissing && <Text style={styles.floaterNote}>An administrator must set this room’s ratio rule in admin web Rooms & ratios. Staffing is calculated conservatively until then.</Text>}
+      {ruleMissing && <Text style={styles.floaterNote}>An administrator must set this room’s ratio rule in mobile Classroom settings or admin web Rooms & ratios. Staffing is calculated conservatively until then.</Text>}
       {over && !ruleMissing && (
         <TouchableOpacity
           style={styles.assignButton}

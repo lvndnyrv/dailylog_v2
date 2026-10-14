@@ -1,135 +1,178 @@
-import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Alert } from 'react-native';
+import React, { useCallback, useEffect, useState } from 'react';
+import { ActivityIndicator, Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { KeyboardAwareScrollView } from '../../components/KeyboardAwareScrollView';
 import { useClassroom } from '../../hooks/useClassroom';
 import { supabase } from '../../lib/supabase';
-import { colors, spacing, radius } from '../../theme';
+import { colors, fonts, radius, spacing } from '../../theme';
 import { Button, Input } from '../../components/ui';
 
-export default function ClassroomEditScreen({ route, navigation }) {
-  const { classroom, childrenCount, canDelete } = route.params;
-  const { reload: reloadClassrooms } = useClassroom();
+const fields = ['name', 'age_group', 'min_age_months', 'max_age_months', 'capacity', 'ratio'];
 
-  const [name, setName] = useState(classroom.name || '');
-  const [ageGroup, setAgeGroup] = useState(classroom.age_group || '');
+function initialValues(room) {
+  return {
+    name: room.name || '', age_group: room.age_group || '',
+    min_age_months: room.min_age_months == null ? '' : String(room.min_age_months),
+    max_age_months: room.max_age_months == null ? '' : String(room.max_age_months),
+    capacity: room.capacity == null ? '' : String(room.capacity),
+    ratio: room.ratio_children_per_educator == null ? '' : String(room.ratio_children_per_educator),
+  };
+}
+
+function validate(values) {
+  const errors = {};
+  if (!values.name.trim() || values.name.trim().length > 100) errors.name = 'Enter a room name (up to 100 characters).';
+  if (!values.age_group.trim() || values.age_group.trim().length > 100) errors.age_group = 'Enter an age-band name (up to 100 characters).';
+  for (const [key, min, max] of [
+    ['min_age_months', 0, 215], ['max_age_months', 1, 216], ['capacity', 1, 9999], ['ratio', 1, 999],
+  ]) {
+    if (!/^\d+$/.test(values[key]) || Number(values[key]) < min || Number(values[key]) > max) {
+      errors[key] = `Enter a whole number from ${min} to ${max}.`;
+    }
+  }
+  if (!errors.min_age_months && !errors.max_age_months &&
+      Number(values.max_age_months) <= Number(values.min_age_months)) {
+    errors.max_age_months = 'Oldest age must be after youngest age.';
+  }
+  return errors;
+}
+
+export default function ClassroomEditScreen({ route, navigation }) {
+  const roomId = route.params?.classroom?.id;
+  const { reload: reloadClassrooms } = useClassroom();
+  const [room, setRoom] = useState(null);
+  const [values, setValues] = useState(null);
+  const [errors, setErrors] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(null);
   const [saving, setSaving] = useState(false);
 
-  const hasChanges = name.trim() !== (classroom.name || '') || ageGroup.trim() !== (classroom.age_group || '');
+  const loadRoom = useCallback(async () => {
+    if (!roomId) {
+      setLoadError('This classroom is unavailable.');
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    setLoadError(null);
+    const { data, error } = await supabase.from('classrooms')
+      .select('id, name, age_group, min_age_months, max_age_months, capacity, ratio_children_per_educator, opens_on, nap_start, nap_end, lead_educator_id, updated_at')
+      .eq('id', roomId).is('archived_at', null).maybeSingle();
+    if (error || !data) {
+      setRoom(null);
+      setValues(null);
+      setLoadError(error?.message || 'This classroom is no longer available.');
+    } else {
+      setRoom(data);
+      setValues(initialValues(data));
+      setErrors({});
+    }
+    setLoading(false);
+  }, [roomId]);
+
+  useEffect(() => { loadRoom(); }, [loadRoom]);
+
+  function change(key, value) {
+    setValues(current => ({ ...current, [key]: value }));
+    setErrors(current => ({ ...current, [key]: '' }));
+  }
+
+  const hasChanges = Boolean(room && values && fields.some(key =>
+    values[key].trim() !== initialValues(room)[key]));
 
   async function handleSave() {
-    if (!name.trim()) {
-      Alert.alert('Required', 'Please enter a classroom name.');
+    if (!room || !values || saving) return;
+    const nextErrors = validate(values);
+    if (Object.keys(nextErrors).length) {
+      setErrors(nextErrors);
       return;
     }
     setSaving(true);
-    const { error } = await supabase
-      .from('classrooms')
-      .update({ name: name.trim(), age_group: ageGroup.trim() || null })
-      .eq('id', classroom.id);
-    setSaving(false);
-    if (error) {
-      Alert.alert('Error', error.message);
-    } else {
-      await reloadClassrooms();
+    try {
+      const settings = Object.fromEntries(fields.map(key => [key, values[key].trim()]));
+      // The atomic RPC saves the complete record; preserve settings this editor does not expose.
+      settings.opens_on = room.opens_on || '';
+      settings.nap_start = room.nap_start || '';
+      settings.nap_end = room.nap_end || '';
+      settings.lead_educator_id = room.lead_educator_id || '';
+      const { data, error } = await supabase.rpc('save_room_settings', {
+        p_room_id: room.id, p_settings: settings, p_expected_updated_at: room.updated_at,
+      });
+      if (error) throw error;
+      if (data !== room.id) throw new Error('The save did not confirm this classroom.');
+      await reloadClassrooms?.();
       navigation.goBack();
+    } catch (error) {
+      Alert.alert('Could not confirm room changes', `${error.message}\n\nReload this room before retrying. No second save was sent.`);
+      await loadRoom();
+    } finally {
+      setSaving(false);
     }
   }
 
-  function handleDelete() {
-    if (childrenCount > 0) {
-      Alert.alert(
-        'Cannot delete',
-        `This classroom still has ${childrenCount} children. Move or remove all children first before deleting the classroom.`
-      );
+  function handleReload() {
+    if (!hasChanges) {
+      loadRoom();
       return;
     }
-    Alert.alert(
-      `Delete "${classroom.name}"?`,
-      'This will permanently remove this classroom. This action cannot be undone.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete', style: 'destructive',
-          onPress: async () => {
-            const { error } = await supabase.from('classrooms').delete().eq('id', classroom.id);
-            if (error) {
-              Alert.alert('Could not delete classroom', error.message);
-              return;
-            }
-            await reloadClassrooms();
-            navigation.goBack();
-          },
-        },
-      ]
-    );
+    Alert.alert('Discard draft changes?', 'Reloading will replace the values you entered on this screen.', [
+      { text: 'Keep editing', style: 'cancel' },
+      { text: 'Reload room', onPress: loadRoom },
+    ]);
   }
 
   return (
-    <KeyboardAwareScrollView
-      style={styles.container}
-      contentContainerStyle={styles.content}
-      enableOnAndroid
-      extraScrollHeight={20}
-      keyboardShouldPersistTaps="handled"
-    >
-      {/* Header */}
+    <KeyboardAwareScrollView style={styles.container} contentContainerStyle={styles.content}
+      enableOnAndroid extraScrollHeight={20} keyboardShouldPersistTaps="handled">
       <View style={styles.header}>
-        <TouchableOpacity
-          onPress={() => navigation.goBack()}
-          accessibilityRole="button"
-          accessibilityLabel="Back to classroom"
-        >
-          <Text style={styles.back}>← Back</Text>
+        <TouchableOpacity onPress={() => navigation.goBack()} accessibilityRole="button" accessibilityLabel="Back to classroom">
+          <Ionicons name="chevron-back" size={22} color={colors.textPrimary} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Edit classroom</Text>
-        <View style={{ width: 60 }} />
+        <View style={styles.headerCopy}>
+          <Text style={styles.eyebrow}>CENTER OPERATIONS</Text>
+          <Text style={styles.title}>Edit classroom</Text>
+          <Text style={styles.subtitle} numberOfLines={1}>{room?.name || route.params?.classroom?.name || 'Classroom settings'}</Text>
+        </View>
       </View>
 
-      {/* Form */}
-      <View style={styles.formCard}>
-        <Input
-          label="Classroom name (required)"
-          value={name}
-          onChangeText={setName}
-          placeholder="e.g. Toddlers Room 1"
-        />
-        <Input
-          label="Age group (optional)"
-          value={ageGroup}
-          onChangeText={setAgeGroup}
-          placeholder="e.g. 2–3 years"
-        />
-
-        <View style={styles.infoRow}>
-          <Text style={styles.infoIcon}>👧</Text>
-          <Text style={styles.infoText}>
-            {childrenCount} {childrenCount === 1 ? 'child' : 'children'} enrolled
-          </Text>
+      {loading ? <ActivityIndicator style={styles.loading} color={colors.primary} size="large" /> : loadError ? (
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Could not load this room</Text>
+          <Text style={styles.note}>{loadError}</Text>
+          <Button label="Try again" onPress={loadRoom} style={styles.action} />
         </View>
-
-        <Button
-          label="Save changes"
-          onPress={handleSave}
-          loading={saving}
-          style={[{ marginTop: spacing.lg }, !hasChanges && { opacity: 0.4 }]}
-          disabled={!hasChanges}
-        />
-      </View>
-
-      {/* Danger zone */}
-      {canDelete && (
-        <View style={styles.dangerCard}>
-          <Text style={styles.dangerTitle}>Danger zone</Text>
-          <Text style={styles.dangerText}>
-            Deleting a classroom is permanent and cannot be undone. All children must be removed first.
-          </Text>
-          <Button
-            label="Delete classroom"
-            variant="danger"
-            onPress={handleDelete}
-            style={{ marginTop: spacing.md }}
-          />
-        </View>
+      ) : (
+        <>
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Room details</Text>
+            <Text style={styles.note}>Complete the age band, capacity and room ratio before saving. The ratio is entered by your center; it is not verified against licensing rules.</Text>
+            <Input label="Classroom name · required" value={values.name} onChangeText={value => change('name', value)}
+              placeholder="e.g. Toddler" error={errors.name} maxLength={100} />
+            <Input label="Age band · required" value={values.age_group} onChangeText={value => change('age_group', value)}
+              placeholder="e.g. 18 months–3 years" error={errors.age_group} maxLength={100} />
+            <View style={styles.fieldRow}>
+              <Input style={styles.halfField} label="Youngest (months) · required" value={values.min_age_months}
+                onChangeText={value => change('min_age_months', value)} keyboardType="number-pad" placeholder="18" error={errors.min_age_months} />
+              <Input style={styles.halfField} label="Oldest (months) · required" value={values.max_age_months}
+                onChangeText={value => change('max_age_months', value)} keyboardType="number-pad" placeholder="36" error={errors.max_age_months} />
+            </View>
+            <View style={styles.fieldRow}>
+              <Input style={styles.halfField} label="Capacity · required" value={values.capacity}
+                onChangeText={value => change('capacity', value)} keyboardType="number-pad" placeholder="12" error={errors.capacity} />
+              <Input style={styles.halfField} label="Children per educator · required" value={values.ratio}
+                onChangeText={value => change('ratio', value)} keyboardType="number-pad" placeholder="4" error={errors.ratio} />
+            </View>
+            <Button label="Save room settings" onPress={handleSave} loading={saving}
+              disabled={!hasChanges || saving} style={[styles.action, !hasChanges && styles.disabled]} />
+            <TouchableOpacity onPress={handleReload} disabled={saving} accessibilityRole="button" style={styles.reload}>
+              <Text style={styles.reloadText}>Reload latest settings</Text>
+            </TouchableOpacity>
+          </View>
+          <View style={styles.infoCard}>
+            <Ionicons name="information-circle-outline" size={20} color={colors.primary} />
+            <Text style={styles.infoText}>Opening date, nap schedule and room lead stay unchanged here. Edit those in admin web Rooms & ratios. Permanent room deletion is unavailable on mobile because it can erase historical records.</Text>
+          </View>
+        </>
       )}
     </KeyboardAwareScrollView>
   );
@@ -137,35 +180,24 @@ export default function ClassroomEditScreen({ route, navigation }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
-  content: { padding: spacing.xl },
-  header: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    marginBottom: spacing.xl,
-  },
-  back: { fontSize: 15, color: colors.primary, fontWeight: '500', width: 60 },
-  headerTitle: { fontSize: 18, fontWeight: '700', color: colors.textPrimary },
-  formCard: {
-    backgroundColor: colors.surface, borderRadius: radius.lg,
-    borderWidth: 1, borderColor: colors.border,
-    padding: spacing.lg, marginBottom: spacing.lg,
-  },
-  infoRow: {
-    flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
-    paddingTop: spacing.sm,
-  },
-  infoIcon: { fontSize: 14 },
-  infoText: { fontSize: 13, color: colors.textMuted },
-  dangerCard: {
-    backgroundColor: colors.dangerLight, borderRadius: radius.lg,
-    borderWidth: 1, borderColor: colors.danger + '33',
-    padding: spacing.lg,
-  },
-  dangerTitle: { fontSize: 15, fontWeight: '600', color: colors.danger, marginBottom: spacing.xs },
-  dangerText: { fontSize: 13, color: colors.textSecondary, lineHeight: 18 },
+  content: { padding: spacing.lg, paddingBottom: spacing.xl * 2 },
+  header: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, marginBottom: spacing.lg },
+  headerCopy: { flex: 1 },
+  eyebrow: { fontFamily: fonts.bold, color: colors.textFaint, fontSize: 10, letterSpacing: 1.1 },
+  title: { fontFamily: fonts.black, color: colors.textPrimary, fontSize: 24 },
+  subtitle: { color: colors.textMuted, fontSize: 13, marginTop: 2 },
+  loading: { marginTop: spacing.xl * 2 },
+  card: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border,
+    borderRadius: radius.xl, padding: spacing.lg, gap: spacing.sm },
+  cardTitle: { fontFamily: fonts.bold, color: colors.textPrimary, fontSize: 17 },
+  note: { color: colors.textMuted, fontSize: 13, lineHeight: 19, marginBottom: spacing.sm },
+  fieldRow: { flexDirection: 'row', gap: spacing.sm },
+  halfField: { flex: 1, minWidth: 0 },
+  action: { marginTop: spacing.md },
+  disabled: { opacity: 0.45 },
+  reload: { alignSelf: 'center', padding: spacing.sm },
+  reloadText: { color: colors.primary, fontFamily: fonts.bold, fontSize: 13 },
+  infoCard: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md, padding: spacing.md,
+    borderRadius: radius.lg, backgroundColor: colors.primarySoft },
+  infoText: { flex: 1, color: colors.textSecondary, fontSize: 12, lineHeight: 18 },
 });
-
-
-
-
-
-

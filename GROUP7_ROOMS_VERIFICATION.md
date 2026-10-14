@@ -442,6 +442,12 @@ Operational follow-up migrations also applied: `20260906000100_operational_room_
 - Applied `20261014000100_mobile_roll_call_ratio_rule_state.sql` to the linked development project. Roll call now receives an explicit `ratio.configured` flag and real configured limit, so an educator sees **Room ratio rule not set** and a prompt to ask admin instead of a 1:1 compliance claim. The conservative database warning remains in place; assigning a floater cannot be called a restored licensed ratio until a room rule is set.
 - The rollback-only unset/configured-rule fixture and existing operational combined-room regression passed. Mobile typecheck and iOS production bundle export passed. The linked center already has rules on its four rooms, so an on-device unset-rule visual pass remains outstanding; no shared room rule was changed for testing.
 
+### Mobile classroom editing handoff — October 14
+
+- The older mobile classroom editor changed only name and age-group label through a direct table update. It now loads the full current room settings and saves name, age band, age limits, capacity and center-entered ratio through the same atomic `save_room_settings` RPC as admin web. It supplies the room's `updated_at` revision, so a stale edit cannot overwrite a newer change; opening date, nap times and lead are preserved when saving fields this screen does not expose.
+- Required-field feedback is inline. Reload confirms before discarding a draft. The previous permanent-delete button was removed from mobile because the direct delete could cascade into historical records; there is no claim that mobile supports room archival yet.
+- Mobile typecheck, iOS production bundle export and the rollback-only atomic room-settings database test passed. On the iPhone 17 Pro, the seeded owner opened Infant's editor and saw its real age range, capacity and ratio. Entering an invalid ratio of 0 showed the local field error without sending a save. Reload restored the original ratio of 3; no shared room was changed. A successful save/rename-and-restore device pass and a second-admin concurrent-edit pass remain outstanding.
+
 ## Still required before calling Group 7 complete
 
 1. **7d remaining boundary:** future-opening room lead moves remain an explicit administrator decision. Opening-day review and reminder are available, but there is no automatic transfer. The final transfer is web-only; mobile links explain this. No licensing-rule authority/preset verification is claimed.

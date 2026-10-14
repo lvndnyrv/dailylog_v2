@@ -3,22 +3,21 @@ import {
   View, Text, TouchableOpacity, StyleSheet, Modal, ScrollView
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
-import { isAdminRole } from '@dailylog/shared';
 import { useClassroom } from '../hooks/useClassroom';
-import { useAuth } from '../hooks/useAuth';
+import { useRoomEditAccess } from '../hooks/useRoomEditAccess';
 import { colors, fonts, spacing, radius } from '../theme';
 import { Ionicons } from '@expo/vector-icons';
 import { format } from 'date-fns';
 
 export function ClassroomSwitcher({ compact = false, childCount }) {
   const navigation = useNavigation();
-  const { profile } = useAuth();
   const { classrooms, active, switchClassroom } = useClassroom();
+  const { canEditRooms } = useRoomEditAccess();
   const [showPicker, setShowPicker] = useState(false);
   const [switching, setSwitching] = useState(false);
 
   const dateStr = format(new Date(), 'EEEE, MMMM d');
-  const canAddClassroom = isAdminRole(profile?.role);
+  const canAddClassroom = canEditRooms;
   const canOpenPicker = classrooms.length > 1 || canAddClassroom;
 
   function openRoomSetup() {

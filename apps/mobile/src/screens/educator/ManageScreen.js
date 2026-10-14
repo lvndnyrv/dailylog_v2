@@ -8,6 +8,7 @@ import { KeyboardAwareScrollView } from '../../components/KeyboardAwareScrollVie
 
 import { useAuth } from '../../hooks/useAuth';
 import { useClassroom } from '../../hooks/useClassroom';
+import { useRoomEditAccess } from '../../hooks/useRoomEditAccess';
 import { useRoomRatios } from '../../hooks/useRoomRatios';
 import { supabase } from '../../lib/supabase';
 import { colors, fonts, spacing, radius } from '../../theme';
@@ -17,7 +18,6 @@ import { ClassroomSwitcher } from '../../components/ClassroomSwitcher';
 import { DatePickerField } from '../../components/DatePickerField';
 import { Ionicons } from '@expo/vector-icons';
 import { showToast } from '../../components/Toast';
-import { isAdminRole } from '@dailylog/shared';
 
 
 // ─── ADD CHILD BOTTOM SHEET ───────────────────────────────────────────────────
@@ -256,6 +256,7 @@ function InviteParentForm({ daycareId, children }) {
 export default function ManageScreen({ navigation, route }) {
   const { profile }                   = useAuth();
   const { active: activeClassroom, classrooms } = useClassroom();
+  const { canEditRooms } = useRoomEditAccess();
   const [children, setChildren]       = useState([]);
   const [parents, setParents]         = useState([]);
   const [loading, setLoading]         = useState(true);
@@ -465,13 +466,13 @@ export default function ManageScreen({ navigation, route }) {
         <TouchableOpacity
           style={styles.classroomCard}
           activeOpacity={0.7}
-          disabled={!isAdminRole(profile?.role) || !!activeClassroom.temporary}
+          disabled={!canEditRooms || !!activeClassroom.temporary}
           onPress={() => navigation.navigate('ClassroomEdit', {
             classroom: activeClassroom,
             childrenCount: children.length,
             canDelete: classrooms.length > 1,
           })}
-          accessibilityRole={isAdminRole(profile?.role) && !activeClassroom.temporary ? 'button' : 'text'}
+          accessibilityRole={canEditRooms && !activeClassroom.temporary ? 'button' : 'text'}
           accessibilityLabel={`${activeClassroom.name} classroom details${activeClassroom.temporary ? ', temporary coverage' : ''}`}
         >
           <View style={styles.classroomCardInfo}>
@@ -481,7 +482,7 @@ export default function ManageScreen({ navigation, route }) {
               {children.length === 1 ? 'child' : 'children'} enrolled
             </Text>
           </View>
-          {isAdminRole(profile?.role) && !activeClassroom.temporary && (
+          {canEditRooms && !activeClassroom.temporary && (
             <Ionicons name="chevron-forward" size={19} color={colors.textFaint} />
           )}
         </TouchableOpacity>

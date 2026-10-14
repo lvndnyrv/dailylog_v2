@@ -17,6 +17,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useAuth } from '../../hooks/useAuth';
 import { useClassroom } from '../../hooks/useClassroom';
+import { useRoomEditAccess } from '../../hooks/useRoomEditAccess';
 import { useRoomRatios } from '../../hooks/useRoomRatios';
 import { supabase } from '../../lib/supabase';
 import { showToast } from '../../components/Toast';
@@ -261,6 +262,7 @@ function RoomCard({ room, ratioLoading, onOpen, onAttendance }) {
 export default function AdminClassroomsScreen({ navigation, route }) {
   const { profile } = useAuth();
   const classroom = useClassroom();
+  const { canEditRooms, roomEditAccessReady, roomEditAccessError, refreshRoomEditAccess } = useRoomEditAccess();
   const ratioState = useRoomRatios();
   const [childCounts, setChildCounts] = useState({});
   const [educatorsByRoom, setEducatorsByRoom] = useState({});
@@ -270,10 +272,17 @@ export default function AdminClassroomsScreen({ navigation, route }) {
   const [showCreate, setShowCreate] = useState(false);
 
   useEffect(() => {
-    if (!route?.params?.openCreateRoom) return;
-    setShowCreate(true);
+    if (!route?.params?.openCreateRoom || !roomEditAccessReady) return;
+    if (canEditRooms) setShowCreate(true);
+    else showToast(roomEditAccessError
+      ? 'Could not verify room-edit access. Refresh and try again.'
+      : 'Your account cannot add classrooms.', 'error');
     navigation.setParams({ openCreateRoom: undefined });
-  }, [navigation, route?.params?.openCreateRoom]);
+  }, [navigation, route?.params?.openCreateRoom, roomEditAccessReady, canEditRooms, roomEditAccessError]);
+
+  useEffect(() => {
+    if (roomEditAccessReady && !canEditRooms) setShowCreate(false);
+  }, [roomEditAccessReady, canEditRooms]);
 
   const rootNavigate = useCallback((name, params) => {
     navigation.getParent()?.navigate(name, params);
@@ -339,7 +348,7 @@ export default function AdminClassroomsScreen({ navigation, route }) {
 
   async function refresh() {
     setRefreshing(true);
-    await Promise.all([load({ quiet: true }), classroom.reload?.(), ratioState.load({ quiet: true })]);
+    await Promise.all([load({ quiet: true }), classroom.reload?.(), ratioState.load({ quiet: true }), refreshRoomEditAccess()]);
     setRefreshing(false);
   }
 
@@ -373,14 +382,14 @@ export default function AdminClassroomsScreen({ navigation, route }) {
             <Text style={styles.pageTitle}>Classrooms</Text>
             <Text style={styles.pageSubtitle}>Enrollment, live ratios and room teams in one place.</Text>
           </View>
-          <TouchableOpacity
+          {canEditRooms ? <TouchableOpacity
             style={styles.addButton}
             onPress={() => setShowCreate(true)}
             accessibilityRole="button"
             accessibilityLabel="Add a classroom"
           >
             <Ionicons name="add" size={21} color={colors.white} />
-          </TouchableOpacity>
+          </TouchableOpacity> : null}
         </View>
 
         <View style={styles.summaryGrid}>
@@ -403,7 +412,7 @@ export default function AdminClassroomsScreen({ navigation, route }) {
 
         <View style={styles.sectionHeading}>
           <Text style={styles.sectionTitle}>All rooms</Text>
-          <Text style={styles.sectionHint}>Tap a room to manage it</Text>
+          <Text style={styles.sectionHint}>Tap a room to view it</Text>
         </View>
 
         {error ? (
@@ -413,6 +422,16 @@ export default function AdminClassroomsScreen({ navigation, route }) {
               <Text style={styles.errorTitle}>Could not refresh classrooms</Text>
               <Text style={styles.errorCopy}>{error} · Tap to retry.</Text>
             </View>
+          </TouchableOpacity>
+        ) : null}
+
+        {roomEditAccessReady && !canEditRooms ? (
+          <TouchableOpacity style={styles.infoCard} disabled={!roomEditAccessError}
+            onPress={refreshRoomEditAccess} accessibilityRole={roomEditAccessError ? 'button' : 'text'}>
+            <Ionicons name="lock-closed-outline" size={19} color={colors.primary} />
+            <Text style={styles.infoText}>{roomEditAccessError
+              ? 'Could not verify room-edit access. Tap to retry.'
+              : 'Your account can view classrooms. An owner can grant room-edit access to add or change them.'}</Text>
           </TouchableOpacity>
         ) : null}
 
@@ -428,7 +447,11 @@ export default function AdminClassroomsScreen({ navigation, route }) {
           <EmptyState
             emoji="🏫"
             title="No classrooms yet"
-            message="Create your first classroom to begin enrolling children and assigning educators."
+            message={!roomEditAccessReady
+              ? 'Checking room access…'
+              : canEditRooms
+                ? 'Create your first classroom to begin enrolling children and assigning educators.'
+                : 'Ask an administrator with room-edit access to create the first classroom.'}
           />
         )}
 
@@ -439,7 +462,7 @@ export default function AdminClassroomsScreen({ navigation, route }) {
       </ScrollView>
 
       <CreateRoomSheet
-        visible={showCreate}
+        visible={showCreate && canEditRooms}
         onClose={() => setShowCreate(false)}
         onCreated={roomCreated}
       />

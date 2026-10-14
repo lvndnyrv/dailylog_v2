@@ -3,6 +3,7 @@ import { ActivityIndicator, Alert, StyleSheet, Text, TouchableOpacity, View } fr
 import { Ionicons } from '@expo/vector-icons';
 import { KeyboardAwareScrollView } from '../../components/KeyboardAwareScrollView';
 import { useClassroom } from '../../hooks/useClassroom';
+import { useRoomEditAccess } from '../../hooks/useRoomEditAccess';
 import { supabase } from '../../lib/supabase';
 import { colors, fonts, radius, spacing } from '../../theme';
 import { Button, Input } from '../../components/ui';
@@ -40,6 +41,7 @@ function validate(values) {
 export default function ClassroomEditScreen({ route, navigation }) {
   const roomId = route.params?.classroom?.id;
   const { reload: reloadClassrooms } = useClassroom();
+  const { canEditRooms, roomEditAccessReady, roomEditAccessError, refreshRoomEditAccess } = useRoomEditAccess();
   const [room, setRoom] = useState(null);
   const [values, setValues] = useState(null);
   const [errors, setErrors] = useState({});
@@ -81,7 +83,7 @@ export default function ClassroomEditScreen({ route, navigation }) {
     values[key].trim() !== initialValues(room)[key]));
 
   async function handleSave() {
-    if (!room || !values || saving) return;
+    if (!room || !values || saving || !canEditRooms) return;
     const nextErrors = validate(values);
     if (Object.keys(nextErrors).length) {
       setErrors(nextErrors);
@@ -135,7 +137,15 @@ export default function ClassroomEditScreen({ route, navigation }) {
         </View>
       </View>
 
-      {loading ? <ActivityIndicator style={styles.loading} color={colors.primary} size="large" /> : loadError ? (
+      {loading || !roomEditAccessReady ? <ActivityIndicator style={styles.loading} color={colors.primary} size="large" /> : !canEditRooms ? (
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Room editing unavailable</Text>
+          <Text style={styles.note}>{roomEditAccessError
+            ? 'Could not verify your room-edit access. Try again when connected.'
+            : 'Your account can view classrooms, but an owner must grant room-edit access to change them.'}</Text>
+          {roomEditAccessError ? <Button label="Check access again" onPress={refreshRoomEditAccess} style={styles.action} /> : null}
+        </View>
+      ) : loadError ? (
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Could not load this room</Text>
           <Text style={styles.note}>{loadError}</Text>

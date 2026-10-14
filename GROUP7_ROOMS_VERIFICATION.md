@@ -467,6 +467,11 @@ Operational follow-up migrations also applied: `20260906000100_operational_room_
 - Admins browsing between rooms now change only their local view, rather than writing a staff-room assignment to their profile. An educator switching to a permanently assigned room waits for the guarded profile update to succeed before the active room changes; a rejected or empty update leaves the current room visible and shows an error. Temporary coverage and combined-room visits remain local only.
 - The picker prevents repeated taps while a switch is in progress and remains open if the switch fails. Unused self-join and self-leave room methods were removed from the shared hook, preserving administrator ownership of permanent assignments. Mobile typecheck and iOS bundle export passed; a two-room educator device pass and a denied-switch pass remain outstanding.
 
+### Mobile room-edit permission entry points — October 14
+
+- Mobile Classrooms, the shared room switcher and the classroom detail card previously exposed add/edit controls to every admin role, while `save_room_settings` requires an admin with `rooms/edit`. They now verify that exact permission and hide mutation entry points when it is absent. A shortcut opening the add-room sheet waits for the permission result; a denied or unavailable check does not open a form that cannot save. Direct navigation to the editor shows an access/retry state rather than an editable form.
+- The permission check is scoped to the signed-in account, refreshed when a screen gains focus, and fails closed on connection errors. The database RPC remains the authoritative save guard. The rollback-only staff-permission override regression, mobile typecheck and iOS bundle export passed; a restricted-admin device pass remains outstanding.
+
 ## Still required before calling Group 7 complete
 
 1. **7d remaining boundary:** future-opening room lead moves remain an explicit administrator decision. Opening-day review and reminder are available, but there is no automatic transfer. The final transfer is web-only; mobile links explain this. No licensing-rule authority/preset verification is claimed.

@@ -146,17 +146,17 @@ export default function ClassroomEditScreen({ route, navigation }) {
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Room details</Text>
             <Text style={styles.note}>Complete the age band, capacity and room ratio before saving. The ratio is entered by your center; it is not verified against licensing rules.</Text>
-            <Input label="Classroom name · required" value={values.name} onChangeText={value => change('name', value)}
+            <Input label="Classroom name" required value={values.name} onChangeText={value => change('name', value)}
               placeholder="e.g. Toddler" error={errors.name} maxLength={100} />
-            <Input label="Age band · required" value={values.age_group} onChangeText={value => change('age_group', value)}
+            <Input label="Age band" required value={values.age_group} onChangeText={value => change('age_group', value)}
               placeholder="e.g. 18 months–3 years" error={errors.age_group} maxLength={100} />
-            <Input label="Youngest (months) · required" value={values.min_age_months}
+            <Input label="Youngest (months)" required value={values.min_age_months}
               onChangeText={value => change('min_age_months', value)} keyboardType="number-pad" placeholder="18" error={errors.min_age_months} />
-            <Input label="Oldest (months) · required" value={values.max_age_months}
+            <Input label="Oldest (months)" required value={values.max_age_months}
               onChangeText={value => change('max_age_months', value)} keyboardType="number-pad" placeholder="36" error={errors.max_age_months} />
-            <Input label="Capacity · required" value={values.capacity}
+            <Input label="Capacity" required value={values.capacity}
               onChangeText={value => change('capacity', value)} keyboardType="number-pad" placeholder="12" error={errors.capacity} />
-            <Input label="Children per educator · required" value={values.ratio}
+            <Input label="Children per educator" required value={values.ratio}
               onChangeText={value => change('ratio', value)} keyboardType="number-pad" placeholder="4" error={errors.ratio} />
             <Button label="Save room settings" onPress={handleSave} loading={saving}
               disabled={!hasChanges || saving} style={[styles.action, !hasChanges && styles.disabled]} />

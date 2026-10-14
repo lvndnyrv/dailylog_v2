@@ -54,13 +54,13 @@ export function Button({ label, onPress, loading, disabled, variant = 'primary',
 }
 
 // ---- TEXT INPUT ----
-export function Input({ label, value, onChangeText, placeholder, secureTextEntry, keyboardType, multiline, error, style, ...rest }) {
+export function Input({ label, required = false, value, onChangeText, placeholder, secureTextEntry, keyboardType, multiline, error, style, ...rest }) {
   const [showPassword, setShowPassword] = useLocalState(false);
   const isPassword = secureTextEntry;
 
   return (
     <View style={[styles.inputWrap, style]}>
-      {label && <Text style={styles.inputLabel}>{label}</Text>}
+      {label && <Text style={styles.inputLabel}>{label}{required ? <Text style={styles.inputRequired}> *</Text> : null}</Text>}
       <View style={[styles.inputRow, error && styles.inputError]}>
         <TextInput
           value={value}
@@ -72,7 +72,7 @@ export function Input({ label, value, onChangeText, placeholder, secureTextEntry
           multiline={multiline}
           numberOfLines={multiline ? 3 : 1}
           {...rest}
-          accessibilityLabel={rest.accessibilityLabel || label || placeholder}
+          accessibilityLabel={rest.accessibilityLabel || `${label || placeholder || ''}${required ? ' required' : ''}`}
           accessibilityHint={rest.accessibilityHint || error || undefined}
           style={[styles.inputInner, multiline && styles.inputMulti]}
         />
@@ -234,6 +234,9 @@ const styles = StyleSheet.create({
     fontFamily: fonts.bold,
     color: colors.textPrimary,
     marginBottom: spacing.sm,
+  },
+  inputRequired: {
+    color: colors.danger,
   },
   input: {
     borderWidth: 1.5,

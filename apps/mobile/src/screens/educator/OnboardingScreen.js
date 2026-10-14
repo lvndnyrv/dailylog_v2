@@ -757,92 +757,6 @@ function CenterSetupWizard() {
   );
 }
 
-function EducatorRoomPicker({ daycareId }) {
-  const { profile, user, fetchProfile } = useAuth();
-  const [rooms, setRooms] = useState(null);
-  const [error, setError] = useState(null);
-  const [selecting, setSelecting] = useState(false);
-  const [loadingRooms, setLoadingRooms] = useState(false);
-  const roomLoadVersion = React.useRef(0);
-
-  const loadRooms = React.useCallback(async () => {
-    const version = ++roomLoadVersion.current;
-    setLoadingRooms(true);
-    const { data, error: roomError } = await supabase
-      .from('classrooms')
-      .select('id, name, age_group')
-      .eq('daycare_id', daycareId)
-      .is('archived_at', null)
-      .order('name');
-    if (version !== roomLoadVersion.current) return;
-    setError(roomError?.message || null);
-    if (!roomError) setRooms(data || []);
-    setLoadingRooms(false);
-  }, [daycareId]);
-
-  React.useEffect(() => {
-    loadRooms();
-    return () => { roomLoadVersion.current += 1; };
-  }, [loadRooms]);
-
-  async function pickRoom(room) {
-    setSelecting(true);
-    setError(null);
-    const { error: updateError } = await supabase
-      .from('profiles')
-      .update({ classroom_id: room.id })
-      .eq('id', profile.id);
-    if (!updateError) {
-      await supabase.from('educator_classrooms').upsert(
-        { educator_id: profile.id, classroom_id: room.id },
-        { onConflict: 'educator_id,classroom_id', ignoreDuplicates: true }
-      );
-      await fetchProfile(user.id);
-    } else {
-      setError(updateError.message);
-    }
-    setSelecting(false);
-  }
-
-  return (
-    <SafeAreaView style={styles.educatorScreen}>
-      <KeyboardAwareScrollView contentContainerStyle={styles.educatorContent}>
-        <Text style={styles.educatorEmoji}>🚪</Text>
-        <Text style={styles.educatorTitle}>Pick your classroom</Text>
-        <Text style={styles.educatorDescription}>
-          {rooms === null
-            ? "Loading your daycare's rooms…"
-            : rooms.length
-              ? 'Choose the room you work in. You can switch rooms later.'
-              : 'No classrooms exist yet. Ask your director to complete classroom setup.'}
-        </Text>
-        {(rooms || []).map((room) => (
-          <TouchableOpacity
-            key={room.id}
-            style={styles.educatorChoice}
-            onPress={() => pickRoom(room)}
-            disabled={selecting}
-          >
-            <View style={styles.roomIcon}>
-              <Ionicons name="business-outline" size={19} color={colors.primary} />
-            </View>
-            <View style={styles.roomCopy}>
-              <Text style={styles.roomName}>{room.name}</Text>
-              {room.age_group ? <Text style={styles.roomAge}>{room.age_group}</Text> : null}
-            </View>
-            <Ionicons name="chevron-forward" size={18} color={colors.textFaint} />
-          </TouchableOpacity>
-        ))}
-        <InlineError>{error}</InlineError>
-        {!rooms?.length || error ? (
-          <Button label="Check for classrooms again" variant="ghost" onPress={loadRooms}
-            loading={loadingRooms} style={styles.educatorAction} />
-        ) : null}
-      </KeyboardAwareScrollView>
-    </SafeAreaView>
-  );
-}
-
 function LegacyEducatorJoin({ onJoined }) {
   const [code, setCode] = useState('');
   const [error, setError] = useState(null);
@@ -900,15 +814,11 @@ export default function OnboardingScreen() {
   const { profile, user, fetchProfile } = useAuth();
   const centerSetupPending = user?.user_metadata?.setup_center_pending === true;
   const isCenterSetup = isAdminRole(profile?.role) || centerSetupPending;
-  const educatorDaycareId = profile?.daycare_id || null;
 
   if (isCenterSetup) return <CenterSetupWizard />;
-  if (!educatorDaycareId) {
-    return <LegacyEducatorJoin onJoined={async () => {
-      if (user?.id) await fetchProfile(user.id);
-    }} />;
-  }
-  return <EducatorRoomPicker daycareId={educatorDaycareId} />;
+  return <LegacyEducatorJoin onJoined={async () => {
+    if (user?.id) await fetchProfile(user.id);
+  }} />;
 }
 
 const styles = StyleSheet.create({
@@ -1335,21 +1245,5 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: spacing.sm,
     marginBottom: spacing.xl,
-  },
-  educatorChoice: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-    minHeight: 68,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-    borderWidth: 1.5,
-    borderColor: colors.border,
-    borderRadius: 16,
-    backgroundColor: colors.surface,
-    marginBottom: spacing.sm,
-  },
-  educatorAction: {
-    marginTop: spacing.lg,
   },
 });

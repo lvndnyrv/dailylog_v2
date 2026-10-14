@@ -315,11 +315,23 @@ export default function StaffInviteScreen({ navigation }) {
                 <NumberedStep number="2" text="Your director reviews and clears the document." />
                 <NumberedStep number="3" text="Meet your classroom while working with cleared staff." />
               </>
-            ) : (
+            ) : summary.role === 'educator' && !summary.classroom_name ? (
+              <>
+                <NumberedStep number="1" active text="Open DailyLog and meet your team." />
+                <NumberedStep number="2" text="Your director can assign your classroom, or invite you to cover a room." />
+                <NumberedStep number="3" text="Clock in when you arrive; your assigned children will appear in Kids." />
+              </>
+            ) : summary.role === 'educator' ? (
               <>
                 <NumberedStep number="1" active text="Meet your classroom & roster." />
                 <NumberedStep number="2" text="Clock in when you arrive." />
                 <NumberedStep number="3" text="Start logging your first day." />
+              </>
+            ) : (
+              <>
+                <NumberedStep number="1" active text="Open your center dashboard." />
+                <NumberedStep number="2" text="Review today’s attendance and staffing." />
+                <NumberedStep number="3" text="Set up your team and center operations." />
               </>
             )}
           </View>
@@ -333,7 +345,9 @@ export default function StaffInviteScreen({ navigation }) {
           ) : null}
         </View>
         <Button
-          label={summary.require_background_check ? 'Continue to DailyLog' : summary.role === 'educator' ? 'Go to my classroom' : 'Go to my dashboard'}
+          label={summary.require_background_check || (summary.role === 'educator' && !summary.classroom_name)
+            ? 'Continue to DailyLog'
+            : summary.role === 'educator' ? 'Go to my classroom' : 'Go to my dashboard'}
           onPress={openClassroom}
           style={styles.bottomButton}
         />

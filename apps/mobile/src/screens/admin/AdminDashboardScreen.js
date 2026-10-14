@@ -1,6 +1,6 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Alert, Image, RefreshControl, ScrollView, StyleSheet, Text,
+  Alert, AppState, Image, RefreshControl, ScrollView, StyleSheet, Text,
   TouchableOpacity, View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -184,6 +184,7 @@ export default function AdminDashboardScreen({ navigation }) {
   const [pendingCredentials, setPendingCredentials] = useState(0);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const latestStatsRequest = useRef(0);
 
   const rootNavigate = useCallback((name, params) => {
     navigation.getParent()?.navigate(name, params);
@@ -191,6 +192,7 @@ export default function AdminDashboardScreen({ navigation }) {
 
   const load = useCallback(async ({ quiet = false } = {}) => {
     if (!profile?.daycare_id) return;
+    const statsRequest = ++latestStatsRequest.current;
     if (!quiet) setLoading(true);
     const [statsRes, roomsRes, daycareRes, incidentsRes, credentialsRes] = await Promise.all([
       supabase.rpc('get_daycare_stats'),
@@ -204,7 +206,7 @@ export default function AdminDashboardScreen({ navigation }) {
         .eq('daycare_id', profile.daycare_id).eq('status', 'pending'),
     ]);
     const rawStats = Array.isArray(statsRes.data) ? statsRes.data[0] : statsRes.data;
-    setStats(rawStats || null);
+    if (statsRequest === latestStatsRequest.current) setStats(rawStats || null);
     setClassrooms(roomsRes.data || []);
     setDaycare(daycareRes.data || null);
     setPendingIncidents(incidentsRes.count || 0);
@@ -216,6 +218,34 @@ export default function AdminDashboardScreen({ navigation }) {
   useEffect(() => {
     if (isFocused && profile) load();
   }, [isFocused, load, profile]);
+
+  const refreshStats = useCallback(async () => {
+    const request = ++latestStatsRequest.current;
+    const { data, error } = await supabase.rpc('get_daycare_stats');
+    if (request !== latestStatsRequest.current || error) return;
+    setStats(Array.isArray(data) ? data[0] || null : data || null);
+  }, []);
+
+  useEffect(() => {
+    if (!isFocused || !profile?.daycare_id) return undefined;
+    const refresh = () => { refreshStats(); };
+    const channel = supabase.channel(`admin-dashboard-stats-${profile.daycare_id}`)
+      .on('postgres_changes', {
+        event: '*', schema: 'public', table: 'attendance_records',
+        filter: `daycare_id=eq.${profile.daycare_id}`,
+      }, refresh)
+      .subscribe();
+    const poll = setInterval(refresh, 60_000);
+    const appState = AppState.addEventListener('change', state => {
+      if (state === 'active') refresh();
+    });
+    return () => {
+      latestStatsRequest.current += 1;
+      clearInterval(poll);
+      appState.remove();
+      supabase.removeChannel(channel);
+    };
+  }, [isFocused, profile?.daycare_id, refreshStats]);
 
   const refresh = useCallback(async () => {
     setRefreshing(true);

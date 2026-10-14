@@ -53,6 +53,15 @@ export default function AdminCoverageReviewCard({ assignmentId, daycareId, onClo
     return () => { latestRequest.current += 1; };
   }, [isFocused, load]);
 
+  const ended = assignment && new Date(assignment.ends_at) <= new Date();
+  const reviewMessage = assignment?.status === 'cancelled'
+    ? 'This coverage was cancelled. This is a historical record; it cannot be changed here.'
+    : assignment?.status === 'declined'
+      ? 'The educator declined this invitation. Arrange replacement coverage in admin web Rooms & ratios.'
+      : ended
+        ? 'This coverage period has ended. This is a historical record; it cannot be changed here.'
+        : assignment?.review_issue || 'No current review warning. Check the live room plan before making changes.';
+
   async function cancelCoverage() {
     setCancelling(true);
     try {
@@ -78,8 +87,8 @@ export default function AdminCoverageReviewCard({ assignmentId, daycareId, onClo
     ) : <>
       <Text style={styles.title}>{assignment.room?.name || 'Room'} · {assignment.staff?.profile?.full_name || 'Educator'}</Text>
       <Text style={styles.body}>{when(assignment.starts_at, timezone)}–{when(assignment.ends_at, timezone)} · {assignment.status}</Text>
-      <Text style={styles.body}>{assignment.review_issue || 'No current review warning. Check the live room plan before making changes.'}</Text>
-      {canEdit && ['assigned', 'accepted', 'declined'].includes(assignment.status) && new Date(assignment.ends_at) > new Date() && (
+      <Text style={styles.body}>{reviewMessage}</Text>
+      {canEdit && ['assigned', 'accepted', 'declined'].includes(assignment.status) && !ended && (
         <TouchableOpacity
           style={styles.cancel}
           disabled={cancelling}

@@ -448,6 +448,13 @@ Operational follow-up migrations also applied: `20260906000100_operational_room_
 - Required-field feedback is inline. Reload confirms before discarding a draft. The previous permanent-delete button was removed from mobile because the direct delete could cascade into historical records; there is no claim that mobile supports room archival yet.
 - Mobile typecheck, iOS production bundle export and the rollback-only atomic room-settings database test passed. On the iPhone 17 Pro, the seeded owner opened Infant's editor and saw its real age range, capacity and ratio. Entering an invalid ratio of 0 showed the local field error without sending a save. Reload restored the original ratio of 3; no shared room was changed. A successful save/rename-and-restore device pass and a second-admin concurrent-edit pass remain outstanding.
 - After visual review, the four numeric fields were changed from two narrow side-by-side pairs to one full-width vertical column. The iPhone 17 Pro simulator now shows all six labels and input borders aligned with no wrapped, mismatched rows; the save button remains reachable by scrolling. No room data was changed.
+- Required labels on that editor now use the same red asterisk as the newer parent and admin forms, rather than bold “· required” text. Validation errors remain separate and only appear on invalid submission.
+
+### Classroom-switcher creation bypass — October 14
+
+- The shared room picker still offered an old two-field **Add another classroom** form to administrators. It inserted a room directly with missing age bounds, capacity and ratio, bypassing the complete atomic room-settings setup.
+- That shortcut now opens the existing admin Classrooms add-room sheet with all six required fields. The unused direct-insert creation helper was removed. Educators still only switch among their authorized rooms.
+- Mobile typecheck passed. On the iPhone 17 Pro simulator, the owner opened Infant's room picker, followed **Add another classroom** to the six-field form, submitted it blank to confirm per-field errors, then closed it. The list still showed four rooms; nothing was created.
 
 ## Still required before calling Group 7 complete
 

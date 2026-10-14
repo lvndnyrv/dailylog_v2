@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -258,7 +258,7 @@ function RoomCard({ room, ratioLoading, onOpen, onAttendance }) {
   );
 }
 
-export default function AdminClassroomsScreen({ navigation }) {
+export default function AdminClassroomsScreen({ navigation, route }) {
   const { profile } = useAuth();
   const classroom = useClassroom();
   const ratioState = useRoomRatios();
@@ -268,6 +268,12 @@ export default function AdminClassroomsScreen({ navigation }) {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
   const [showCreate, setShowCreate] = useState(false);
+
+  useEffect(() => {
+    if (!route?.params?.openCreateRoom) return;
+    setShowCreate(true);
+    navigation.setParams({ openCreateRoom: undefined });
+  }, [navigation, route?.params?.openCreateRoom]);
 
   const rootNavigate = useCallback((name, params) => {
     navigation.getParent()?.navigate(name, params);

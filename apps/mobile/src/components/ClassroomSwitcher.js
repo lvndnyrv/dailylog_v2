@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import {
-  View, Text, TouchableOpacity, StyleSheet, Modal,
-  Alert, TextInput, KeyboardAvoidingView, Platform, ScrollView
+  View, Text, TouchableOpacity, StyleSheet, Modal, ScrollView
 } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
 import { isAdminRole } from '@dailylog/shared';
 import { useClassroom } from '../hooks/useClassroom';
 import { useAuth } from '../hooks/useAuth';
@@ -11,34 +11,18 @@ import { Ionicons } from '@expo/vector-icons';
 import { format } from 'date-fns';
 
 export function ClassroomSwitcher({ compact = false, childCount }) {
+  const navigation = useNavigation();
   const { profile } = useAuth();
-  const { classrooms, active, switchClassroom, createAndJoinClassroom } = useClassroom();
+  const { classrooms, active, switchClassroom } = useClassroom();
   const [showPicker, setShowPicker] = useState(false);
-  const [showCreate, setShowCreate] = useState(false);
-  const [newName, setNewName] = useState('');
-  const [newAge, setNewAge] = useState('');
-  const [creating, setCreating] = useState(false);
 
   const dateStr = format(new Date(), 'EEEE, MMMM d');
   const canAddClassroom = isAdminRole(profile?.role);
   const canOpenPicker = classrooms.length > 1 || canAddClassroom;
 
-  async function handleCreate() {
-    if (!newName.trim()) {
-      Alert.alert('Required', 'Please enter a classroom name.');
-      return;
-    }
-    setCreating(true);
-    const { error } = await createAndJoinClassroom(newName.trim(), newAge.trim());
-    setCreating(false);
-    if (error) {
-      Alert.alert('Error', error.message);
-    } else {
-      setShowCreate(false);
-      setShowPicker(false);
-      setNewName('');
-      setNewAge('');
-    }
+  function openRoomSetup() {
+    setShowPicker(false);
+    navigation.navigate('AdminTabs', { screen: 'ManageTab', params: { openCreateRoom: true } });
   }
 
   return (
@@ -79,23 +63,20 @@ export function ClassroomSwitcher({ compact = false, childCount }) {
         visible={showPicker}
         transparent
         animationType="slide"
-        onRequestClose={() => { setShowPicker(false); setShowCreate(false); }}
+        onRequestClose={() => setShowPicker(false)}
       >
-        <KeyboardAvoidingView
-          style={styles.overlay}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        >
+        <View style={styles.overlay}>
           <TouchableOpacity
             style={styles.overlayDismiss}
             activeOpacity={1}
-            onPress={() => { setShowPicker(false); setShowCreate(false); }}
+            onPress={() => setShowPicker(false)}
           />
           <View style={styles.sheet}>
             <View style={styles.grabber} />
             <View style={styles.sheetHeader}>
               <Text style={styles.sheetTitle}>Switch classroom</Text>
               <TouchableOpacity
-                onPress={() => { setShowPicker(false); setShowCreate(false); }}
+                onPress={() => setShowPicker(false)}
                 style={styles.closeButton}
                 accessibilityRole="button"
                 accessibilityLabel="Close classroom picker"
@@ -112,7 +93,7 @@ export function ClassroomSwitcher({ compact = false, childCount }) {
                 <TouchableOpacity
                   key={room.id}
                   style={[styles.roomRow, room.id === active?.id && styles.roomRowActive]}
-                  onPress={() => { switchClassroom(room.id); setShowPicker(false); setShowCreate(false); }}
+                  onPress={() => { switchClassroom(room.id); setShowPicker(false); }}
                 >
                   <View style={[styles.roomIcon, room.id === active?.id && styles.roomIconActive]}>
                     <Ionicons
@@ -134,49 +115,16 @@ export function ClassroomSwitcher({ compact = false, childCount }) {
               ))}
 
               {/* Add new classroom */}
-              {canAddClassroom && !showCreate ? (
-                <TouchableOpacity style={styles.addRoomBtn} onPress={() => setShowCreate(true)}>
+              {canAddClassroom ? (
+                <TouchableOpacity style={styles.addRoomBtn} onPress={openRoomSetup}
+                  accessibilityRole="button" accessibilityLabel="Add another classroom">
                   <Ionicons name="add-circle-outline" size={20} color={colors.primary} />
                   <Text style={styles.addRoomText}>Add another classroom</Text>
                 </TouchableOpacity>
-              ) : canAddClassroom ? (
-                <View style={styles.createForm}>
-                  <Text style={styles.createTitle}>New classroom</Text>
-                  <TextInput
-                    value={newName}
-                    onChangeText={setNewName}
-                    placeholder="Name (e.g. Room 2)"
-                    placeholderTextColor={colors.textMuted}
-                    style={styles.createInput}
-                    autoFocus
-                  />
-                  <TextInput
-                    value={newAge}
-                    onChangeText={setNewAge}
-                    placeholder="Age group (e.g. Preschool)"
-                    placeholderTextColor={colors.textMuted}
-                    style={styles.createInput}
-                  />
-                  <View style={styles.createBtns}>
-                    <TouchableOpacity
-                      onPress={() => { setShowCreate(false); setNewName(''); setNewAge(''); }}
-                      style={styles.createCancel}
-                    >
-                      <Text style={styles.createCancelText}>Cancel</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      onPress={handleCreate}
-                      disabled={creating}
-                      style={[styles.createSubmit, creating && { opacity: 0.5 }]}
-                    >
-                      <Text style={styles.createSubmitText}>{creating ? 'Creating...' : 'Create'}</Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
               ) : null}
             </ScrollView>
           </View>
-        </KeyboardAvoidingView>
+        </View>
       </Modal>
     </>
   );
@@ -259,28 +207,4 @@ const styles = StyleSheet.create({
   },
   addRoomText: { fontSize: 14.5, color: colors.primary, fontFamily: fonts.bold },
 
-  createForm: {
-    padding: spacing.lg,
-    backgroundColor: colors.surface,
-    borderWidth: 1.5,
-    borderColor: colors.border,
-    borderRadius: radius.lg,
-  },
-  createTitle: { fontSize: 15, fontFamily: fonts.bold, color: colors.textPrimary, marginBottom: spacing.md },
-  createInput: {
-    backgroundColor: colors.surface, borderWidth: 1.5, borderColor: colors.border,
-    borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: spacing.sm,
-    fontSize: 15, fontFamily: fonts.regular, color: colors.textPrimary, marginBottom: spacing.sm,
-  },
-  createBtns: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm },
-  createCancel: {
-    flex: 1, paddingVertical: spacing.md, borderRadius: radius.md,
-    borderWidth: 1.5, borderColor: colors.border, alignItems: 'center',
-  },
-  createCancelText: { fontSize: 14, color: colors.textSecondary, fontFamily: fonts.bold },
-  createSubmit: {
-    flex: 2, paddingVertical: spacing.md, borderRadius: radius.md,
-    backgroundColor: colors.primary, alignItems: 'center',
-  },
-  createSubmitText: { fontSize: 14, color: colors.white, fontFamily: fonts.bold },
 });

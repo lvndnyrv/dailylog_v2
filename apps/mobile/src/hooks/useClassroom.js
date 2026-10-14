@@ -118,28 +118,6 @@ export function ClassroomProvider({ children }) {
     await loadClassrooms();
   }
 
-  async function createAndJoinClassroom(name, ageGroup) {
-    const { data: newRoom, error } = await supabase
-      .from('classrooms')
-      .insert({
-        daycare_id: profile.daycare_id,
-        name,
-        age_group: ageGroup || null,
-      })
-      .select()
-      .single();
-
-    if (error) return { error };
-
-    await supabase
-      .from('educator_classrooms')
-      .insert({ educator_id: profile.id, classroom_id: newRoom.id });
-
-    await switchClassroom(newRoom.id);
-    await loadClassrooms();
-    return { data: newRoom };
-  }
-
   async function leaveClassroom(classroomId) {
     await supabase
       .from('educator_classrooms')
@@ -165,7 +143,6 @@ export function ClassroomProvider({ children }) {
       loading,
       switchClassroom,
       joinClassroom,
-      createAndJoinClassroom,
       leaveClassroom,
       reload: isAdminRole(profile?.role) ? loadAllClassrooms : loadClassrooms,
     }}>

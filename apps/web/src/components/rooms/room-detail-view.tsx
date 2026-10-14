@@ -117,6 +117,10 @@ export function RoomDetailView({
   // Use the same eligible, effective-room count as educator ratio alerts.
   const countedEducators = liveRoom.educators.length;
   const over = liveRatio !== null && isOverRatio(present, countedEducators, liveRatio);
+  const ratioStatus = present === 0 ? "No children" : liveRatio === null ? "Rule not set" : over ? "Fix coverage" : "In ratio";
+  const ratioStatusClass = over
+    ? "bg-danger text-white"
+    : present === 0 || liveRatio === null ? "bg-[#ECF3FB] text-muted" : "bg-[#E4F3EC] text-success";
   const requiredEducators = liveRatio
     ? Math.ceil(present / liveRatio)
     : 0;
@@ -190,16 +194,16 @@ export function RoomDetailView({
                 <h2 id="ratio-h" className={cardTitle}>{room.operating?.combination_id ? `Combined live ratio · ${liveRoom.name}` : "Live ratio"}</h2>
                 <span className="text-[12px] text-muted">
                   {countedEducators} educator{countedEducators === 1 ? "" : "s"} · {present} children
-                  {liveRatio !== null ? ` · licensed 1 : ${liveRatio}` : ""}
+                  {liveRatio !== null ? ` · configured 1 : ${liveRatio}` : " · ratio rule not set"}
                 </span>
               </span>
-              <button
-                type="button"
-                onClick={() => over && setModal("alert")}
-                className={`rounded-full px-3 py-1 text-[11.5px] font-bold ${over ? "bg-danger text-white" : "bg-[#E4F3EC] text-success"}`}
-              >
-                {over ? "Fix coverage" : "In ratio"}
-              </button>
+              {over ? (
+                <button type="button" onClick={() => setModal("alert")} className={`rounded-full px-3 py-1 text-[11.5px] font-bold ${ratioStatusClass}`}>
+                  {ratioStatus}
+                </button>
+              ) : (
+                <span className={`rounded-full px-3 py-1 text-[11.5px] font-bold ${ratioStatusClass}`}>{ratioStatus}</span>
+              )}
             </div>
             {liveRoom.educators.length > 0 && (
               <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-muted" aria-label="Educators counted in the live ratio">

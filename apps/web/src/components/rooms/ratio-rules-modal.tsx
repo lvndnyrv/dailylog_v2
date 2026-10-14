@@ -19,8 +19,8 @@ export function RatioRulesModal({
     updateRatioRulesAction,
     {},
   );
-  const [ratios, setRatios] = useState<Record<string, number>>(() =>
-    Object.fromEntries(rooms.map((room) => [room.id, room.ratio_children_per_educator ?? 1])),
+  const [ratios, setRatios] = useState<Record<string, number | null>>(() =>
+    Object.fromEntries(rooms.map((room) => [room.id, room.ratio_children_per_educator])),
   );
 
   return (
@@ -28,7 +28,7 @@ export function RatioRulesModal({
       <div>
         <h2 className="text-[19px] font-extrabold text-ink">Ratio rules</h2>
         <p className="mt-0.5 text-[12.5px] leading-normal text-muted">
-          Center policy table — choose the licensed children-per-educator limit for each room.
+          Set your center&apos;s children-per-educator rule for each room. These values are not verified against licensing requirements.
         </p>
       </div>
 
@@ -40,7 +40,7 @@ export function RatioRulesModal({
               className="flex items-center gap-3 border-b border-[#EDF3FB] py-2.5 last:border-b-0"
             >
               <input type="hidden" name="room_id" value={room.id} />
-              <input type="hidden" name="ratio" value={ratios[room.id]} />
+              <input type="hidden" name="ratio" value={ratios[room.id] ?? ""} />
               <span className="min-w-0 flex-1">
                 <span className="block text-[13px] font-bold text-ink">{room.name}</span>
                 {room.min_age_months !== null && room.max_age_months !== null && (
@@ -52,16 +52,17 @@ export function RatioRulesModal({
               <span className="flex items-center rounded-full border-[1.5px] border-[#D6E1F0] text-[13px] font-bold text-ink">
                 <button
                   type="button"
-                  onClick={() => setRatios((current) => ({ ...current, [room.id]: Math.max(1, current[room.id] - 1) }))}
+                  onClick={() => setRatios((current) => ({ ...current, [room.id]: Math.max(1, (current[room.id] ?? 1) - 1) }))}
                   className="px-3 py-1.5 text-faint hover:text-ink"
                   aria-label={`Make ${room.name} ratio stricter`}
+                  disabled={(ratios[room.id] ?? 0) <= 1}
                 >
                   −
                 </button>
-                <span className="min-w-12 text-center">1 : {ratios[room.id]}</span>
+                <span className="min-w-12 text-center">{ratios[room.id] === null ? "Not set" : `1 : ${ratios[room.id]}`}</span>
                 <button
                   type="button"
-                  onClick={() => setRatios((current) => ({ ...current, [room.id]: current[room.id] + 1 }))}
+                  onClick={() => setRatios((current) => ({ ...current, [room.id]: (current[room.id] ?? 0) + 1 }))}
                   className="px-3 py-1.5 text-faint hover:text-ink"
                   aria-label={`Allow one more child per educator in ${room.name}`}
                 >
@@ -73,7 +74,7 @@ export function RatioRulesModal({
         </div>
 
         <p className="text-center text-[11.5px] leading-normal text-faint">
-          Changes recompute today&apos;s live ratios immediately. Keep each value within your center&apos;s licensed policy.
+          Changes recompute today&apos;s live ratios immediately. Confirm each rule against your center&apos;s licensing requirements before saving. Unset rooms must be configured explicitly.
         </p>
 
         {state.ok && (

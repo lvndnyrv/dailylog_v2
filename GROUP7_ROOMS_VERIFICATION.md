@@ -424,6 +424,12 @@ Operational follow-up migrations also applied: `20260906000100_operational_room_
 - The dashboard now loads the center timezone, displays its local date and greeting, and derives the export dates from that same center-local day. Calendar-day subtraction uses date components rather than elapsed hours, so daylight-saving changes do not shift the range. If the timezone cannot be loaded, export stops with a retry message instead of silently using UTC.
 - Mobile typecheck and iOS production bundle export passed. A deterministic timezone-boundary check confirmed Toronto and Kiritimati derive their different local dates and export ranges from the same instant. No attendance rows were exported or modified during this check.
 
+### Ratio-rule setup and status honesty — October 13
+
+- The web ratio-rule editor previously displayed an unset rule as `1:1` and would save that implicit value when an administrator changed another room. It now displays **Not set** and requires the administrator to choose a value for every unset room before saving. The existing atomic server validation rejects a blank rule without saving any room.
+- The editor and room detail no longer call center-entered ratios verified licensing limits. Room detail uses a neutral **No children** or **Rule not set** status instead of a green **In ratio** claim when there is no active comparison to make. Populated rooms with a configured rule retain the existing over-ratio and in-ratio behavior.
+- The linked seed center has configured values for all four rooms; no rule was changed. Web typecheck, focused lint, and production build passed. Licensing-jurisdiction presets or an authoritative rule-verification workflow remain out of scope and must not be implied by these values.
+
 ## Still required before calling Group 7 complete
 
 1. **7d remaining boundary:** future-opening room lead moves remain an explicit administrator decision. Opening-day review and reminder are available, but there is no automatic transfer. The final transfer is web-only; mobile links explain this. No licensing-rule authority/preset verification is claimed.

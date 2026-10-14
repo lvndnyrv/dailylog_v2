@@ -9,6 +9,14 @@ import { colors, fonts, radius, spacing } from '../../theme';
 import { Button, Input } from '../../components/ui';
 
 const fields = ['name', 'age_group', 'min_age_months', 'max_age_months', 'capacity', 'ratio'];
+const roomColumns = 'id, name, age_group, min_age_months, max_age_months, capacity, ratio_children_per_educator, opens_on, nap_start, nap_end, lead_educator_id, updated_at';
+
+function roomMatchesValues(room, values) {
+  const saved = initialValues(room);
+  return fields.every(key => ['min_age_months', 'max_age_months', 'capacity', 'ratio'].includes(key)
+    ? Number(saved[key]) === Number(values[key])
+    : saved[key].trim() === values[key].trim());
+}
 
 function initialValues(room) {
   return {
@@ -48,6 +56,12 @@ export default function ClassroomEditScreen({ route, navigation }) {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [verifying, setVerifying] = useState(false);
+  const [saveUncertain, setSaveUncertain] = useState(false);
+  const [saveNotice, setSaveNotice] = useState('');
+
+  const fetchRoom = useCallback(() => supabase.from('classrooms')
+    .select(roomColumns).eq('id', roomId).is('archived_at', null).maybeSingle(), [roomId]);
 
   const loadRoom = useCallback(async () => {
     if (!roomId) {
@@ -57,9 +71,7 @@ export default function ClassroomEditScreen({ route, navigation }) {
     }
     setLoading(true);
     setLoadError(null);
-    const { data, error } = await supabase.from('classrooms')
-      .select('id, name, age_group, min_age_months, max_age_months, capacity, ratio_children_per_educator, opens_on, nap_start, nap_end, lead_educator_id, updated_at')
-      .eq('id', roomId).is('archived_at', null).maybeSingle();
+    const { data, error } = await fetchRoom();
     if (error || !data) {
       setRoom(null);
       setValues(null);
@@ -68,27 +80,65 @@ export default function ClassroomEditScreen({ route, navigation }) {
       setRoom(data);
       setValues(initialValues(data));
       setErrors({});
+      setSaveUncertain(false);
+      setSaveNotice('');
     }
     setLoading(false);
-  }, [roomId]);
+  }, [roomId, fetchRoom]);
 
   useEffect(() => { loadRoom(); }, [loadRoom]);
 
   function change(key, value) {
+    if (saveUncertain) return;
     setValues(current => ({ ...current, [key]: value }));
     setErrors(current => ({ ...current, [key]: '' }));
+    setSaveNotice('');
   }
 
   const hasChanges = Boolean(room && values && fields.some(key =>
     values[key].trim() !== initialValues(room)[key]));
 
+  async function verifySave() {
+    if (!room || !values || !saveUncertain || verifying) return;
+    setVerifying(true);
+    let data;
+    let error;
+    try {
+      ({ data, error } = await fetchRoom());
+    } catch (caughtError) {
+      error = caughtError;
+    }
+    setVerifying(false);
+    if (error) {
+      setSaveNotice('Could not check the latest classroom settings. Check your connection and try again.');
+      return;
+    }
+    if (!data) {
+      setSaveNotice('This classroom is no longer available. Your draft is still here; go back to the classroom list to review it.');
+      return;
+    }
+    if (roomMatchesValues(data, values)) {
+      await reloadClassrooms?.();
+      navigation.goBack();
+      return;
+    }
+    if (data.updated_at !== room.updated_at) {
+      setSaveNotice('This classroom changed since you opened it. Your draft is preserved. Reload latest settings to review the changes before saving again.');
+      return;
+    }
+    setRoom(data);
+    setSaveUncertain(false);
+    setSaveNotice('The changes were not saved. Your draft is intact and you can try again.');
+  }
+
   async function handleSave() {
-    if (!room || !values || saving || !canEditRooms) return;
+    if (!room || !values || saving || verifying || saveUncertain || !canEditRooms) return;
     const nextErrors = validate(values);
     if (Object.keys(nextErrors).length) {
       setErrors(nextErrors);
       return;
     }
+    setSaveNotice('');
     setSaving(true);
     try {
       const settings = Object.fromEntries(fields.map(key => [key, values[key].trim()]));
@@ -105,8 +155,8 @@ export default function ClassroomEditScreen({ route, navigation }) {
       await reloadClassrooms?.();
       navigation.goBack();
     } catch (error) {
-      Alert.alert('Could not confirm room changes', `${error.message}\n\nReload this room before retrying. No second save was sent.`);
-      await loadRoom();
+      setSaveUncertain(true);
+      setSaveNotice('We could not confirm whether these changes were saved. Check the latest room settings before trying again. Your draft has been kept.');
     } finally {
       setSaving(false);
     }
@@ -157,20 +207,26 @@ export default function ClassroomEditScreen({ route, navigation }) {
             <Text style={styles.cardTitle}>Room details</Text>
             <Text style={styles.note}>Complete the age band, capacity and room ratio before saving. The ratio is entered by your center; it is not verified against licensing rules.</Text>
             <Input label="Classroom name" required value={values.name} onChangeText={value => change('name', value)}
-              placeholder="e.g. Toddler" error={errors.name} maxLength={100} />
+              placeholder="e.g. Toddler" error={errors.name} maxLength={100} editable={!saving && !verifying && !saveUncertain} />
             <Input label="Age band" required value={values.age_group} onChangeText={value => change('age_group', value)}
-              placeholder="e.g. 18 months–3 years" error={errors.age_group} maxLength={100} />
+              placeholder="e.g. 18 months–3 years" error={errors.age_group} maxLength={100} editable={!saving && !verifying && !saveUncertain} />
             <Input label="Youngest (months)" required value={values.min_age_months}
-              onChangeText={value => change('min_age_months', value)} keyboardType="number-pad" placeholder="18" error={errors.min_age_months} />
+              onChangeText={value => change('min_age_months', value)} keyboardType="number-pad" placeholder="18" error={errors.min_age_months} editable={!saving && !verifying && !saveUncertain} />
             <Input label="Oldest (months)" required value={values.max_age_months}
-              onChangeText={value => change('max_age_months', value)} keyboardType="number-pad" placeholder="36" error={errors.max_age_months} />
+              onChangeText={value => change('max_age_months', value)} keyboardType="number-pad" placeholder="36" error={errors.max_age_months} editable={!saving && !verifying && !saveUncertain} />
             <Input label="Capacity" required value={values.capacity}
-              onChangeText={value => change('capacity', value)} keyboardType="number-pad" placeholder="12" error={errors.capacity} />
+              onChangeText={value => change('capacity', value)} keyboardType="number-pad" placeholder="12" error={errors.capacity} editable={!saving && !verifying && !saveUncertain} />
             <Input label="Children per educator" required value={values.ratio}
-              onChangeText={value => change('ratio', value)} keyboardType="number-pad" placeholder="4" error={errors.ratio} />
-            <Button label="Save room settings" onPress={handleSave} loading={saving}
-              disabled={!hasChanges || saving} style={[styles.action, !hasChanges && styles.disabled]} />
-            <TouchableOpacity onPress={handleReload} disabled={saving} accessibilityRole="button" style={styles.reload}>
+              onChangeText={value => change('ratio', value)} keyboardType="number-pad" placeholder="4" error={errors.ratio} editable={!saving && !verifying && !saveUncertain} />
+            {saveNotice ? <View style={styles.saveNotice}>
+              <Ionicons name="information-circle-outline" size={18} color={colors.amber} />
+              <Text style={styles.saveNoticeText}>{saveNotice}</Text>
+            </View> : null}
+            <Button label={saveUncertain ? 'Check saved room' : 'Save room settings'}
+              onPress={saveUncertain ? verifySave : handleSave} loading={saving || verifying}
+              disabled={(!hasChanges && !saveUncertain) || saving || verifying}
+              style={[styles.action, !hasChanges && !saveUncertain && styles.disabled]} />
+            <TouchableOpacity onPress={handleReload} disabled={saving || verifying} accessibilityRole="button" style={styles.reload}>
               <Text style={styles.reloadText}>Reload latest settings</Text>
             </TouchableOpacity>
           </View>
@@ -201,6 +257,9 @@ const styles = StyleSheet.create({
   disabled: { opacity: 0.45 },
   reload: { alignSelf: 'center', padding: spacing.sm },
   reloadText: { color: colors.primary, fontFamily: fonts.bold, fontSize: 13 },
+  saveNotice: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm, padding: spacing.md,
+    borderRadius: radius.lg, backgroundColor: colors.amberLight },
+  saveNoticeText: { flex: 1, color: colors.textPrimary, fontSize: 13, lineHeight: 19 },
   infoCard: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md, padding: spacing.md,
     borderRadius: radius.lg, backgroundColor: colors.primarySoft },
   infoText: { flex: 1, color: colors.textSecondary, fontSize: 12, lineHeight: 18 },

@@ -39,16 +39,21 @@ function SummaryCard({ label, value, icon, tone }) {
   );
 }
 
-function RoomRow({ room, counts, ratio, busy, onPress }) {
+function RoomRow({ room, counts, ratio, ratioLoading, busy, onPress }) {
   const needsFollowup = counts.awaited + counts.coming;
   const isOver = Boolean(ratio?.is_over_ratio);
+  const hostedElsewhere = ratio?.operating?.combination_id && ratio.operating.host_room_id !== room.id;
+  const empty = Boolean(ratio) && !hostedElsewhere && !isOver && Number(ratio.present_count) === 0;
+  const neutral = !ratio || hostedElsewhere || empty;
+  const ratioStatus = !ratio ? ratioLoading ? 'Checking' : 'Unavailable'
+    : hostedElsewhere ? 'Combined' : isOver ? 'Over ratio' : empty ? 'No children' : 'In ratio';
   return (
     <TouchableOpacity
       style={[styles.roomCard, isOver && styles.roomCardAlert]}
       onPress={onPress}
       activeOpacity={0.74}
       accessibilityRole="button"
-      accessibilityLabel={`${room.name}. ${counts.present} in, ${counts.absent} absent, ${needsFollowup} awaited.`}
+      accessibilityLabel={`${room.name}. ${counts.present} in, ${counts.absent} absent, ${needsFollowup} awaited. Ratio ${ratioStatus.toLowerCase()}.`}
     >
       <View style={[styles.roomIcon, isOver && styles.roomIconAlert]}>
         <Ionicons name={isOver ? 'warning-outline' : 'home-outline'} size={21} color={isOver ? colors.danger : colors.primary} />
@@ -56,8 +61,8 @@ function RoomRow({ room, counts, ratio, busy, onPress }) {
       <View style={styles.roomCopy}>
         <View style={styles.roomTitleRow}>
           <Text style={styles.roomName}>{room.name}</Text>
-          <View style={[styles.ratioBadge, isOver ? styles.ratioBadgeAlert : styles.ratioBadgeOk]}>
-            <Text style={[styles.ratioText, isOver ? styles.ratioTextAlert : styles.ratioTextOk]}>{isOver ? 'Over ratio' : 'In ratio'}</Text>
+          <View style={[styles.ratioBadge, isOver ? styles.ratioBadgeAlert : neutral ? styles.ratioBadgeNeutral : styles.ratioBadgeOk]}>
+            <Text style={[styles.ratioText, isOver ? styles.ratioTextAlert : neutral ? styles.ratioTextNeutral : styles.ratioTextOk]}>{ratioStatus}</Text>
           </View>
         </View>
         <Text style={styles.roomMeta}>{counts.present} in · {counts.absent} absent · {counts.departed} departed</Text>
@@ -200,6 +205,7 @@ export default function AdminAttendanceScreen({ navigation }) {
             room={room}
             counts={roomCounts[room.id] || { present: 0, absent: 0, coming: 0, awaited: 0, departed: 0 }}
             ratio={ratioState.rooms.find(item => item.id === room.id)}
+            ratioLoading={ratioState.loading}
             busy={openingRoomId === room.id}
             onPress={() => openRoom(room)}
           />
@@ -247,9 +253,11 @@ const styles = StyleSheet.create({
   ratioBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.full },
   ratioBadgeOk: { backgroundColor: colors.successLight },
   ratioBadgeAlert: { backgroundColor: colors.dangerLight },
+  ratioBadgeNeutral: { backgroundColor: colors.primarySoft },
   ratioText: { fontFamily: fonts.bold, fontSize: 9.5 },
   ratioTextOk: { color: colors.success },
   ratioTextAlert: { color: colors.danger },
+  ratioTextNeutral: { color: colors.textMuted },
   roomMeta: { marginTop: 4, color: colors.textSecondary, fontFamily: fonts.regular, fontSize: 11.5 },
   roomFollowup: { marginTop: 3, color: colors.amber, fontFamily: fonts.bold, fontSize: 11.5 },
   roomComplete: { color: colors.success },

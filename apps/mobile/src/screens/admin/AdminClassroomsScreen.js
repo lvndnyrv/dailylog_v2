@@ -157,14 +157,18 @@ function CreateRoomSheet({ visible, onClose, onCreated, daycareId }) {
   );
 }
 
-function RoomCard({ room, onOpen, onAttendance }) {
+function RoomCard({ room, ratioLoading, onOpen, onAttendance }) {
   const over = Boolean(room.is_over_ratio);
   const hostedElsewhere = room.operating?.combination_id && room.operating?.host_room_id !== room.id;
+  const unavailable = !room.ratioAvailable;
+  const empty = !unavailable && !hostedElsewhere && !over && Number(room.present_count) === 0;
+  const neutral = unavailable || hostedElsewhere || empty;
   const educators = room.educators || [];
-  const statusLabel = hostedElsewhere ? 'Combined' : over ? 'Needs coverage' : 'In ratio';
-  const statusDetail = hostedElsewhere
-    ? `Operating with ${room.operating?.host_room_name || 'another room'}`
-    : `${room.present_count || 0} in now · ${room.staff_count || 0} staff · limit ${room.max_children_per_staff || '—'}:1`;
+  const statusLabel = unavailable ? ratioLoading ? 'Checking' : 'Unavailable'
+    : hostedElsewhere ? 'Combined' : over ? 'Needs coverage' : empty ? 'No children' : 'In ratio';
+  const statusDetail = unavailable ? ratioLoading ? 'Checking live room counts' : 'Live room counts unavailable'
+    : hostedElsewhere ? `Operating with ${room.operating?.host_room_name || 'another room'}`
+      : `${room.present_count || 0} in now · ${room.staff_count || 0} staff · limit ${room.max_children_per_staff || '—'}:1`;
 
   return (
     <TouchableOpacity
@@ -181,8 +185,8 @@ function RoomCard({ room, onOpen, onAttendance }) {
         <View style={styles.roomHeadingCopy}>
           <View style={styles.roomNameRow}>
             <Text style={styles.roomName} numberOfLines={1}>{room.name}</Text>
-            <View style={[styles.statusBadge, over ? styles.statusBadgeAlert : styles.statusBadgeOk]}>
-              <Text style={[styles.statusBadgeText, over ? styles.statusTextAlert : styles.statusTextOk]}>{statusLabel}</Text>
+            <View style={[styles.statusBadge, over ? styles.statusBadgeAlert : neutral ? styles.statusBadgeNeutral : styles.statusBadgeOk]}>
+              <Text style={[styles.statusBadgeText, over ? styles.statusTextAlert : neutral ? styles.statusTextNeutral : styles.statusTextOk]}>{statusLabel}</Text>
             </View>
           </View>
           <Text style={styles.roomMeta}>{room.age_group || 'Age group not set'} · {room.enrolled || 0} enrolled</Text>
@@ -190,9 +194,9 @@ function RoomCard({ room, onOpen, onAttendance }) {
         <Ionicons name="chevron-forward" size={18} color={colors.textFaint} />
       </View>
 
-      <View style={[styles.liveStrip, over && styles.liveStripAlert]}>
-        <View style={styles.liveDotWrap}><View style={[styles.liveDot, over && styles.liveDotAlert]} /></View>
-        <Text style={[styles.liveText, over && styles.liveTextAlert]}>{statusDetail}</Text>
+      <View style={[styles.liveStrip, over && styles.liveStripAlert, neutral && styles.liveStripNeutral]}>
+        <View style={styles.liveDotWrap}><View style={[styles.liveDot, over && styles.liveDotAlert, neutral && styles.liveDotNeutral]} /></View>
+        <Text style={[styles.liveText, over && styles.liveTextAlert, neutral && styles.liveTextNeutral]}>{statusDetail}</Text>
       </View>
 
       <View style={styles.roomFooter}>
@@ -275,10 +279,11 @@ export default function AdminClassroomsScreen({ navigation }) {
   }, [load]));
 
   const rooms = useMemo(() => classroom.classrooms.map(room => {
-    const live = ratioState.rooms.find(item => item.id === room.id) || {};
+    const live = ratioState.rooms.find(item => item.id === room.id);
     return {
       ...room,
       ...live,
+      ratioAvailable: Boolean(live),
       enrolled: childCounts[room.id] || 0,
       educators: educatorsByRoom[room.id] || [],
     };
@@ -286,6 +291,9 @@ export default function AdminClassroomsScreen({ navigation }) {
 
   const totalChildren = rooms.reduce((sum, room) => sum + room.enrolled, 0);
   const overRatio = rooms.filter(room => room.is_over_ratio).length;
+  const occupiedRooms = rooms.filter(room => room.ratioAvailable && Number(room.present_count) > 0);
+  const inRatio = occupiedRooms.filter(room => !room.is_over_ratio).length;
+  const ratiosReady = !ratioState.loading && !ratioState.error && rooms.every(room => room.ratioAvailable);
   const present = rooms.reduce((sum, room) => sum + Number(room.present_count || 0), 0);
 
   async function refresh() {
@@ -337,8 +345,11 @@ export default function AdminClassroomsScreen({ navigation }) {
         <View style={styles.summaryGrid}>
           <SummaryCard icon="school-outline" value={rooms.length} label="Rooms" />
           <SummaryCard icon="people-outline" value={totalChildren} label="Enrolled" tone="green" />
-          <SummaryCard icon="location-outline" value={present} label="In now" tone="blue" />
-          <SummaryCard icon={overRatio ? 'warning-outline' : 'shield-checkmark-outline'} value={overRatio || rooms.length} label={overRatio ? 'Need help' : 'In ratio'} tone={overRatio ? 'amber' : 'green'} />
+          <SummaryCard icon="location-outline" value={ratiosReady ? present : '—'} label="In now" tone="blue" />
+          <SummaryCard icon={overRatio ? 'warning-outline' : 'shield-checkmark-outline'}
+            value={ratiosReady ? overRatio || (occupiedRooms.length ? inRatio : '—') : '—'}
+            label={!ratiosReady ? ratioState.loading ? 'Checking ratio' : 'Ratio unavailable' : overRatio ? 'Need help' : occupiedRooms.length ? 'In ratio' : 'No children yet'}
+            tone={overRatio ? 'amber' : ratiosReady && occupiedRooms.length ? 'green' : 'blue'} />
         </View>
 
         <Text style={styles.sectionTitle}>Center tools</Text>
@@ -368,6 +379,7 @@ export default function AdminClassroomsScreen({ navigation }) {
           <RoomCard
             key={room.id}
             room={room}
+            ratioLoading={ratioState.loading}
             onOpen={() => openRoom(room)}
             onAttendance={() => openAttendance(room)}
           />
@@ -427,16 +439,21 @@ const styles = StyleSheet.create({
   statusBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: radius.full },
   statusBadgeOk: { backgroundColor: colors.successLight },
   statusBadgeAlert: { backgroundColor: colors.dangerLight },
+  statusBadgeNeutral: { backgroundColor: colors.primarySoft },
   statusBadgeText: { fontFamily: fonts.bold, fontSize: 10 },
   statusTextOk: { color: colors.success },
   statusTextAlert: { color: colors.coral },
+  statusTextNeutral: { color: colors.textMuted },
   liveStrip: { flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: spacing.md, paddingHorizontal: spacing.md, paddingVertical: 9, borderRadius: radius.md, backgroundColor: colors.successLight },
   liveStripAlert: { backgroundColor: colors.dangerLight },
+  liveStripNeutral: { backgroundColor: colors.primarySoft },
   liveDotWrap: { width: 12, alignItems: 'center' },
   liveDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: colors.success },
   liveDotAlert: { backgroundColor: colors.coral },
+  liveDotNeutral: { backgroundColor: colors.textFaint },
   liveText: { flex: 1, fontFamily: fonts.regular, fontSize: 12, color: colors.success },
   liveTextAlert: { color: colors.coral },
+  liveTextNeutral: { color: colors.textMuted },
   roomFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm, marginTop: spacing.md },
   educatorStack: { flex: 1, flexDirection: 'row', alignItems: 'center', minWidth: 0 },
   educatorAvatar: { width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: colors.surface, backgroundColor: colors.primaryLight },

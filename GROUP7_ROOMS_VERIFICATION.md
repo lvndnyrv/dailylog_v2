@@ -405,6 +405,11 @@ Operational follow-up migrations also applied: `20260906000100_operational_room_
 - Web notification links with a plan ID now open that exact saved plan in Rooms & ratios instead of stopping at the Room transitions section; this also works for historical alerts with the older anchor-only payload. Closing the modal clears the focus link, and opening a different alert replaces the focused plan. Web typecheck, lint and production build passed.
 - Signed in as the seeded owner on the iPhone 17 Pro and tapped both populated alerts: Ada opened the Infant → Toddler plan with its past-date warning; Mateo opened the Preschool → Kindergarten plan with its age-band warning. The simulator initially retained an older JavaScript bundle, which made the first tap appear to stop at generic Room ratios. Relaunching the app loaded the current bundle; the clean recheck showed both exact review cards without any data change. In the signed-in web app, clicking Mateo's actual notification opened his saved plan dialog and Cancel closed it without saving. These checks mark both previously pending notification click-throughs complete, not push delivery on physical hardware.
 
+### Empty-room ratio display — October 13
+
+- With no children checked in, mobile Room ratios now labels each room **No children** instead of reporting the mathematically meaningless **OK · 0:1**. Its indicator is neutral and unfilled; existing over-ratio and populated-room statuses remain unchanged. A room combined into another host also uses a neutral badge.
+- Mobile typecheck passed. After relaunching the iPhone 17 Pro simulator, the seeded owner opened Room ratios and all four empty rooms showed the neutral status and unfilled track. No attendance or staffing data was changed.
+
 ## Still required before calling Group 7 complete
 
 1. **7d remaining boundary:** future-opening room lead moves remain an explicit administrator decision. Opening-day review and reminder are available, but there is no automatic transfer. The final transfer is web-only; mobile links explain this. No licensing-rule authority/preset verification is claimed.

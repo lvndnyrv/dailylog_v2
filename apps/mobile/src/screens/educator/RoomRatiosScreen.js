@@ -35,17 +35,18 @@ function RatioCard({ room, onAssign }) {
   const combined = room.operating?.combination_id;
   const hostedElsewhere = combined && room.operating.host_room_id !== room.id;
   const over = room.is_over_ratio;
+  const empty = room.present_count === 0;
   const occupancy = room.required_staff
     ? Math.min(room.staff_count / room.required_staff, 1)
-    : 1;
+    : 0;
 
   return (
     <View style={[styles.roomCard, over && styles.roomCardOver]}>
       <View style={styles.roomHeading}>
         <Text style={styles.roomName}>{room.name}</Text>
-        <View style={[styles.statusBadge, over ? styles.overBadge : styles.okBadge]}>
-          <Text style={[styles.statusText, over ? styles.overText : styles.okText]}>
-            {hostedElsewhere ? 'Combined' : over ? `Over by ${room.over_by}` : `OK · ${room.actual_children_per_staff}:1`}
+        <View style={[styles.statusBadge, over ? styles.overBadge : hostedElsewhere || empty ? styles.neutralBadge : styles.okBadge]}>
+          <Text style={[styles.statusText, over ? styles.overText : hostedElsewhere || empty ? styles.neutralText : styles.okText]}>
+            {hostedElsewhere ? 'Combined' : over ? `Over by ${room.over_by}` : empty ? 'No children' : `OK · ${room.actual_children_per_staff}:1`}
           </Text>
         </View>
       </View>
@@ -57,14 +58,14 @@ function RatioCard({ room, onAssign }) {
         <Text style={[styles.presentText, over && styles.presentTextOver]}>
           {room.present_count} {room.present_count === 1 ? 'child' : 'children'}
         </Text>
-        <View style={[styles.progressTrack, over ? styles.progressTrackOver : styles.progressTrackOk]}>
-          <View
+        <View style={[styles.progressTrack, over ? styles.progressTrackOver : empty ? styles.progressTrackEmpty : styles.progressTrackOk]}>
+          {!empty && <View
             style={[
               styles.progressFill,
               over ? styles.progressFillOver : styles.progressFillOk,
               { width: `${Math.max(over ? 100 : occupancy * 100, 8)}%` },
             ]}
-          />
+          />}
         </View>
         <Text style={styles.staffText}>
           {room.staff_count} {room.staff_count === 1 ? 'staff' : 'staff'}
@@ -479,15 +480,18 @@ const styles = StyleSheet.create({
   statusBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: radius.full },
   overBadge: { backgroundColor: colors.coral },
   okBadge: { backgroundColor: colors.successLight },
+  neutralBadge: { backgroundColor: colors.primarySoft },
   statusText: { fontSize: 11.5, fontFamily: fonts.bold },
   overText: { color: colors.white },
   okText: { color: colors.success },
+  neutralText: { color: colors.textMuted },
   ratioRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   presentText: { fontSize: 13, fontFamily: fonts.bold, color: colors.textSecondary },
   presentTextOver: { color: colors.coral },
   progressTrack: { flex: 1, height: 7, overflow: 'hidden', borderRadius: radius.full },
   progressTrackOver: { backgroundColor: '#F3DED5' },
   progressTrackOk: { backgroundColor: colors.successLight },
+  progressTrackEmpty: { backgroundColor: colors.primarySoft },
   progressFill: { height: '100%', borderRadius: radius.full },
   progressFillOver: { backgroundColor: colors.coral },
   progressFillOk: { backgroundColor: colors.success },

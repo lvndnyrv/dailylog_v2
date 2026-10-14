@@ -263,8 +263,9 @@ export default function ManageScreen({ navigation, route }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [showAddChild, setShowAddChild] = useState(false);
   const [canEditChildren, setCanEditChildren] = useState(false);
-  const { rooms: ratioRooms } = useRoomRatios();
-  const roomsOverRatio = ratioRooms.filter((room) => room.is_over_ratio);
+  const { rooms: ratioRooms, loading: ratioLoading, error: ratioError } = useRoomRatios();
+  const roomsMissingRule = ratioRooms.filter((room) => room.operating?.live_ratio == null);
+  const roomsOverRatio = ratioRooms.filter((room) => room.operating?.live_ratio != null && room.is_over_ratio);
 
   async function load(isInitial = false) {
     const roomId = activeClassroom?.id || profile?.classroom_id;
@@ -529,9 +530,9 @@ export default function ManageScreen({ navigation, route }) {
       >
         <View style={[styles.ratioIcon, roomsOverRatio.length > 0 && styles.ratioIconOver]}>
           <Ionicons
-            name={roomsOverRatio.length > 0 ? 'warning-outline' : 'people-outline'}
+            name={roomsOverRatio.length > 0 || roomsMissingRule.length > 0 ? 'warning-outline' : 'people-outline'}
             size={19}
-            color={roomsOverRatio.length > 0 ? colors.coral : colors.success}
+            color={roomsOverRatio.length > 0 ? colors.coral : roomsMissingRule.length > 0 ? colors.primary : colors.success}
           />
         </View>
         <View style={{ flex: 1 }}>
@@ -539,7 +540,12 @@ export default function ManageScreen({ navigation, route }) {
           <Text style={[styles.ratioSub, roomsOverRatio.length > 0 && styles.ratioSubOver]}>
             {roomsOverRatio.length > 0
               ? `${roomsOverRatio.length} ${roomsOverRatio.length === 1 ? 'room needs' : 'rooms need'} coverage`
-              : 'All rooms are currently in ratio'}
+              : roomsMissingRule.length > 0
+                ? `${roomsMissingRule.length} ${roomsMissingRule.length === 1 ? 'room rule is' : 'room rules are'} not set`
+                : ratioLoading ? 'Checking room ratios'
+                  : ratioError ? 'Room ratios unavailable · tap to retry'
+                    : ratioRooms.length === 0 ? 'No rooms to assess yet'
+                      : 'Open live room ratios'}
           </Text>
         </View>
         <Ionicons name="chevron-forward" size={18} color={colors.textFaint} />

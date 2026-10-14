@@ -35,31 +35,32 @@ function RatioCard({ room, onAssign }) {
   const combined = room.operating?.combination_id;
   const hostedElsewhere = combined && room.operating.host_room_id !== room.id;
   const over = room.is_over_ratio;
+  const ruleMissing = room.operating?.live_ratio == null;
   const empty = room.present_count === 0;
   const occupancy = room.required_staff
     ? Math.min(room.staff_count / room.required_staff, 1)
     : 0;
 
   return (
-    <View style={[styles.roomCard, over && styles.roomCardOver]}>
+    <View style={[styles.roomCard, over && !ruleMissing && styles.roomCardOver]}>
       <View style={styles.roomHeading}>
         <Text style={styles.roomName}>{room.name}</Text>
-        <View style={[styles.statusBadge, over ? styles.overBadge : hostedElsewhere || empty ? styles.neutralBadge : styles.okBadge]}>
-          <Text style={[styles.statusText, over ? styles.overText : hostedElsewhere || empty ? styles.neutralText : styles.okText]}>
-            {hostedElsewhere ? 'Combined' : over ? `Over by ${room.over_by}` : empty ? 'No children' : `OK · ${room.actual_children_per_staff}:1`}
+        <View style={[styles.statusBadge, ruleMissing ? styles.neutralBadge : over ? styles.overBadge : hostedElsewhere || empty ? styles.neutralBadge : styles.okBadge]}>
+          <Text style={[styles.statusText, ruleMissing ? styles.neutralText : over ? styles.overText : hostedElsewhere || empty ? styles.neutralText : styles.okText]}>
+            {hostedElsewhere ? 'Combined' : ruleMissing ? 'Rule not set' : over ? `Over by ${room.over_by}` : empty ? 'No children' : `OK · ${room.actual_children_per_staff}:1`}
           </Text>
         </View>
       </View>
       {combined && <Text style={styles.floaterNote}>
-        {hostedElsewhere ? `Children and staff are counted in ${room.operating.host_room_name}.` : `Combined group · stricter ratio 1:${room.max_children_per_staff}.`}
+        {hostedElsewhere ? `Children and staff are counted in ${room.operating.host_room_name}.` : `Combined group · stricter ratio 1:${room.operating.live_ratio}.`}
         {' '}Until {room.operating.ends_at?.slice(0, 5)} (center time). Home rooms stay unchanged.
       </Text>}
       {!hostedElsewhere && <View style={styles.ratioRow}>
-        <Text style={[styles.presentText, over && styles.presentTextOver]}>
+        <Text style={[styles.presentText, over && !ruleMissing && styles.presentTextOver]}>
           {room.present_count} {room.present_count === 1 ? 'child' : 'children'}
         </Text>
-        <View style={[styles.progressTrack, over ? styles.progressTrackOver : empty ? styles.progressTrackEmpty : styles.progressTrackOk]}>
-          {!empty && <View
+        <View style={[styles.progressTrack, over && !ruleMissing ? styles.progressTrackOver : empty || ruleMissing ? styles.progressTrackEmpty : styles.progressTrackOk]}>
+          {!empty && !ruleMissing && <View
             style={[
               styles.progressFill,
               over ? styles.progressFillOver : styles.progressFillOk,
@@ -71,7 +72,8 @@ function RatioCard({ room, onAssign }) {
           {room.staff_count} {room.staff_count === 1 ? 'staff' : 'staff'}
         </Text>
       </View>}
-      {over && (
+      {ruleMissing && <Text style={styles.floaterNote}>An administrator must set this room’s ratio rule in admin web Rooms & ratios. Staffing is calculated conservatively until then.</Text>}
+      {over && !ruleMissing && (
         <TouchableOpacity
           style={styles.assignButton}
           onPress={() => onAssign(room)}

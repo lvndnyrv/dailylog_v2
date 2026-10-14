@@ -184,6 +184,7 @@ export default function RollCallScreen({ navigation }) {
 
   const summary = rollCall?.summary || {};
   const ratio = rollCall?.ratio || {};
+  const ruleMissing = ratio.configured === false;
 
   if (loading && !rollCall) {
     return (
@@ -236,24 +237,25 @@ export default function RollCallScreen({ navigation }) {
         </View>
 
         <TouchableOpacity
-          style={[styles.ratioBanner, ratio.is_over_ratio && styles.ratioBannerOver]}
+          style={[styles.ratioBanner, ratio.is_over_ratio && !ruleMissing && styles.ratioBannerOver]}
           onPress={() => navigation.navigate('RoomRatios')}
           activeOpacity={0.78}
           accessibilityRole="button"
         >
-          <View style={[styles.ratioIcon, ratio.is_over_ratio && styles.ratioIconOver]}>
+          <View style={[styles.ratioIcon, ratio.is_over_ratio && !ruleMissing && styles.ratioIconOver]}>
             <Ionicons
-              name={ratio.is_over_ratio ? 'warning-outline' : 'shield-checkmark-outline'}
+              name={ruleMissing || ratio.is_over_ratio ? 'warning-outline' : 'shield-checkmark-outline'}
               size={21}
-              color={ratio.is_over_ratio ? colors.danger : colors.success}
+              color={ruleMissing ? colors.textMuted : ratio.is_over_ratio ? colors.danger : colors.success}
             />
           </View>
           <View style={styles.ratioCopy}>
             <Text style={styles.ratioTitle}>
-              {ratio.is_over_ratio ? `Ratio needs ${ratio.over_by} more staff` : 'Room is in ratio'}
+              {ruleMissing ? 'Room ratio rule not set' : ratio.is_over_ratio ? `Ratio needs ${ratio.over_by} more staff` : 'Room is in ratio'}
             </Text>
             <Text style={styles.ratioText}>
-              {summary.present || 0} children · {ratio.staff_count || 0} staff · limit {ratio.max_children_per_staff || '—'}:1
+              {ruleMissing ? `${summary.present || 0} children · ${ratio.staff_count || 0} staff · ask admin to set the rule`
+                : `${summary.present || 0} children · ${ratio.staff_count || 0} staff · limit ${ratio.configured_limit || ratio.max_children_per_staff || '—'}:1`}
             </Text>
           </View>
           <Ionicons name="chevron-forward" size={18} color={colors.textFaint} />

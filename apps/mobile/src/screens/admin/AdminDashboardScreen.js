@@ -126,8 +126,9 @@ function RoomCard({ room, ratioLoading, onOpen, onExport }) {
   const hostedElsewhere = room.operating?.combination_id && room.operating?.host_room_id !== room.id;
   const isOver = Boolean(room.is_over_ratio);
   const unavailable = !room.ratioAvailable;
+  const ruleMissing = !unavailable && room.operating?.live_ratio == null;
   const empty = !unavailable && !hostedElsewhere && !isOver && Number(room.present_count) === 0;
-  const neutral = unavailable || hostedElsewhere || empty;
+  const neutral = unavailable || hostedElsewhere || ruleMissing || empty;
   let status;
   let badgeLabel;
   if (unavailable) {
@@ -136,6 +137,9 @@ function RoomCard({ room, ratioLoading, onOpen, onExport }) {
   } else if (hostedElsewhere) {
     status = `Combined in ${room.operating?.host_room_name || 'another room'}`;
     badgeLabel = 'Combined';
+  } else if (ruleMissing) {
+    status = 'Set a room ratio rule before assessing coverage';
+    badgeLabel = 'Rule not set';
   } else if (isOver) {
     status = `Needs ${room.over_by || 1} more educator${Number(room.over_by || 1) === 1 ? '' : 's'}`;
     badgeLabel = 'Over ratio';
@@ -148,7 +152,7 @@ function RoomCard({ room, ratioLoading, onOpen, onExport }) {
   }
 
   return (
-    <View style={[styles.roomCard, isOver && styles.roomCardAlert]}>
+    <View style={[styles.roomCard, isOver && !ruleMissing && styles.roomCardAlert]}>
       <TouchableOpacity
         style={styles.roomMain}
         onPress={onOpen}
@@ -156,14 +160,14 @@ function RoomCard({ room, ratioLoading, onOpen, onExport }) {
         accessibilityRole="button"
         accessibilityLabel={`${room.name}. ${status}`}
       >
-        <View style={[styles.roomIcon, isOver && styles.roomIconAlert]}>
-          <Ionicons name={isOver ? 'warning-outline' : 'home-outline'} size={21} color={isOver ? colors.danger : colors.primary} />
+        <View style={[styles.roomIcon, isOver && !ruleMissing && styles.roomIconAlert]}>
+          <Ionicons name={isOver || ruleMissing ? 'warning-outline' : 'home-outline'} size={21} color={isOver && !ruleMissing ? colors.danger : colors.primary} />
         </View>
         <View style={styles.roomCopy}>
           <View style={styles.roomTitleRow}>
             <Text style={styles.roomName} numberOfLines={1}>{room.name}</Text>
-            <View style={[styles.ratioBadge, isOver ? styles.ratioBadgeAlert : neutral ? styles.ratioBadgeNeutral : styles.ratioBadgeOk]}>
-              <Text style={[styles.ratioBadgeText, isOver ? styles.ratioBadgeTextAlert : neutral ? styles.ratioBadgeTextNeutral : styles.ratioBadgeTextOk]}>
+            <View style={[styles.ratioBadge, ruleMissing ? styles.ratioBadgeNeutral : isOver ? styles.ratioBadgeAlert : neutral ? styles.ratioBadgeNeutral : styles.ratioBadgeOk]}>
+              <Text style={[styles.ratioBadgeText, ruleMissing ? styles.ratioBadgeTextNeutral : isOver ? styles.ratioBadgeTextAlert : neutral ? styles.ratioBadgeTextNeutral : styles.ratioBadgeTextOk]}>
                 {badgeLabel}
               </Text>
             </View>
@@ -171,7 +175,7 @@ function RoomCard({ room, ratioLoading, onOpen, onExport }) {
           <Text style={styles.roomMeta}>
             {unavailable ? 'Live counts unavailable' : hostedElsewhere ? status : `${room.present_count || 0} children · ${room.staff_count || 0} educator${Number(room.staff_count || 0) === 1 ? '' : 's'}`}
           </Text>
-          <Text style={[styles.roomStatus, isOver && styles.dangerText, neutral && styles.neutralText]}>{status}</Text>
+          <Text style={[styles.roomStatus, isOver && !ruleMissing && styles.dangerText, neutral && styles.neutralText]}>{status}</Text>
         </View>
       </TouchableOpacity>
       <TouchableOpacity
@@ -300,28 +304,32 @@ export default function AdminDashboardScreen({ navigation }) {
     return live ? { ...room, ...live, ratioAvailable: true } : { ...room, ratioAvailable: false };
   }), [classrooms, ratioState.rooms]);
 
-  const overRatioRooms = liveRooms.filter(room => room.is_over_ratio);
+  const missingRuleRooms = liveRooms.filter(room => room.ratioAvailable && room.operating?.live_ratio == null);
+  const overRatioRooms = liveRooms.filter(room => room.is_over_ratio && room.operating?.live_ratio != null);
   const occupiedRooms = liveRooms.filter(room => room.ratioAvailable && Number(room.present_count) > 0);
-  const roomsInRatio = occupiedRooms.filter(room => !room.is_over_ratio).length;
+  const roomsInRatio = occupiedRooms.filter(room => room.operating?.live_ratio != null && !room.is_over_ratio).length;
   const ratiosReady = !ratioState.loading && !ratioState.error && liveRooms.every(room => room.ratioAvailable);
   const anyChildrenInRooms = occupiedRooms.length > 0;
   const enrolledChildren = Number(stats?.children ?? stats?.children_count ?? 0);
   const presentChildren = Number(stats?.present_today ?? 0);
   const staffCount = Number(stats?.staff ?? stats?.educator_count ?? 0);
   const unreadCount = notifications.unreadCount || 0;
-  const attentionCount = overRatioRooms.length + pendingIncidents + pendingCredentials;
+  const attentionCount = overRatioRooms.length + missingRuleRooms.length + pendingIncidents + pendingCredentials;
   const location = daycare?.address?.split(',')?.[0]?.trim() || daycare?.name || 'Your center';
   const timezone = daycare?.timezone;
   const todayLabel = timezone ? new Intl.DateTimeFormat('en-US', {
     timeZone: timezone, weekday: 'long', month: 'long', day: 'numeric',
   }).format(new Date()) : 'Center date unavailable';
-  const reviewCoverage = overRatioRooms.length > 0 || !ratiosReady;
+  const reviewCoverage = overRatioRooms.length > 0 || missingRuleRooms.length > 0 || !ratiosReady;
   const ratioDetail = !ratiosReady
     ? ratioState.loading ? 'Checking live ratios' : 'Live ratios unavailable'
     : overRatioRooms.length ? `${overRatioRooms.length} need coverage`
+      : missingRuleRooms.length ? `${missingRuleRooms.length} room rule${missingRuleRooms.length === 1 ? '' : 's'} not set`
       : anyChildrenInRooms ? 'Occupied rooms only' : 'No children checked in yet';
   const overviewText = overRatioRooms.length
     ? `${overRatioRooms.map(room => room.name).join(', ')} ${overRatioRooms.length === 1 ? 'needs' : 'need'} staffing coverage now.`
+    : missingRuleRooms.length
+    ? `${missingRuleRooms.map(room => room.name).join(', ')} ${missingRuleRooms.length === 1 ? 'needs a' : 'need'} ratio rule before coverage can be assessed.`
     : !ratiosReady ? ratioState.loading ? 'Checking live room ratios.' : 'Live room ratios are unavailable. Open room ratios to retry.'
       : anyChildrenInRooms ? `${presentChildren} children are checked in and every occupied room is currently in ratio.`
         : 'No children are checked in yet. Room ratios will update as children arrive.';
@@ -382,7 +390,7 @@ export default function AdminDashboardScreen({ navigation }) {
             onPress={() => rootNavigate('AdminAttendance')} />
           <MetricCard icon="shield-checkmark-outline" label="ROOMS IN RATIO" value={ratiosReady && anyChildrenInRooms ? `${roomsInRatio} / ${occupiedRooms.length}` : '—'}
             detail={ratioDetail}
-            tone={overRatioRooms.length ? 'danger' : ratiosReady && anyChildrenInRooms ? 'success' : 'primary'} onPress={() => rootNavigate('RoomRatios')} />
+            tone={overRatioRooms.length ? 'danger' : missingRuleRooms.length ? 'primary' : ratiosReady && anyChildrenInRooms ? 'success' : 'primary'} onPress={() => rootNavigate('RoomRatios')} />
           <MetricCard icon="school-outline" label="ACTIVE ROOMS"
             value={String(Number(stats?.classrooms ?? stats?.classroom_count ?? classrooms.length))}
             detail="View rosters & activity" onPress={() => navigation.navigate('ManageTab')} />
@@ -409,6 +417,11 @@ export default function AdminDashboardScreen({ navigation }) {
               <View style={styles.countBadge}><Text style={styles.countBadgeText}>{attentionCount}</Text></View>
             </View>
             <View style={styles.attentionCard}>
+              {missingRuleRooms.map((room) => (
+                <AttentionRow key={`rule-${room.id}`} icon="settings-outline" tone="warning" title={`${room.name} has no ratio rule`}
+                  detail="Configure the room rule before treating coverage as compliant." action="Review"
+                  onPress={() => rootNavigate('RoomRatios')} last={false} />
+              ))}
               {overRatioRooms.map((room, index) => (
                 <AttentionRow key={room.id} icon="warning-outline" tone="danger" title={`${room.name} is over ratio`}
                   detail={`${room.present_count || 0} children · ${room.staff_count || 0} educators`} action="Fix"

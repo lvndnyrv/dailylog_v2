@@ -193,32 +193,34 @@ function RoomCard({ room, ratioLoading, onOpen, onAttendance }) {
   const over = Boolean(room.is_over_ratio);
   const hostedElsewhere = room.operating?.combination_id && room.operating?.host_room_id !== room.id;
   const unavailable = !room.ratioAvailable;
+  const ruleMissing = !unavailable && room.operating?.live_ratio == null;
   const empty = !unavailable && !hostedElsewhere && !over && Number(room.present_count) === 0;
-  const neutral = unavailable || hostedElsewhere || empty;
+  const neutral = unavailable || hostedElsewhere || ruleMissing || empty;
   const educators = room.educators || [];
   const statusLabel = unavailable ? ratioLoading ? 'Checking' : 'Unavailable'
-    : hostedElsewhere ? 'Combined' : over ? 'Needs coverage' : empty ? 'No children' : 'In ratio';
+    : hostedElsewhere ? 'Combined' : ruleMissing ? 'Rule not set' : over ? 'Needs coverage' : empty ? 'No children' : 'In ratio';
   const statusDetail = unavailable ? ratioLoading ? 'Checking live room counts' : 'Live room counts unavailable'
     : hostedElsewhere ? `Operating with ${room.operating?.host_room_name || 'another room'}`
+      : ruleMissing ? `${room.present_count || 0} in now · ${room.staff_count || 0} staff · set a ratio rule`
       : `${room.present_count || 0} in now · ${room.staff_count || 0} staff · limit ${room.max_children_per_staff || '—'}:1`;
 
   return (
     <TouchableOpacity
-      style={[styles.roomCard, over && styles.roomCardAlert]}
+      style={[styles.roomCard, over && !ruleMissing && styles.roomCardAlert]}
       onPress={onOpen}
       activeOpacity={0.76}
       accessibilityRole="button"
       accessibilityLabel={`${room.name}. ${statusLabel}. ${room.enrolled || 0} enrolled`}
     >
       <View style={styles.roomTopRow}>
-        <View style={[styles.roomIcon, over && styles.roomIconAlert]}>
-          <Ionicons name={over ? 'warning-outline' : 'school-outline'} size={22} color={over ? colors.coral : colors.primary} />
+        <View style={[styles.roomIcon, over && !ruleMissing && styles.roomIconAlert]}>
+          <Ionicons name={over || ruleMissing ? 'warning-outline' : 'school-outline'} size={22} color={over && !ruleMissing ? colors.coral : colors.primary} />
         </View>
         <View style={styles.roomHeadingCopy}>
           <View style={styles.roomNameRow}>
             <Text style={styles.roomName} numberOfLines={1}>{room.name}</Text>
-            <View style={[styles.statusBadge, over ? styles.statusBadgeAlert : neutral ? styles.statusBadgeNeutral : styles.statusBadgeOk]}>
-              <Text style={[styles.statusBadgeText, over ? styles.statusTextAlert : neutral ? styles.statusTextNeutral : styles.statusTextOk]}>{statusLabel}</Text>
+            <View style={[styles.statusBadge, ruleMissing ? styles.statusBadgeNeutral : over ? styles.statusBadgeAlert : neutral ? styles.statusBadgeNeutral : styles.statusBadgeOk]}>
+              <Text style={[styles.statusBadgeText, ruleMissing ? styles.statusTextNeutral : over ? styles.statusTextAlert : neutral ? styles.statusTextNeutral : styles.statusTextOk]}>{statusLabel}</Text>
             </View>
           </View>
           <Text style={styles.roomMeta}>{room.age_group || 'Age group not set'} · {room.enrolled || 0} enrolled</Text>
@@ -226,9 +228,9 @@ function RoomCard({ room, ratioLoading, onOpen, onAttendance }) {
         <Ionicons name="chevron-forward" size={18} color={colors.textFaint} />
       </View>
 
-      <View style={[styles.liveStrip, over && styles.liveStripAlert, neutral && styles.liveStripNeutral]}>
-        <View style={styles.liveDotWrap}><View style={[styles.liveDot, over && styles.liveDotAlert, neutral && styles.liveDotNeutral]} /></View>
-        <Text style={[styles.liveText, over && styles.liveTextAlert, neutral && styles.liveTextNeutral]}>{statusDetail}</Text>
+      <View style={[styles.liveStrip, over && !ruleMissing && styles.liveStripAlert, neutral && styles.liveStripNeutral]}>
+        <View style={styles.liveDotWrap}><View style={[styles.liveDot, over && !ruleMissing && styles.liveDotAlert, neutral && styles.liveDotNeutral]} /></View>
+        <Text style={[styles.liveText, over && !ruleMissing && styles.liveTextAlert, neutral && styles.liveTextNeutral]}>{statusDetail}</Text>
       </View>
 
       <View style={styles.roomFooter}>
@@ -322,9 +324,10 @@ export default function AdminClassroomsScreen({ navigation }) {
   }), [childCounts, classroom.classrooms, educatorsByRoom, ratioState.rooms]);
 
   const totalChildren = rooms.reduce((sum, room) => sum + room.enrolled, 0);
-  const overRatio = rooms.filter(room => room.is_over_ratio).length;
+  const missingRules = rooms.filter(room => room.ratioAvailable && room.operating?.live_ratio == null).length;
+  const overRatio = rooms.filter(room => room.is_over_ratio && room.operating?.live_ratio != null).length;
   const occupiedRooms = rooms.filter(room => room.ratioAvailable && Number(room.present_count) > 0);
-  const inRatio = occupiedRooms.filter(room => !room.is_over_ratio).length;
+  const inRatio = occupiedRooms.filter(room => room.operating?.live_ratio != null && !room.is_over_ratio).length;
   const ratiosReady = !ratioState.loading && !ratioState.error && rooms.every(room => room.ratioAvailable);
   const present = rooms.reduce((sum, room) => sum + Number(room.present_count || 0), 0);
 
@@ -378,10 +381,10 @@ export default function AdminClassroomsScreen({ navigation }) {
           <SummaryCard icon="school-outline" value={rooms.length} label="Rooms" />
           <SummaryCard icon="people-outline" value={totalChildren} label="Enrolled" tone="green" />
           <SummaryCard icon="location-outline" value={ratiosReady ? present : '—'} label="In now" tone="blue" />
-          <SummaryCard icon={overRatio ? 'warning-outline' : 'shield-checkmark-outline'}
-            value={ratiosReady ? overRatio || (occupiedRooms.length ? inRatio : '—') : '—'}
-            label={!ratiosReady ? ratioState.loading ? 'Checking ratio' : 'Ratio unavailable' : overRatio ? 'Need help' : occupiedRooms.length ? 'In ratio' : 'No children yet'}
-            tone={overRatio ? 'amber' : ratiosReady && occupiedRooms.length ? 'green' : 'blue'} />
+          <SummaryCard icon={overRatio || missingRules ? 'warning-outline' : 'shield-checkmark-outline'}
+            value={ratiosReady ? overRatio || missingRules || (occupiedRooms.length ? inRatio : '—') : '—'}
+            label={!ratiosReady ? ratioState.loading ? 'Checking ratio' : 'Ratio unavailable' : overRatio ? 'Need help' : missingRules ? 'Rule not set' : occupiedRooms.length ? 'In ratio' : 'No children yet'}
+            tone={overRatio || missingRules ? 'amber' : ratiosReady && occupiedRooms.length ? 'green' : 'blue'} />
         </View>
 
         <Text style={styles.sectionTitle}>Center tools</Text>

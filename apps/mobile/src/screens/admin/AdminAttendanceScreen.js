@@ -43,26 +43,27 @@ function RoomRow({ room, counts, ratio, ratioLoading, busy, onPress }) {
   const needsFollowup = counts.awaited + counts.coming;
   const isOver = Boolean(ratio?.is_over_ratio);
   const hostedElsewhere = ratio?.operating?.combination_id && ratio.operating.host_room_id !== room.id;
+  const ruleMissing = Boolean(ratio) && ratio.operating?.live_ratio == null;
   const empty = Boolean(ratio) && !hostedElsewhere && !isOver && Number(ratio.present_count) === 0;
-  const neutral = !ratio || hostedElsewhere || empty;
+  const neutral = !ratio || hostedElsewhere || ruleMissing || empty;
   const ratioStatus = !ratio ? ratioLoading ? 'Checking' : 'Unavailable'
-    : hostedElsewhere ? 'Combined' : isOver ? 'Over ratio' : empty ? 'No children' : 'In ratio';
+    : hostedElsewhere ? 'Combined' : ruleMissing ? 'Rule not set' : isOver ? 'Over ratio' : empty ? 'No children' : 'In ratio';
   return (
     <TouchableOpacity
-      style={[styles.roomCard, isOver && styles.roomCardAlert]}
+      style={[styles.roomCard, isOver && !ruleMissing && styles.roomCardAlert]}
       onPress={onPress}
       activeOpacity={0.74}
       accessibilityRole="button"
       accessibilityLabel={`${room.name}. ${counts.present} in, ${counts.absent} absent, ${needsFollowup} awaited. Ratio ${ratioStatus.toLowerCase()}.`}
     >
-      <View style={[styles.roomIcon, isOver && styles.roomIconAlert]}>
-        <Ionicons name={isOver ? 'warning-outline' : 'home-outline'} size={21} color={isOver ? colors.danger : colors.primary} />
+      <View style={[styles.roomIcon, isOver && !ruleMissing && styles.roomIconAlert]}>
+        <Ionicons name={isOver || ruleMissing ? 'warning-outline' : 'home-outline'} size={21} color={isOver && !ruleMissing ? colors.danger : colors.primary} />
       </View>
       <View style={styles.roomCopy}>
         <View style={styles.roomTitleRow}>
           <Text style={styles.roomName}>{room.name}</Text>
-          <View style={[styles.ratioBadge, isOver ? styles.ratioBadgeAlert : neutral ? styles.ratioBadgeNeutral : styles.ratioBadgeOk]}>
-            <Text style={[styles.ratioText, isOver ? styles.ratioTextAlert : neutral ? styles.ratioTextNeutral : styles.ratioTextOk]}>{ratioStatus}</Text>
+          <View style={[styles.ratioBadge, ruleMissing ? styles.ratioBadgeNeutral : isOver ? styles.ratioBadgeAlert : neutral ? styles.ratioBadgeNeutral : styles.ratioBadgeOk]}>
+            <Text style={[styles.ratioText, ruleMissing ? styles.ratioTextNeutral : isOver ? styles.ratioTextAlert : neutral ? styles.ratioTextNeutral : styles.ratioTextOk]}>{ratioStatus}</Text>
           </View>
         </View>
         <Text style={styles.roomMeta}>{counts.present} in · {counts.absent} absent · {counts.departed} departed</Text>

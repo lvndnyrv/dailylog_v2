@@ -150,18 +150,14 @@ export default function ClassroomEditScreen({ route, navigation }) {
               placeholder="e.g. Toddler" error={errors.name} maxLength={100} />
             <Input label="Age band · required" value={values.age_group} onChangeText={value => change('age_group', value)}
               placeholder="e.g. 18 months–3 years" error={errors.age_group} maxLength={100} />
-            <View style={styles.fieldRow}>
-              <Input style={styles.halfField} label="Youngest (months) · required" value={values.min_age_months}
-                onChangeText={value => change('min_age_months', value)} keyboardType="number-pad" placeholder="18" error={errors.min_age_months} />
-              <Input style={styles.halfField} label="Oldest (months) · required" value={values.max_age_months}
-                onChangeText={value => change('max_age_months', value)} keyboardType="number-pad" placeholder="36" error={errors.max_age_months} />
-            </View>
-            <View style={styles.fieldRow}>
-              <Input style={styles.halfField} label="Capacity · required" value={values.capacity}
-                onChangeText={value => change('capacity', value)} keyboardType="number-pad" placeholder="12" error={errors.capacity} />
-              <Input style={styles.halfField} label="Children per educator · required" value={values.ratio}
-                onChangeText={value => change('ratio', value)} keyboardType="number-pad" placeholder="4" error={errors.ratio} />
-            </View>
+            <Input label="Youngest (months) · required" value={values.min_age_months}
+              onChangeText={value => change('min_age_months', value)} keyboardType="number-pad" placeholder="18" error={errors.min_age_months} />
+            <Input label="Oldest (months) · required" value={values.max_age_months}
+              onChangeText={value => change('max_age_months', value)} keyboardType="number-pad" placeholder="36" error={errors.max_age_months} />
+            <Input label="Capacity · required" value={values.capacity}
+              onChangeText={value => change('capacity', value)} keyboardType="number-pad" placeholder="12" error={errors.capacity} />
+            <Input label="Children per educator · required" value={values.ratio}
+              onChangeText={value => change('ratio', value)} keyboardType="number-pad" placeholder="4" error={errors.ratio} />
             <Button label="Save room settings" onPress={handleSave} loading={saving}
               disabled={!hasChanges || saving} style={[styles.action, !hasChanges && styles.disabled]} />
             <TouchableOpacity onPress={handleReload} disabled={saving} accessibilityRole="button" style={styles.reload}>
@@ -191,8 +187,6 @@ const styles = StyleSheet.create({
     borderRadius: radius.xl, padding: spacing.lg, gap: spacing.sm },
   cardTitle: { fontFamily: fonts.bold, color: colors.textPrimary, fontSize: 17 },
   note: { color: colors.textMuted, fontSize: 13, lineHeight: 19, marginBottom: spacing.sm },
-  fieldRow: { flexDirection: 'row', gap: spacing.sm },
-  halfField: { flex: 1, minWidth: 0 },
   action: { marginTop: spacing.md },
   disabled: { opacity: 0.45 },
   reload: { alignSelf: 'center', padding: spacing.sm },

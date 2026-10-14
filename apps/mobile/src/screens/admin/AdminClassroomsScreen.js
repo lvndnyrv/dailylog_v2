@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -270,6 +270,7 @@ export default function AdminClassroomsScreen({ navigation, route }) {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
   const [showCreate, setShowCreate] = useState(false);
+  const loadRequest = useRef(0);
 
   useEffect(() => {
     if (!route?.params?.openCreateRoom || !roomEditAccessReady) return;
@@ -290,15 +291,17 @@ export default function AdminClassroomsScreen({ navigation, route }) {
 
   const load = useCallback(async ({ quiet = false } = {}) => {
     if (!profile?.daycare_id) return;
+    const request = ++loadRequest.current;
     if (!quiet) setLoading(true);
     setError('');
     const [childrenRes, staffRes] = await Promise.all([
       supabase.from('children').select('id, classroom_id')
         .eq('daycare_id', profile.daycare_id).is('archived_at', null),
       supabase.from('staff_members')
-        .select('id, profile:profiles(id, full_name, classroom_id)')
-        .eq('daycare_id', profile.daycare_id).eq('status', 'active'),
+        .select('id, profile:profiles(id, full_name, classroom_id, daycare_id, role, archived_at)')
+        .eq('daycare_id', profile.daycare_id).eq('status', 'active').is('archived_at', null),
     ]);
+    if (request !== loadRequest.current) return;
     const loadError = childrenRes.error || staffRes.error;
     if (loadError) {
       setError(loadError.message);
@@ -309,10 +312,11 @@ export default function AdminClassroomsScreen({ navigation, route }) {
       }, {}));
       setEducatorsByRoom((staffRes.data || []).reduce((groups, member) => {
         const staffProfile = Array.isArray(member.profile) ? member.profile[0] : member.profile;
-        if (!staffProfile?.classroom_id) return groups;
+        if (staffProfile?.role !== 'educator' || staffProfile.archived_at ||
+            staffProfile.daycare_id !== profile.daycare_id || !staffProfile.classroom_id) return groups;
         groups[staffProfile.classroom_id] = [...(groups[staffProfile.classroom_id] || []), {
           id: member.id,
-          full_name: staffProfile.full_name,
+          full_name: staffProfile.full_name || 'Educator',
         }];
         return groups;
       }, {}));
@@ -325,6 +329,7 @@ export default function AdminClassroomsScreen({ navigation, route }) {
     load();
     classroom.reload?.();
     ratioState.load({ quiet: true });
+    return () => { loadRequest.current += 1; };
   }, [load]));
 
   const rooms = useMemo(() => classroom.classrooms.map(room => {

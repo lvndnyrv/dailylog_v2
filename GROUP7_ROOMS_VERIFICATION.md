@@ -472,6 +472,11 @@ Operational follow-up migrations also applied: `20260906000100_operational_room_
 - Mobile Classrooms, the shared room switcher and the classroom detail card previously exposed add/edit controls to every admin role, while `save_room_settings` requires an admin with `rooms/edit`. They now verify that exact permission and hide mutation entry points when it is absent. A shortcut opening the add-room sheet waits for the permission result; a denied or unavailable check does not open a form that cannot save. Direct navigation to the editor shows an access/retry state rather than an editable form.
 - The permission check is scoped to the signed-in account, refreshed when a screen gains focus, and fails closed on connection errors. The database RPC remains the authoritative save guard. The rollback-only staff-permission override regression, mobile typecheck and iOS bundle export passed; a restricted-admin device pass remains outstanding.
 
+### Home-room educator card accuracy — October 14
+
+- Mobile admin Classrooms cards previously grouped every active-status staff record by `profiles.classroom_id`, including admins whose room selection had been saved as a preference. In the linked development data, three of nine such records were not educators. The card now lists only non-archived educator profiles with active, non-archived employment in the same center and a permanent home-room ID; it does not claim these people are on floor or counted toward the live ratio.
+- A request-version guard prevents an older room-card query from replacing data after a refresh, navigation change or account switch. The linked read-only aggregate found six eligible home-room educators. No staff assignment or attendance data was changed.
+
 ## Still required before calling Group 7 complete
 
 1. **7d remaining boundary:** future-opening room lead moves remain an explicit administrator decision. Opening-day review and reminder are available, but there is no automatic transfer. The final transfer is web-only; mobile links explain this. No licensing-rule authority/preset verification is claimed.

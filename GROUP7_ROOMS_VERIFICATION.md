@@ -430,6 +430,12 @@ Operational follow-up migrations also applied: `20260906000100_operational_room_
 - The editor and room detail no longer call center-entered ratios verified licensing limits. Room detail uses a neutral **No children** or **Rule not set** status instead of a green **In ratio** claim when there is no active comparison to make. Populated rooms with a configured rule retain the existing over-ratio and in-ratio behavior.
 - The linked seed center has configured values for all four rooms; no rule was changed. Web typecheck, focused lint, and production build passed. Licensing-jurisdiction presets or an authoritative rule-verification workflow remain out of scope and must not be implied by these values.
 
+### Complete room creation on mobile admin — October 14
+
+- The mobile Classrooms quick-create flow previously inserted a room with only its name and optional age-group label, leaving age bounds, capacity and ratio blank. That bypassed the validated, atomic room-settings workflow used on admin web and could create an operational room with a misleading fallback ratio.
+- Mobile now requires the room name, age-band name, youngest/oldest age in months, capacity and children-per-educator rule. It validates each field and the age ordering before calling the same `save_room_settings` RPC as web. The form explicitly says its rule is center-configured, not a verified licensing limit. Uncertain save responses instruct the admin to refresh before retrying.
+- The existing atomic room-settings and Group 7 rollback suites passed, as did mobile typecheck and iOS production bundle export. On the iPhone 17 Pro simulator, the owner opened the form, saw all six required fields, submitted it blank to verify per-field feedback, scrolled to the submit control and closed without saving. The linked center still has its four original rooms; no room was created during this check.
+
 ## Still required before calling Group 7 complete
 
 1. **7d remaining boundary:** future-opening room lead moves remain an explicit administrator decision. Opening-day review and reminder are available, but there is no automatic transfer. The final transfer is web-only; mobile links explain this. No licensing-rule authority/preset verification is claimed.

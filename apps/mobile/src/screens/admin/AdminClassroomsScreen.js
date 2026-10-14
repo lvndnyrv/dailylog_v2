@@ -67,90 +67,122 @@ function QuickAction({ icon, label, onPress }) {
   );
 }
 
-function CreateRoomSheet({ visible, onClose, onCreated, daycareId }) {
-  const [name, setName] = useState('');
-  const [ageGroup, setAgeGroup] = useState('');
+function CreateRoomSheet({ visible, onClose, onCreated }) {
+  const [values, setValues] = useState({
+    name: '', age_group: '', min_age_months: '', max_age_months: '', capacity: '', ratio: '',
+  });
   const [saving, setSaving] = useState(false);
-  const [nameError, setNameError] = useState('');
+  const [errors, setErrors] = useState({});
+
+  function change(key, value) {
+    setValues(current => ({ ...current, [key]: value }));
+    setErrors(current => ({ ...current, [key]: '' }));
+  }
+
+  function reset() {
+    setValues({ name: '', age_group: '', min_age_months: '', max_age_months: '', capacity: '', ratio: '' });
+    setErrors({});
+  }
 
   function close() {
     if (saving) return;
-    setName('');
-    setAgeGroup('');
-    setNameError('');
+    reset();
     onClose();
   }
 
   async function create() {
-    if (!name.trim()) {
-      setNameError('Room name is required.');
+    const nextErrors = {};
+    if (!values.name.trim() || values.name.trim().length > 100) nextErrors.name = 'Enter a room name (up to 100 characters).';
+    if (!values.age_group.trim() || values.age_group.trim().length > 100) nextErrors.age_group = 'Enter an age-band name (up to 100 characters).';
+    for (const [key, min, max] of [
+      ['min_age_months', 0, 215], ['max_age_months', 1, 216],
+      ['capacity', 1, 9999], ['ratio', 1, 999],
+    ]) {
+      if (!/^\d+$/.test(values[key]) || Number(values[key]) < min || Number(values[key]) > max) {
+        nextErrors[key] = `Enter a whole number from ${min} to ${max}.`;
+      }
+    }
+    if (!nextErrors.min_age_months && !nextErrors.max_age_months &&
+      Number(values.max_age_months) <= Number(values.min_age_months)) {
+      nextErrors.max_age_months = 'Oldest age must be after youngest age.';
+    }
+    if (Object.keys(nextErrors).length) {
+      setErrors(nextErrors);
       return;
     }
     setSaving(true);
-    const { data, error } = await supabase
-      .from('classrooms')
-      .insert({
-        daycare_id: daycareId,
-        name: name.trim(),
-        age_group: ageGroup.trim() || null,
-      })
-      .select('id, name, age_group, capacity')
-      .single();
-    setSaving(false);
-    if (error) {
-      Alert.alert('Could not create room', error.message);
+    let roomId;
+    try {
+      const { data, error } = await supabase.rpc('save_room_settings', {
+        p_room_id: null,
+        p_expected_updated_at: null,
+        p_settings: Object.fromEntries(Object.entries(values).map(([key, value]) => [key, value.trim()])),
+      });
+      if (error) throw error;
+      if (!data) throw new Error('The room save returned no room ID.');
+      roomId = data;
+    } catch (error) {
+      Alert.alert('Could not confirm room setup', `${error.message}\n\nRefresh the classroom list before trying again.`);
+      setSaving(false);
       return;
     }
-    close();
-    await onCreated(data);
+    setSaving(false);
+    const roomName = values.name.trim();
+    reset();
+    onClose();
+    await onCreated({ id: roomId, name: roomName });
   }
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={close}>
       <View style={styles.sheetOverlay}>
         <TouchableOpacity style={styles.sheetDismiss} activeOpacity={1} onPress={close} />
-        <View style={styles.sheet}>
+        <View style={[styles.sheet, styles.createSheet]}>
           <View style={styles.grabber} />
           <View style={styles.sheetHeader}>
             <View style={{ flex: 1 }}>
               <Text style={styles.sheetTitle}>Add a classroom</Text>
-              <Text style={styles.sheetSubtitle}>Create the room first, then add children and educators.</Text>
+              <Text style={styles.sheetSubtitle}>Set the age band, capacity and ratio before adding children or educators.</Text>
             </View>
             <TouchableOpacity onPress={close} style={styles.closeButton} accessibilityLabel="Close add classroom">
               <Ionicons name="close" size={20} color={colors.textSecondary} />
             </TouchableOpacity>
           </View>
 
-          <Text style={styles.fieldLabel}>Room name <Text style={styles.required}>*</Text></Text>
-          <TextInput
-            value={name}
-            onChangeText={value => { setName(value); if (nameError) setNameError(''); }}
-            placeholder="e.g. Preschool"
-            placeholderTextColor={colors.textFaint}
-            style={[styles.input, nameError && styles.inputError]}
-            autoCapitalize="words"
-            accessibilityLabel="Room name required"
-          />
-          {nameError ? <Text style={styles.errorText}>{nameError}</Text> : null}
-
-          <Text style={styles.fieldLabel}>Age group</Text>
-          <TextInput
-            value={ageGroup}
-            onChangeText={setAgeGroup}
-            placeholder="e.g. 3–5 years"
-            placeholderTextColor={colors.textFaint}
-            style={styles.input}
-            accessibilityLabel="Age group"
-          />
-
-          <TouchableOpacity
-            style={[styles.primaryButton, saving && styles.disabledButton]}
-            onPress={create}
-            disabled={saving}
-            accessibilityRole="button"
-          >
-            {saving ? <ActivityIndicator color={colors.white} /> : <Text style={styles.primaryButtonText}>Create classroom</Text>}
-          </TouchableOpacity>
+          <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+            {[
+              ['name', 'Room name', 'e.g. Preschool', false],
+              ['age_group', 'Age-band name', 'e.g. Preschool', false],
+              ['min_age_months', 'Youngest age (months)', 'e.g. 36', true],
+              ['max_age_months', 'Oldest age (months)', 'e.g. 60', true],
+              ['capacity', 'Capacity', 'e.g. 16', true],
+              ['ratio', 'Children per educator', 'e.g. 8', true],
+            ].map(([key, label, placeholder, numeric]) => (
+              <View key={key}>
+                <Text style={styles.fieldLabel}>{label} <Text style={styles.required}>*</Text></Text>
+                <TextInput
+                  value={values[key]}
+                  onChangeText={value => change(key, value)}
+                  placeholder={placeholder}
+                  placeholderTextColor={colors.textFaint}
+                  style={[styles.input, errors[key] && styles.inputError]}
+                  keyboardType={numeric ? 'number-pad' : 'default'}
+                  autoCapitalize={numeric ? 'none' : 'words'}
+                  accessibilityLabel={`${label} required`}
+                />
+                {errors[key] ? <Text style={styles.errorText}>{errors[key]}</Text> : null}
+              </View>
+            ))}
+            <Text style={styles.sheetSubtitle}>These are center-configured values, not verified licensing limits. Confirm them against your center’s requirements before saving.</Text>
+            <TouchableOpacity
+              style={[styles.primaryButton, saving && styles.disabledButton]}
+              onPress={create}
+              disabled={saving}
+              accessibilityRole="button"
+            >
+              {saving ? <ActivityIndicator color={colors.white} /> : <Text style={styles.primaryButtonText}>Create classroom</Text>}
+            </TouchableOpacity>
+          </ScrollView>
         </View>
       </View>
     </Modal>
@@ -313,7 +345,7 @@ export default function AdminClassroomsScreen({ navigation }) {
   }
 
   async function roomCreated(room) {
-    await classroom.reload?.();
+    await Promise.all([classroom.reload?.(), ratioState.load({ quiet: true })]);
     showToast(`${room.name} was created`, 'success');
   }
 
@@ -401,7 +433,6 @@ export default function AdminClassroomsScreen({ navigation }) {
         visible={showCreate}
         onClose={() => setShowCreate(false)}
         onCreated={roomCreated}
-        daycareId={profile?.daycare_id}
       />
     </SafeAreaView>
   );
@@ -470,6 +501,7 @@ const styles = StyleSheet.create({
   sheetOverlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(16,38,72,0.38)' },
   sheetDismiss: { flex: 1 },
   sheet: { paddingHorizontal: spacing.xl, paddingTop: spacing.sm, paddingBottom: 38, borderTopLeftRadius: 28, borderTopRightRadius: 28, backgroundColor: colors.surface },
+  createSheet: { maxHeight: '88%' },
   grabber: { alignSelf: 'center', width: 42, height: 5, borderRadius: 3, backgroundColor: colors.border, marginBottom: spacing.lg },
   sheetHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md, marginBottom: spacing.xl },
   sheetTitle: { fontFamily: fonts.bold, fontSize: 22, color: colors.textPrimary },

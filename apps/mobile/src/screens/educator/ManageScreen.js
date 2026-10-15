@@ -17,6 +17,7 @@ import { ChildAvatar } from '../../components/ChildAvatar';
 import { ClassroomSwitcher } from '../../components/ClassroomSwitcher';
 import { DatePickerField } from '../../components/DatePickerField';
 import { Ionicons } from '@expo/vector-icons';
+import { isAdminRole } from '@dailylog/shared';
 import { showToast } from '../../components/Toast';
 
 
@@ -256,6 +257,7 @@ function InviteParentForm({ daycareId, children }) {
 export default function ManageScreen({ navigation, route }) {
   const { profile }                   = useAuth();
   const { active: activeClassroom, classrooms } = useClassroom();
+  const isTemporaryCareRoom = !!activeClassroom?.temporary && !isAdminRole(profile?.role);
   const { canEditRooms } = useRoomEditAccess();
   const [children, setChildren]       = useState([]);
   const [parents, setParents]         = useState([]);
@@ -466,14 +468,14 @@ export default function ManageScreen({ navigation, route }) {
         <TouchableOpacity
           style={styles.classroomCard}
           activeOpacity={0.7}
-          disabled={!canEditRooms || !!activeClassroom.temporary}
+          disabled={!canEditRooms || isTemporaryCareRoom}
           onPress={() => navigation.navigate('ClassroomEdit', {
             classroom: activeClassroom,
             childrenCount: children.length,
             canDelete: classrooms.length > 1,
           })}
-          accessibilityRole={canEditRooms && !activeClassroom.temporary ? 'button' : 'text'}
-          accessibilityLabel={`${activeClassroom.name} classroom details${activeClassroom.temporary ? ', temporary coverage' : ''}`}
+          accessibilityRole={canEditRooms && !isTemporaryCareRoom ? 'button' : 'text'}
+          accessibilityLabel={`${activeClassroom.name} classroom details${isTemporaryCareRoom ? ', temporary coverage' : ''}`}
         >
           <View style={styles.classroomCardInfo}>
             <Text style={styles.classroomCardName}>{activeClassroom.name}</Text>
@@ -482,7 +484,7 @@ export default function ManageScreen({ navigation, route }) {
               {children.length === 1 ? 'child' : 'children'} enrolled
             </Text>
           </View>
-          {canEditRooms && !activeClassroom.temporary && (
+          {canEditRooms && !isTemporaryCareRoom && (
             <Ionicons name="chevron-forward" size={19} color={colors.textFaint} />
           )}
         </TouchableOpacity>
@@ -552,7 +554,7 @@ export default function ManageScreen({ navigation, route }) {
         <Ionicons name="chevron-forward" size={18} color={colors.textFaint} />
       </TouchableOpacity>
 
-      {activeClassroom?.temporary ? (
+      {isTemporaryCareRoom ? (
         <View style={styles.temporaryRoomCard}>
           <Ionicons name="information-circle-outline" size={22} color={colors.primary} />
           <View style={{ flex: 1 }}>
@@ -731,7 +733,7 @@ export default function ManageScreen({ navigation, route }) {
 
       {/* Add child bottom sheet */}
       <AddChildSheet
-        visible={showAddChild && canEditChildren && !activeClassroom?.temporary}
+        visible={showAddChild && canEditChildren && !isTemporaryCareRoom}
         onClose={() => setShowAddChild(false)}
         classroomId={activeClassroom?.id || profile.classroom_id}
         onAdded={load}

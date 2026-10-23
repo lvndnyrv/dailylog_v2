@@ -3,12 +3,8 @@ import { isAdminRole } from "@dailylog/shared";
 import { redirect } from "next/navigation";
 import { BrandMark } from "@/components/brand";
 import { TwoStepSecurity } from "@/components/auth/two-step-security";
+import { safeInternalDestination } from "@/lib/auth/destination";
 import { getServerSupabase } from "@/lib/supabase/server";
-
-function safeDestination(value: string | undefined): string {
-  if (!value?.startsWith("/") || value.startsWith("//")) return "/dashboard";
-  return value;
-}
 
 export default async function TwoStepPage({
   searchParams,
@@ -16,7 +12,7 @@ export default async function TwoStepPage({
   searchParams: Promise<{ mode?: string; next?: string; required?: string }>;
 }) {
   const params = await searchParams;
-  const destination = safeDestination(params.next);
+  const destination = safeInternalDestination(params.next, "/dashboard");
   const supabase = await getServerSupabase();
   const {
     data: { user },

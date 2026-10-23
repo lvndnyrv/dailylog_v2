@@ -4,11 +4,13 @@ import {
   getAttendanceWeek,
   getClosureForDate,
   getMyDaycare,
+  hasPermission,
   listLatePickupEvents,
   listMissingCheckouts,
   listAttendanceDay,
 } from "@dailylog/db/queries";
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { SectionHeader } from "@/components/shell/header";
 import { AttendanceView } from "@/components/attendance/attendance-view";
 import { addDateDays, dateInTimeZone, isDate, monthRange } from "@/lib/center-date";
@@ -22,6 +24,7 @@ export default async function AttendancePage({
 }) {
   const params = await searchParams;
   const supabase = await getServerSupabase();
+  if (!(await hasPermission(supabase, "attendance", "view"))) redirect("/dashboard");
   const daycare = await getMyDaycare(supabase);
   const timeZone = daycare?.timezone ?? "America/Toronto";
   const today = dateInTimeZone(new Date(), timeZone);

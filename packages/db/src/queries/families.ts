@@ -59,13 +59,16 @@ const FAMILY_SELECT = `id, daycare_id, display_name, primary_contact_id,
 // RLS returns the whole center for staff and only the caller's household(s)
 // for parents. Keeping this primitive role-neutral makes it reusable by web
 // billing and the parent app.
-export async function listFamilies(client: Client): Promise<FamilyRow[]> {
-  const { data, error } = await client
+export async function listFamilies(
+  client: Client,
+  options: { includeArchived?: boolean } = {},
+): Promise<FamilyRow[]> {
+  let query = client
     .from('families')
     .select(FAMILY_SELECT)
-    .eq('status', 'active')
-    .is('archived_at', null)
     .order('display_name');
+  if (!options.includeArchived) query = query.eq('status', 'active').is('archived_at', null);
+  const { data, error } = await query;
 
   if (error) throw error;
   return (data ?? []) as unknown as FamilyRow[];

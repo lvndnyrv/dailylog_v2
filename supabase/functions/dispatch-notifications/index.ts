@@ -1,4 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { scheduledReportEmailText } from './report-email.ts';
 
 type OutboxRow = {
   id: string;
@@ -368,6 +369,76 @@ async function deliverEmail(
   }
   if (!recipient.email) throw new Error('Email delivery requires a recipient address');
 
+  let reportFiles: Array<{
+    id: string;
+    filename: string;
+    contentType: string;
+    bytes: number;
+    contentBase64: string | null;
+  }> = [];
+  if (row.kind === 'scheduled_report' && row.payload?.type === 'scheduled_report') {
+    const deliveryUrl = Deno.env.get('REPORT_DELIVERY_URL');
+    if (deliveryUrl) {
+      const deliverySecret = requiredEnv('REPORT_DELIVERY_SECRET');
+      if (deliverySecret.length < 32) throw new Error('Report delivery secret is too short');
+      const endpoint = new URL(deliveryUrl);
+      if (endpoint.protocol !== 'https:' || endpoint.username || endpoint.password
+        || endpoint.pathname !== '/internal/report-delivery') {
+        throw new Error('REPORT_DELIVERY_URL must be the HTTPS internal report-delivery endpoint');
+      }
+      const prepared = await fetch(endpoint, {
+        method: 'POST',
+        headers: { ...jsonHeaders, authorization: `Bearer ${deliverySecret}` },
+        body: JSON.stringify({ outboxId: row.id }),
+        signal: AbortSignal.timeout(60_000),
+      });
+      if (!prepared.ok) {
+        const reason = (await prepared.text()).slice(0, 300);
+        if ([403, 404, 413, 422].includes(prepared.status)) {
+          throw new PermanentDeliveryError(`Scheduled report cannot be delivered: ${reason}`);
+        }
+        throw new Error(`Scheduled report preparation HTTP ${prepared.status}: ${reason}`);
+      }
+      const result = await prepared.json() as { files?: typeof reportFiles };
+      if (!Array.isArray(result.files) || !result.files.length || result.files.length > 2
+        || result.files.some((file) => !file
+          || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(file.id)
+          || !/^(attendance|billing|ratio|timesheets|incidents|enrollment)-\d{4}-\d{2}-\d{2}-to-\d{4}-\d{2}-\d{2}\.(pdf|csv)$/.test(file.filename)
+          || !['application/pdf', 'text/csv; charset=utf-8'].includes(file.contentType)
+          || !Number.isInteger(file.bytes) || file.bytes < 0 || file.bytes > 52_428_800
+          || (file.contentBase64 !== null && (typeof file.contentBase64 !== 'string'
+            || file.contentBase64.length > 14_000_000
+            || !/^[A-Za-z0-9+/]*={0,2}$/.test(file.contentBase64))))) {
+        throw new Error('Scheduled report preparation returned invalid files');
+      }
+      reportFiles = result.files;
+    }
+  }
+
+  const reportOrigin = Deno.env.get('WEB_APP_URL');
+  const reportLinks = reportFiles.map((file) => {
+    try {
+      if (!reportOrigin || !/^[0-9a-f-]{36}$/i.test(file.id)) return null;
+      const origin = new URL(reportOrigin);
+      if (origin.protocol !== 'https:' || origin.username || origin.password) return null;
+      return `${file.filename}: ${new URL(`/reports/files/${file.id}`, origin.origin)}`;
+    } catch {
+      return null;
+    }
+  }).filter((link): link is string => Boolean(link));
+  const reportText = scheduledReportEmailText(row.body, row.payload, reportOrigin);
+  const attachments = reportFiles.filter((file) => file.contentBase64 !== null).map((file) => ({
+    filename: file.filename,
+    contentType: file.contentType,
+    contentBase64: file.contentBase64,
+  }));
+  const text = reportFiles.length
+    ? `${reportText}\n\n${attachments.length
+      ? `Attached: ${attachments.map((file) => file.filename).join(', ')}.`
+      : 'The report files are saved in DailyLog.'}${reportLinks.length
+      ? `\nSaved copies (sign-in required):\n${reportLinks.join('\n')}` : ''}`
+    : reportText;
+
   const bearer = Deno.env.get('EMAIL_WEBHOOK_BEARER_TOKEN');
   const response = await fetch(webhookUrl, {
     method: 'POST',
@@ -376,15 +447,16 @@ async function deliverEmail(
       to: recipient.email,
       recipientName: recipient.full_name,
       subject: row.title,
-      text: row.body ?? '',
+      text,
       data: row.payload,
       idempotencyKey: row.id,
+      ...(attachments.length ? { attachments } : {}),
     }),
     signal: AbortSignal.timeout(12_000),
   });
-  const text = await response.text();
-  if (!response.ok) throw new Error(`Email webhook HTTP ${response.status}: ${text.slice(0, 500)}`);
-  return { response: { status: response.status, body: text.slice(0, 2000) }, permanent: false };
+  const responseText = await response.text();
+  if (!response.ok) throw new Error(`Email webhook HTTP ${response.status}: ${responseText.slice(0, 500)}`);
+  return { response: { status: response.status, body: responseText.slice(0, 2000) }, permanent: false };
 }
 
 Deno.serve(async (request) => {
@@ -407,6 +479,12 @@ Deno.serve(async (request) => {
     // Reminder materialization and waitlist expiry run as database-native Cron
     // jobs. Keeping this worker focused on the durable outbox prevents a slow
     // maintenance query from starving time-sensitive push delivery.
+    // Assemble yesterday's non-urgent admin email before claiming rows. A
+    // digest failure must not block safety push or operational email delivery.
+    const { error: digestError } = await supabase.rpc('materialize_admin_daily_digests', {
+      p_limit: 20,
+    });
+    if (digestError) console.error(`Admin email digest materialization failed: ${digestError.message}`);
     const { data: rows, error } = await supabase.rpc('claim_notification_batch', { p_limit: 50 });
     if (error) throw error;
     const translationCache = new Map<string, Promise<TranslationCopy | null>>();

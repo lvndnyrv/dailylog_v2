@@ -1,6 +1,9 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useSyncExternalStore } from "react";
+import { createPortal } from "react-dom";
+
+const subscribeToClient = () => () => undefined;
 
 // Centered modal card per the design system: 430px, radius 22px, dim overlay.
 // Esc closes; clicking the backdrop closes; focus moves into the card.
@@ -14,10 +17,11 @@ export function Modal({
   width?: number;
 }) {
   const cardRef = useRef<HTMLDivElement>(null);
+  const mounted = useSyncExternalStore(subscribeToClient, () => true, () => false);
 
   useEffect(() => {
-    cardRef.current?.focus();
-  }, []);
+    if (mounted) cardRef.current?.focus();
+  }, [mounted]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -27,7 +31,9 @@ export function Modal({
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  return (
+  if (!mounted) return null;
+
+  return createPortal(
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-ink/30 p-6"
       onMouseDown={(e) => {
@@ -44,6 +50,7 @@ export function Modal({
       >
         {children}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

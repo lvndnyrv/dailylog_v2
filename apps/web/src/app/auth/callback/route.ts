@@ -1,9 +1,6 @@
 import { NextResponse } from "next/server";
+import { safeInternalDestination } from "@/lib/auth/destination";
 import { getServerSupabase } from "@/lib/supabase/server";
-
-function safeDestination(value: string | null): string {
-  return value?.startsWith("/") && !value.startsWith("//") ? value : "/";
-}
 
 // Supabase SSR uses PKCE. Email sign-in and recovery links return here with a
 // short-lived authorization code, which must be exchanged before protected
@@ -11,7 +8,7 @@ function safeDestination(value: string | null): string {
 export async function GET(request: Request) {
   const requestUrl = new URL(request.url);
   const code = requestUrl.searchParams.get("code");
-  const destination = safeDestination(requestUrl.searchParams.get("next"));
+  const destination = safeInternalDestination(requestUrl.searchParams.get("next"), "/");
 
   if (code) {
     const supabase = await getServerSupabase();

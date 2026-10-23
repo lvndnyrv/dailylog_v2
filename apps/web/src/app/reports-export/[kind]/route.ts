@@ -3,40 +3,26 @@ import {
   getMyDaycare,
   hasPermission,
   listAttendanceDay,
-  listInvoices,
   listMedicalRegister,
   listRoster,
-  listStaffTimeEntries,
 } from "@dailylog/db/queries";
 import { isAdminRole } from "@dailylog/shared";
-import { addDateDays, dateInTimeZone, isDate, startOfWeek } from "@/lib/center-date";
+import { addDateDays, dateInTimeZone, isDate, startOfWeek, zonedLocalToIso } from "@/lib/center-date";
 import { medicationLifecycleStatus } from "@/lib/children/medication-status";
+import { csvRows } from "@/lib/csv";
 import { getServerSupabase } from "@/lib/supabase/server";
-import { REPORT_CATALOG, type ReportKind } from "@/lib/reports/catalog";
+import type { ReportKind } from "@/lib/reports/catalog";
+import { archiveReport, ReportArchiveTooLargeError } from "@/lib/reports/archive";
+import { fetchAllReportRows } from "@/lib/reports/pagination";
+import { isValidPayrollDate } from "@/lib/reports/payroll";
+import {
+  attendanceIntervalHours,
+  loadMonthlyAttendanceRecords,
+  nextAttendanceMonth,
+} from "@/lib/attendance/monthly-record";
 
 // CSV exports behind the Reports library (13a/13b). Admin-only; RLS scopes
 // every row to the caller's center and each Group 13 export is audited.
-
-function nextMonth(month: string): string {
-  const [year, m] = month.split("-").map(Number);
-  return m === 12 ? `${year + 1}-01-01` : `${year}-${String(m + 1).padStart(2, "0")}-01`;
-}
-
-function attendanceHours(checkedInAt: string | null, checkedOutAt: string | null): string {
-  if (!checkedInAt || !checkedOutAt) return "";
-  const hours = (Date.parse(checkedOutAt) - Date.parse(checkedInAt)) / 3_600_000;
-  return Number.isFinite(hours) && hours >= 0 ? hours.toFixed(1) : "";
-}
-
-function csv(rows: string[][]): string {
-  return rows
-    .map((row) =>
-      row
-        .map((cell) => (/[",\n]/.test(cell) ? `"${cell.replaceAll('"', '""')}"` : cell))
-        .join(","),
-    )
-    .join("\n");
-}
 
 function exportFailure(): Response {
   return new Response("Report export is temporarily unavailable", {
@@ -70,13 +56,23 @@ export async function GET(
     kind === "timesheets"
       ? await hasPermission(supabase, "staff", "view")
       : await hasPermission(supabase, "reports", "view");
-  if (!isAdminRole(profile?.role) || !permitted) {
-    return new Response(kind === "timesheets" ? "Staff permission required" : "Reports permission required", {
+  const attendancePermitted = !kind.startsWith("attendance")
+    || await hasPermission(supabase, "attendance", "view");
+  if (!isAdminRole(profile?.role) || !permitted || !attendancePermitted) {
+    return new Response(!attendancePermitted
+      ? "Attendance permission required"
+      : kind === "timesheets" ? "Staff permission required" : "Reports permission required", {
       status: 403,
     });
   }
 
   const url = new URL(request.url);
+  const attendanceToday = kind.startsWith("attendance")
+    ? dateInTimeZone(
+        new Date(),
+        (await getMyDaycare(supabase))?.timezone ?? "America/Toronto",
+      )
+    : null;
   let rows: string[][];
   let name: string;
   let exportMeta: {
@@ -86,11 +82,13 @@ export async function GET(
   } | null = null;
 
   if (kind === "attendance") {
-    const date =
-      url.searchParams.get("date") ?? new Date().toISOString().slice(0, 10);
+    const requestedDate = url.searchParams.get("date");
+    const date = isDate(requestedDate ?? undefined)
+      ? requestedDate!
+      : attendanceToday!;
     const day = await listAttendanceDay(supabase, date);
     rows = [
-      ["Child", "Room", "Status", "In", "Out", "Dropped off by", "Picked up by", "Notes"],
+      ["Child", "Room", "Status", "In", "Out", "Dropped off by", "Picked up by", "Recorded in by", "Recorded out by", "Notes"],
       ...day.map((row) => {
         const att = row.attendance[0];
         return [
@@ -101,6 +99,8 @@ export async function GET(
           att?.checked_out_at ?? "",
           att?.dropped_off_by ?? "",
           att?.picked_up_by ?? "",
+          att?.checked_in_by_profile?.full_name ?? "",
+          att?.checked_out_by_profile?.full_name ?? "",
           att?.notes ?? "",
         ];
       }),
@@ -110,20 +110,12 @@ export async function GET(
   } else if (kind === "attendance-summary") {
     const from = isDate(url.searchParams.get("from") ?? undefined)
       ? url.searchParams.get("from")!
-      : new Date().toISOString().slice(0, 7) + "-01";
+      : attendanceToday!.slice(0, 7) + "-01";
     const to = isDate(url.searchParams.get("to") ?? undefined)
       ? url.searchParams.get("to")!
-      : new Date().toISOString().slice(0, 10);
-    const { data, error } = await supabase
-      .from("attendance_records")
-      .select(
-        "date,status,checked_in_at,checked_out_at,child:children(first_name,last_name,classroom:classrooms(name))",
-      )
-      .gte("date", from)
-      .lte("date", to)
-      .order("date");
-    if (error) return exportFailure();
+      : attendanceToday!;
     type AttendanceSummaryRow = {
+      id: string;
       date: string;
       status: string;
       checked_in_at: string | null;
@@ -134,9 +126,26 @@ export async function GET(
         classroom: { name: string } | null;
       } | null;
     };
+    const summaryRecords: AttendanceSummaryRow[] = [];
+    for (let offset = 0; ; offset += 500) {
+      const { data, error } = await supabase
+        .from("attendance_records")
+        .select(
+          "id,date,status,checked_in_at,checked_out_at,child:children(first_name,last_name,classroom:classrooms(name))",
+        )
+        .gte("date", from)
+        .lte("date", to)
+        .order("date")
+        .order("id")
+        .range(offset, offset + 499);
+      if (error) return exportFailure();
+      const page = (data ?? []) as unknown as AttendanceSummaryRow[];
+      summaryRecords.push(...page);
+      if (page.length < 500) break;
+    }
     rows = [
       ["Date", "Child", "Room", "Status", "In", "Out"],
-      ...((data ?? []) as unknown as AttendanceSummaryRow[]).map((record) => [
+      ...summaryRecords.map((record) => [
         record.date,
         record.child ? `${record.child.first_name} ${record.child.last_name}` : "",
         record.child?.classroom?.name ?? "",
@@ -148,66 +157,47 @@ export async function GET(
     name = `attendance-summary-${from}-to-${to}.csv`;
     exportMeta = { kind: "attendance", startsOn: from, endsOn: to };
   } else if (kind === "attendance-month") {
-    // 8e monthly attendance record — one row per child per attended day
-    const month =
-      url.searchParams.get("month") ?? new Date().toISOString().slice(0, 7);
+    // 8e monthly attendance record — one row per recorded child-day.
+    const requestedMonth = url.searchParams.get("month");
+    const month = /^\d{4}-(0[1-9]|1[0-2])$/.test(requestedMonth ?? "")
+      ? requestedMonth!
+      : attendanceToday!.slice(0, 7);
     const childId = url.searchParams.get("child");
-    let query = supabase
-      .from("attendance_records")
-      .select(
-        `date, status, checked_in_at, checked_out_at, dropped_off_by, picked_up_by,
-         child:children(id, first_name, last_name, classroom:classrooms(name)),
-         corrections:attendance_corrections(reason, corrected_at,
-           corrected_by_profile:profiles!attendance_corrections_corrected_by_fkey(full_name))`,
-      )
-      .gte("date", `${month}-01`)
-      .lt("date", nextMonth(month))
-      .order("date");
-    if (childId) query = query.eq("child_id", childId);
-    const { data, error } = await query;
-    if (error) return exportFailure();
-
-    type Row = {
-      date: string;
-      status: string;
-      checked_in_at: string | null;
-      checked_out_at: string | null;
-      dropped_off_by: string | null;
-      picked_up_by: string | null;
-      child: {
-        id: string;
-        first_name: string;
-        last_name: string;
-        classroom: { name: string } | null;
-      } | null;
-      corrections: Array<{
-        reason: string;
-        corrected_at: string;
-        corrected_by_profile: { full_name: string } | null;
-      }>;
-    };
+    if (childId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(childId)) {
+      return new Response("Invalid child", { status: 400 });
+    }
+    let monthly;
+    try {
+      monthly = await loadMonthlyAttendanceRecords(supabase, month, childId ?? undefined);
+    } catch {
+      return exportFailure();
+    }
     rows = [
-      ["Date", "Child", "Room", "Status", "In", "Out", "Hours", "Dropped off by", "Picked up by", "Correction note"],
-      ...((data ?? []) as unknown as Row[]).map((record) => [
-        record.date,
-        record.child ? `${record.child.first_name} ${record.child.last_name}` : "",
-        record.child?.classroom?.name ?? "",
-        record.status,
-        record.checked_in_at ?? "",
-        record.checked_out_at ?? "",
-        attendanceHours(record.checked_in_at, record.checked_out_at),
-        record.dropped_off_by ?? "",
-        record.picked_up_by ?? "",
-        record.corrections
-          .map((correction) => `${correction.reason}${correction.corrected_by_profile?.full_name ? ` (edited by ${correction.corrected_by_profile.full_name})` : ""}`)
-          .join("; "),
-      ]),
+      ["Date", "Child", "Room", "Status", "Absence reason", "In", "Out", "Hours", "Dropped off by", "Picked up by", "Correction audit note"],
+      ...monthly.flatMap((child) => child.rows.map((record) => {
+        const hours = attendanceIntervalHours(record.checkedInAt, record.checkedOutAt);
+        return [
+          record.date,
+          child.name,
+          child.room,
+          record.status,
+          record.absenceReason ?? "",
+          record.checkedInAt ?? "",
+          record.checkedOutAt ?? "",
+          hours === null ? "" : hours.toFixed(1),
+          record.droppedOffBy ?? "",
+          record.pickedUpBy ?? "",
+          record.corrections
+            .map((correction) => `${correction.reason} (edited ${correction.correctedAt}${correction.correctedBy ? ` by ${correction.correctedBy}` : ""})`)
+            .join("; "),
+        ];
+      })),
     ];
     name = `attendance-${childId ? "child-" : ""}${month}.csv`;
     exportMeta = {
       kind: "attendance",
       startsOn: `${month}-01`,
-      endsOn: addDateDays(nextMonth(month), -1),
+      endsOn: addDateDays(nextAttendanceMonth(month), -1),
     };
   } else if (kind === "children") {
     const roster = await listRoster(supabase);
@@ -259,7 +249,6 @@ export async function GET(
     ];
     name = "children-medical-register.csv";
   } else if (kind === "invoices") {
-    const invoices = await listInvoices(supabase);
     const from = isDate(url.searchParams.get("from") ?? undefined)
       ? url.searchParams.get("from")!
       : null;
@@ -272,11 +261,32 @@ export async function GET(
         .map((id) => id.trim())
         .filter(Boolean),
     );
-    const selectedInvoices = (requestedIds.size
-      ? invoices.filter((invoice) => requestedIds.has(invoice.id))
-      : invoices
-    ).filter(
+    const { data, error } = await fetchAllReportRows((pageFrom, pageTo) => {
+      let query = supabase
+        .from("invoices")
+        .select("id,number,status,issued_on,due_on,total_cents,family:families(display_name),child:children(first_name,last_name),billed_to_profile:profiles!invoices_billed_to_fkey(full_name)")
+        .order("issued_on", { ascending: false })
+        .order("id");
+      if (from) query = query.gte("issued_on", from);
+      if (to) query = query.lte("issued_on", to);
+      return query.range(pageFrom, pageTo);
+    });
+    if (error) return exportFailure();
+    type Invoice = {
+      id: string;
+      number: string | null;
+      status: string;
+      issued_on: string | null;
+      due_on: string | null;
+      total_cents: number;
+      family: { display_name: string } | null;
+      child: { first_name: string; last_name: string } | null;
+      billed_to_profile: { full_name: string } | null;
+    };
+    const invoices = (data ?? []) as unknown as Invoice[];
+    const selectedInvoices = invoices.filter(
       (invoice) =>
+        (!requestedIds.size || requestedIds.has(invoice.id)) &&
         (!from || (invoice.issued_on ?? "") >= from) &&
         (!to || (invoice.issued_on ?? "") <= to),
     );
@@ -300,26 +310,47 @@ export async function GET(
     const today = dateInTimeZone(new Date(), timeZone);
     const requestedFrom = url.searchParams.get("from");
     const requestedTo = url.searchParams.get("to");
-    const weekStart = isDate(requestedFrom ?? undefined)
+    if ((requestedFrom && !isValidPayrollDate(requestedFrom)) || (requestedTo && !isValidPayrollDate(requestedTo))) {
+      return new Response("Invalid pay period date", { status: 400 });
+    }
+    const weekStart = isValidPayrollDate(requestedFrom ?? "")
       ? requestedFrom!
-      : startOfWeek(isDate(url.searchParams.get("week") ?? undefined) ? url.searchParams.get("week")! : today);
-    const weekEnd = isDate(requestedTo ?? undefined) ? requestedTo! : addDateDays(weekStart, 6);
-    const entries = await listStaffTimeEntries(
-      supabase,
-      `${addDateDays(weekStart, -1)}T00:00:00Z`,
-      `${addDateDays(weekEnd, 2)}T00:00:00Z`,
-    );
+      : startOfWeek(isValidPayrollDate(url.searchParams.get("week") ?? "") ? url.searchParams.get("week")! : today);
+    const weekEnd = isValidPayrollDate(requestedTo ?? "") ? requestedTo! : addDateDays(weekStart, 6);
+    if (weekEnd < weekStart) {
+      return new Response("Pay period end must be on or after its start", { status: 400 });
+    }
+    const { data, error } = await fetchAllReportRows((pageFrom, pageTo) => supabase
+      .from("staff_time_entries")
+      .select("id,staff_member_id,clocked_in_at,clocked_out_at,break_minutes,status,staff:staff_members(profile:profiles(full_name,classroom:classrooms!profiles_classroom_id_fkey(name))),classroom:classrooms(name)")
+      .gte("clocked_in_at", `${addDateDays(weekStart, -1)}T00:00:00Z`)
+      .lt("clocked_in_at", `${addDateDays(weekEnd, 2)}T00:00:00Z`)
+      .order("clocked_in_at")
+      .order("id")
+      .range(pageFrom, pageTo));
+    if (error) return exportFailure();
+    type TimeEntry = {
+      id: string;
+      staff_member_id: string;
+      clocked_in_at: string;
+      clocked_out_at: string | null;
+      break_minutes: number;
+      status: string;
+      staff: { profile: { full_name: string; classroom: { name: string } | null } | null } | null;
+      classroom: { name: string } | null;
+    };
+    const entries = (data ?? []) as unknown as TimeEntry[];
     const selected = entries.filter((entry) => {
       const date = dateInTimeZone(entry.clocked_in_at, timeZone);
       return date >= weekStart && date <= weekEnd;
     });
-    if (selected.length === 0 || selected.some((entry) => entry.status !== "approved")) {
+    if (selected.length === 0 || selected.some((entry) => entry.status !== "approved" || !entry.clocked_out_at)) {
       return new Response("Every time entry in the pay period must be approved before export", {
         status: 409,
       });
     }
     rows = [
-      ["Staff", "Date", "Clock in", "Clock out", "Break minutes", "Paid hours", "Room", "Status"],
+      ["Staff", "Staff record ID", "Time entry ID", "Date", "Clock in", "Clock out", "Break minutes", "Paid hours", "Room", "Status"],
       ...selected.map((entry) => {
         const paidMinutes = entry.clocked_out_at
           ? Math.max(
@@ -332,6 +363,8 @@ export async function GET(
           : 0;
         return [
           entry.staff?.profile?.full_name ?? "",
+          entry.staff_member_id,
+          entry.id,
           dateInTimeZone(entry.clocked_in_at, timeZone),
           entry.clocked_in_at,
           entry.clocked_out_at ?? "",
@@ -345,20 +378,26 @@ export async function GET(
     name = `timesheets-${weekStart}.csv`;
     exportMeta = { kind: "timesheets", startsOn: weekStart, endsOn: weekEnd };
   } else if (kind === "ratio") {
+    const timeZone = (await getMyDaycare(supabase))?.timezone ?? "America/Toronto";
+    const today = dateInTimeZone(new Date(), timeZone);
     const from = isDate(url.searchParams.get("from") ?? undefined)
       ? url.searchParams.get("from")!
-      : new Date().toISOString().slice(0, 7) + "-01";
+      : today.slice(0, 7) + "-01";
     const to = isDate(url.searchParams.get("to") ?? undefined)
       ? url.searchParams.get("to")!
-      : new Date().toISOString().slice(0, 10);
-    const { data, error } = await supabase
+      : today;
+    const rangeStart = zonedLocalToIso(from, "00:00", timeZone);
+    const rangeEnd = zonedLocalToIso(addDateDays(to, 1), "00:00", timeZone);
+    const { data, error } = await fetchAllReportRows((pageFrom, pageTo) => supabase
       .from("room_ratio_history")
       .select(
-        "starts_at,ends_at,present_count,staff_count,required_staff,max_children_per_staff,source,classroom:classrooms(name)",
+        "id,starts_at,ends_at,present_count,staff_count,required_staff,max_children_per_staff,source,classroom:classrooms(name)",
       )
-      .lt("starts_at", `${addDateDays(to, 1)}T00:00:00`)
-      .or(`ends_at.is.null,ends_at.gte.${from}T00:00:00`)
-      .order("starts_at");
+      .lt("starts_at", rangeEnd)
+      .or(`ends_at.is.null,ends_at.gt.${rangeStart}`)
+      .order("starts_at")
+      .order("id")
+      .range(pageFrom, pageTo));
     if (error) return exportFailure();
     type RatioRow = {
       starts_at: string;
@@ -372,7 +411,7 @@ export async function GET(
     };
     rows = [
       ["Room", "Starts", "Ends", "Children", "Staff", "Required staff", "Status", "Source"],
-      ...((data ?? []) as unknown as RatioRow[]).map((record) => [
+      ...((data ?? []) as unknown as RatioRow[]).filter((record) => record.source !== "legacy_event").map((record) => [
         record.classroom?.name ?? "",
         record.starts_at,
         record.ends_at ?? "Open",
@@ -386,21 +425,27 @@ export async function GET(
     name = `ratio-compliance-${from}-to-${to}.csv`;
     exportMeta = { kind: "ratio", startsOn: from, endsOn: to };
   } else if (kind === "incidents") {
+    const timeZone = (await getMyDaycare(supabase))?.timezone ?? "America/Toronto";
+    const today = dateInTimeZone(new Date(), timeZone);
     const from = isDate(url.searchParams.get("from") ?? undefined)
       ? url.searchParams.get("from")!
-      : new Date().toISOString().slice(0, 7) + "-01";
+      : today.slice(0, 7) + "-01";
     const to = isDate(url.searchParams.get("to") ?? undefined)
       ? url.searchParams.get("to")!
-      : new Date().toISOString().slice(0, 10);
-    const { data, error } = await supabase
+      : today;
+    const rangeStart = zonedLocalToIso(from, "00:00", timeZone);
+    const rangeEnd = zonedLocalToIso(addDateDays(to, 1), "00:00", timeZone);
+    const { data, error } = await fetchAllReportRows((pageFrom, pageTo) => supabase
       .from("incident_reports")
       .select(
-        "occurred_at,severity,injury_type,location,status,parent_notified_at,parent_acknowledged_at,child:children(first_name,last_name),classroom:classrooms(name)",
+        "id,occurred_at,severity,injury_type,location,status,parent_notified_at,parent_acknowledged_at,child:children(first_name,last_name),classroom:classrooms(name)",
       )
-      .gte("occurred_at", `${from}T00:00:00`)
-      .lt("occurred_at", `${addDateDays(to, 1)}T00:00:00`)
+      .gte("occurred_at", rangeStart)
+      .lt("occurred_at", rangeEnd)
       .neq("status", "draft")
-      .order("occurred_at");
+      .order("occurred_at")
+      .order("id")
+      .range(pageFrom, pageTo));
     if (error) return exportFailure();
     type IncidentRow = {
       occurred_at: string;
@@ -430,20 +475,26 @@ export async function GET(
     name = `incidents-${from}-to-${to}.csv`;
     exportMeta = { kind: "incidents", startsOn: from, endsOn: to };
   } else if (kind === "enrollment") {
+    const timeZone = (await getMyDaycare(supabase))?.timezone ?? "America/Toronto";
+    const today = dateInTimeZone(new Date(), timeZone);
     const from = isDate(url.searchParams.get("from") ?? undefined)
       ? url.searchParams.get("from")!
-      : new Date().toISOString().slice(0, 7) + "-01";
+      : today.slice(0, 7) + "-01";
     const to = isDate(url.searchParams.get("to") ?? undefined)
       ? url.searchParams.get("to")!
-      : new Date().toISOString().slice(0, 10);
-    const { data, error } = await supabase
+      : today;
+    const rangeStart = zonedLocalToIso(from, "00:00", timeZone);
+    const rangeEnd = zonedLocalToIso(addDateDays(to, 1), "00:00", timeZone);
+    const { data, error } = await fetchAllReportRows((pageFrom, pageTo) => supabase
       .from("enrollments")
       .select(
-        "created_at,guardian_name,guardian_email,child_first_name,child_last_name,stage,desired_start_date,source,waitlist_position,classroom:classrooms(name)",
+        "id,created_at,guardian_name,guardian_email,child_first_name,child_last_name,stage,desired_start_date,source,waitlist_position,classroom:classrooms(name)",
       )
-      .gte("created_at", `${from}T00:00:00`)
-      .lt("created_at", `${addDateDays(to, 1)}T00:00:00`)
-      .order("created_at");
+      .gte("created_at", rangeStart)
+      .lt("created_at", rangeEnd)
+      .order("created_at")
+      .order("id")
+      .range(pageFrom, pageTo));
     if (error) return exportFailure();
     type EnrollmentRow = {
       created_at: string;
@@ -477,22 +528,28 @@ export async function GET(
     return new Response("Unknown report", { status: 404 });
   }
 
+  const csv = csvRows(rows);
   if (exportMeta && profile?.daycare_id) {
-    const { error } = await supabase.from("report_exports").insert({
-      daycare_id: profile.daycare_id,
-      created_by: profile.id,
-      report_kind: exportMeta.kind,
-      title: REPORT_CATALOG[exportMeta.kind].title,
-      starts_on: exportMeta.startsOn,
-      ends_on: exportMeta.endsOn,
-      format: "csv",
-      row_count: Math.max(0, rows.length - 1),
-      parameters: Object.fromEntries(url.searchParams.entries()),
-    });
-    if (error) return exportFailure();
+    try {
+      await archiveReport(supabase, {
+        daycareId: profile.daycare_id,
+        profileId: profile.id,
+        kind: exportMeta.kind,
+        format: "csv",
+        startsOn: exportMeta.startsOn,
+        endsOn: exportMeta.endsOn,
+        rowCount: Math.max(0, rows.length - 1),
+        parameters: Object.fromEntries(url.searchParams.entries()),
+        bytes: Buffer.from(csv, "utf8"),
+      });
+    } catch (error) {
+      return error instanceof ReportArchiveTooLargeError
+        ? new Response(error.message, { status: 413 })
+        : exportFailure();
+    }
   }
 
-  return new Response(csv(rows), {
+  return new Response(csv, {
     headers: {
       "Content-Type": "text/csv; charset=utf-8",
       "Content-Disposition": `attachment; filename="${name}"`,

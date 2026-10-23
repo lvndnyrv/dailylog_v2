@@ -1,11 +1,7 @@
 import { getMyProfile } from "@dailylog/db/queries";
 import { isAdminRole } from "@dailylog/shared";
 import { getServerSupabase } from "@/lib/supabase/server";
-
-function csv(value: unknown): string {
-  const text = value == null ? "" : String(value);
-  return /[",\n\r]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
-}
+import { csvCell } from "@/lib/csv";
 
 export async function GET() {
   const supabase = await getServerSupabase();
@@ -37,7 +33,7 @@ export async function GET() {
       entry.action,
       entry.entity_type,
       entry.entity_id ?? "",
-    ].map(csv).join(","));
+    ].map(csvCell).join(","));
   }
   await supabase.rpc("record_audit_log_export", { p_row_count: data?.length ?? 0 });
 

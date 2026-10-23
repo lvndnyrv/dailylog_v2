@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { authCookieOptions, SESSION_ONLY_COOKIE } from "@/lib/auth/session-cookie";
 
 // Next 16 proxy (né middleware): refreshes the Supabase session cookie on
 // every matched request and keeps signed-out users out of the console.
@@ -12,12 +13,15 @@ const PUBLIC_PATHS = [
   "/invite",
   "/start",
   "/signed-out",
+  "/sign-out-error",
   "/inquire",
   "/inspection",
   "/privacy",
   "/account-deletion",
+  "/sign-out-error",
   "/support",
   "/auth/callback",
+  "/internal/report-delivery",
 ];
 
 const SENSITIVE_PUBLIC_PATHS = [
@@ -38,6 +42,7 @@ export async function proxy(request: NextRequest) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   if (!url || !anonKey) return response;
+  const sessionOnly = request.cookies.get(SESSION_ONLY_COOKIE)?.value === "1";
 
   const supabase = createServerClient(url, anonKey, {
     cookies: {
@@ -50,7 +55,7 @@ export async function proxy(request: NextRequest) {
         }
         response = NextResponse.next({ request });
         for (const { name, value, options } of cookiesToSet) {
-          response.cookies.set(name, value, options);
+          response.cookies.set(name, value, authCookieOptions(options, sessionOnly));
         }
       },
     },
@@ -78,7 +83,7 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(signIn);
   }
 
-  if (user && (pathname === "/sign-in" || pathname === "/start")) {
+  if (user && pathname === "/sign-in") {
     const home = request.nextUrl.clone();
     home.pathname = "/";
     home.search = "";

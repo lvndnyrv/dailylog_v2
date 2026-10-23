@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -24,6 +25,15 @@ function requireValue(label, value, predicate = (item) => Boolean(item)) {
 requireValue('Expo SDK 57 dependency alignment', mobilePackage.dependencies?.expo, (value) =>
   /(?:\^|~)?57\./.test(value),
 );
+const dependencyCheck = spawnSync('pnpm', ['--filter', '@dailylog/mobile', 'check:dependencies'], {
+  cwd: root,
+  encoding: 'utf8',
+});
+if (dependencyCheck.error || dependencyCheck.status !== 0) {
+  errors.push('Expo SDK package versions are not aligned (run pnpm check:mobile-dependencies)');
+  if (dependencyCheck.error) console.error(dependencyCheck.error.message);
+  else console.error(dependencyCheck.stdout || dependencyCheck.stderr);
+}
 
 requireValue('extra.eas.projectId', app.extra?.eas?.projectId, (value) =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value),

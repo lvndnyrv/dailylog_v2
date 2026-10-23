@@ -13,21 +13,19 @@ import { money, monthLabel, ScreenHeader, sharedStyles } from './ParentBillingSh
 export default function ParentStatementsScreen({ navigation }) {
   const { home, loading, error, refresh } = useParentBilling();
   const [exporting, setExporting] = useState('');
-  const taxReceipt = home?.tax_receipt;
 
   useFocusEffect(useCallback(() => {
     refresh().catch(() => {});
   }, [refresh]));
 
-  async function share(kind, data) {
-    setExporting(kind);
+  async function share(statement) {
+    setExporting(statement.id);
     try {
       await exportBillingStatementPdf({
-        kind,
         familyName: home.family_name,
         daycareName: home.daycare_name,
         billingEmail: home.billing_email,
-        statement: data,
+        statement,
       });
     } catch (shareError) {
       Alert.alert('Could not prepare PDF', shareError.message || 'Please try again.');
@@ -48,30 +46,13 @@ export default function ParentStatementsScreen({ navigation }) {
       ) : null}
       {home ? (
         <ScrollView contentContainerStyle={sharedStyles.content}>
-          {taxReceipt ? (
-            <TouchableOpacity
-              style={styles.taxCard}
-              disabled={Boolean(exporting)}
-              onPress={() => share('tax', taxReceipt)}
-              accessibilityRole="button"
-              accessibilityLabel={`Download ${taxReceipt.year} tax receipt`}
-            >
-              <View style={styles.taxIcon}><Ionicons name="document-text-outline" size={21} color={colors.success} /></View>
-              <View style={styles.taxCopy}>
-                <Text style={styles.taxTitle}>{taxReceipt.year} Tax receipt</Text>
-                <Text style={styles.taxSubtitle}>Year-end childcare summary · {money(taxReceipt.total_cents, 'CAD', false)}</Text>
-              </View>
-              {exporting === 'tax' ? <ActivityIndicator color={colors.success} /> : <Ionicons name="download-outline" size={21} color={colors.success} />}
-            </TouchableOpacity>
-          ) : (
-            <View style={styles.taxUnavailableCard}>
-              <View style={styles.taxUnavailableIcon}><Ionicons name="time-outline" size={21} color={colors.amber} /></View>
-              <View style={styles.taxCopy}>
-                <Text style={styles.taxTitle}>Tax receipt not ready yet</Text>
-                <Text style={styles.taxUnavailableText}>Your annual childcare receipt will appear here after the center closes the calendar year.</Text>
-              </View>
+          <View style={styles.taxUnavailableCard}>
+            <View style={styles.taxUnavailableIcon}><Ionicons name="time-outline" size={21} color={colors.amber} /></View>
+            <View style={styles.taxCopy}>
+              <Text style={styles.taxTitle}>Annual tuition statement not published</Text>
+              <Text style={styles.taxUnavailableText}>Your center will review each child’s payments and share a year-end statement here when it is ready. Monthly statements below are still available.</Text>
             </View>
-          )}
+          </View>
 
           <Text style={styles.sectionTitle}>Monthly statements</Text>
           <View style={styles.statementList}>
@@ -80,7 +61,7 @@ export default function ParentStatementsScreen({ navigation }) {
                 key={statement.id}
                 style={styles.statementRow}
                 disabled={Boolean(exporting)}
-                onPress={() => share(statement.id, statement)}
+                onPress={() => share(statement)}
               >
                 <View style={styles.statementIcon}><Ionicons name="document-outline" size={18} color={colors.textFaint} /></View>
                 <View style={styles.statementCopy}>
@@ -100,7 +81,7 @@ export default function ParentStatementsScreen({ navigation }) {
             </View>
           ) : null}
 
-          <Text style={styles.footerNote}>PDFs are generated from your family-scoped billing record and opened in the iOS share sheet.</Text>
+          <Text style={styles.footerNote}>Monthly statement PDFs are generated from your family billing record and opened in the share sheet. They are not annual tuition or tax statements.</Text>
         </ScrollView>
       ) : null}
     </SafeAreaView>
@@ -111,11 +92,8 @@ const styles = StyleSheet.create({
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.xl },
   error: { color: colors.danger, fontFamily: fonts.regular, fontSize: 14, textAlign: 'center' },
   retry: { color: colors.primary, fontFamily: fonts.bold, fontSize: 14, marginTop: spacing.md },
-  taxCard: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, backgroundColor: colors.successLight, borderWidth: 1.5, borderColor: '#CBE5D7', borderRadius: 16, padding: spacing.lg, marginTop: spacing.sm },
-  taxIcon: { width: 42, height: 42, borderRadius: radius.md, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
   taxCopy: { flex: 1, minWidth: 0 },
   taxTitle: { color: colors.textPrimary, fontFamily: fonts.black, fontSize: 15 },
-  taxSubtitle: { color: '#1B6B45', fontFamily: fonts.regular, fontSize: 12.5, marginTop: 3 },
   taxUnavailableCard: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, backgroundColor: colors.amberLight, borderWidth: 1.5, borderColor: 'rgba(176,120,43,0.2)', borderRadius: 16, padding: spacing.lg, marginTop: spacing.sm },
   taxUnavailableIcon: { width: 42, height: 42, borderRadius: radius.md, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
   taxUnavailableText: { color: colors.textMuted, fontFamily: fonts.regular, fontSize: 12.5, lineHeight: 18, marginTop: 3 },

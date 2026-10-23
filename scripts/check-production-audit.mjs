@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { isApprovedTemporaryException } from "./production-audit-exceptions.mjs";
 
 const reviewBy = new Date("2026-11-15T00:00:00Z");
 const temporaryExceptions = new Map([
@@ -8,7 +9,7 @@ const temporaryExceptions = new Map([
   ],
   [
     "https://github.com/advisories/GHSA-86w9-cpqp-85rv",
-    "Expo CLI currently resolves node-forge 1.4.0; npm has not published the advised 1.4.1 fix.",
+    "Expo CLI and expo-updates code-signing tools resolve node-forge 1.4.0; no patched npm version is published.",
   ],
 ]);
 
@@ -36,9 +37,9 @@ const advisories = Object.values(report.advisories ?? {});
 const blocked = advisories.filter(
   (advisory) =>
     blockedSeverities.has(advisory.severity) &&
-    !temporaryExceptions.has(advisory.url),
+    !isApprovedTemporaryException(advisory),
 );
-const known = advisories.filter((advisory) => temporaryExceptions.has(advisory.url));
+const known = advisories.filter((advisory) => isApprovedTemporaryException(advisory));
 
 if (blocked.length > 0) {
   console.error("Production dependency audit found unapproved advisories:");

@@ -7,6 +7,7 @@ import type {
 import Link from "next/link";
 import { AlertTriangle, Bell, CheckCircle2, Clock3, Mail, Smartphone } from "lucide-react";
 import { useState } from "react";
+import type { NotificationPreferenceKind } from "@/lib/notifications/config";
 import { DeliveryHealthModal } from "./delivery-health-modal";
 import { useNotificationCenter } from "./notification-center";
 import {
@@ -31,6 +32,16 @@ const FILTERS: Array<{ value: ActivityFilter; label: string }> = [
   { value: "billing", label: "Billing" },
 ];
 
+const PREFERENCE_NAMES: Record<NotificationPreferenceKind, string> = {
+  ratio_alert: "Ratio alerts",
+  incident_report: "Incident reports",
+  cert_expiry: "Cert & license expiry",
+  compliance_due: "Compliance deadlines",
+  overdue_billing: "Overdue billing",
+  new_device_sign_in: "New device sign-in",
+  waitlist_enrollment: "Waitlist & enrollment",
+};
+
 export function NotificationActivityView({
   deliveryHealth,
   pushReachability,
@@ -43,7 +54,10 @@ export function NotificationActivityView({
     unreadCount,
     preferences,
     quietHoursEnabled,
+    hasOlderNotifications,
+    loadingOlderNotifications,
     actionError,
+    loadOlderNotifications,
     markRead,
     markAllRead,
     openSettings,
@@ -57,10 +71,22 @@ export function NotificationActivityView({
     return notificationPresentation(notification).category === filter;
   });
   const pushOn = preferences.some((preference) => preference.push);
-  const emailOn = preferences.some((preference) => preference.email);
+  const digestEmailOn = preferences.some((preference) => preference.email && [
+    "cert_expiry", "compliance_due", "overdue_billing", "waitlist_enrollment",
+  ].includes(preference.kind));
+  const urgentEmailOn = preferences.some((preference) => preference.email && [
+    "ratio_alert", "incident_report", "new_device_sign_in",
+  ].includes(preference.kind));
+  const emailOn = digestEmailOn || urgentEmailOn;
+  const emailSummary = digestEmailOn
+    ? urgentEmailOn ? "Digest + urgent" : "Daily digest"
+    : urgentEmailOn ? "Urgent only" : "Off";
+  const mutedPreferences = preferences.filter((preference) =>
+    !preference.inApp && !preference.push && !preference.email,
+  );
 
   return (
-    <div className="flex flex-1 gap-5 p-7 pt-5">
+    <div className="flex flex-1 flex-col gap-5 p-4 pt-5 xl:flex-row xl:p-7 xl:pt-5">
       <main className="flex min-w-0 flex-1 flex-col gap-4">
         <div className="flex items-center gap-2.5">
           <span className="min-w-0">
@@ -113,8 +139,14 @@ export function NotificationActivityView({
         {filtered.length === 0 && (
           <div className="rounded-2xl border-[1.5px] border-[#D6E1F0] bg-card px-5 py-12 text-center">
             <Bell size={22} strokeWidth={1.6} className="mx-auto text-faint" aria-hidden />
-            <p className="mt-2 text-[13px] font-bold text-ink">Nothing in this view</p>
-            <p className="text-[11.5px] text-faint">Try another filter or check back later.</p>
+            <p className="mt-2 text-[13px] font-bold text-ink">
+              {hasOlderNotifications ? "No matches in recent activity" : "Nothing in this view"}
+            </p>
+            <p className="text-[11.5px] text-faint">
+              {hasOlderNotifications
+                ? "Load older activity to search further back, or try another filter."
+                : "Try another filter or check back later."}
+            </p>
           </div>
         )}
 
@@ -188,9 +220,19 @@ export function NotificationActivityView({
             </div>
           );
         })}
+        {hasOlderNotifications && (
+          <button
+            type="button"
+            onClick={() => void loadOlderNotifications()}
+            disabled={loadingOlderNotifications}
+            className="self-center rounded-btn border-[1.5px] border-[#D6E1F0] bg-card px-5 py-2.5 text-[12px] font-bold text-primary hover:bg-canvas disabled:opacity-60"
+          >
+            {loadingOlderNotifications ? "Loading older activity…" : "Load older activity"}
+          </button>
+        )}
       </main>
 
-      <aside className="flex w-72 flex-none flex-col gap-4">
+      <aside className="flex w-full flex-none flex-col gap-4 xl:w-72">
         <section className="rounded-2xl border-[1.5px] border-[#D6E1F0] bg-card p-4">
           <div className="flex items-center gap-2">
             {deliveryHealth.counts.failed > 0 ? (
@@ -224,8 +266,13 @@ export function NotificationActivityView({
         <section className="rounded-2xl border-[1.5px] border-[#D6E1F0] bg-card p-4">
           <h2 className="mb-3 text-[14px] font-extrabold text-ink">How you&apos;re notified</h2>
           <DeliveryRow icon={Bell} label="In-app" value="On" active />
-          <DeliveryRow icon={Smartphone} label="Push · this phone" value={pushOn ? "On" : "Off"} active={pushOn} />
-          <DeliveryRow icon={Mail} label="Email" value={emailOn ? "Daily digest" : "Off"} active={emailOn} />
+          <DeliveryRow icon={Smartphone} label="Push alerts" value={pushOn ? "Enabled" : "Off"} active={pushOn} />
+          <DeliveryRow icon={Mail} label="Email alerts" value={emailSummary} active={emailOn} />
+          {digestEmailOn && (
+            <p className="mt-2 text-[10.5px] leading-normal text-faint">
+              Non-urgent alerts are grouped after 8 AM in your center&apos;s timezone. Urgent email is separate.
+            </p>
+          )}
           <button
             type="button"
             onClick={openSettings}
@@ -235,11 +282,14 @@ export function NotificationActivityView({
           </button>
         </section>
 
-        <section className="rounded-2xl border-[1.5px] border-[#D6E1F0] bg-card p-4">
-          <h2 className="mb-2.5 text-[14px] font-extrabold text-ink">Muted</h2>
-          <MutedRow label="Daily summary" onUnmute={openSettings} />
-          <MutedRow label="Family messages · in Messages only" onUnmute={openSettings} />
-        </section>
+        {mutedPreferences.length > 0 && (
+          <section className="rounded-2xl border-[1.5px] border-[#D6E1F0] bg-card p-4">
+            <h2 className="mb-2.5 text-[14px] font-extrabold text-ink">Muted</h2>
+            {mutedPreferences.map((preference) => (
+              <MutedRow key={preference.kind} label={PREFERENCE_NAMES[preference.kind]} onUnmute={openSettings} />
+            ))}
+          </section>
+        )}
 
         <section className="rounded-2xl border-[1.5px] border-[#D6E1F0] bg-canvas p-4">
           <div className="flex items-center gap-2">

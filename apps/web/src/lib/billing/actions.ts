@@ -3,9 +3,7 @@
 import {
   createBillingPlan,
   createInvoice,
-  enqueueEmailNotification,
   getMyProfile,
-  hasPermission,
   recordInvoicePayment,
   voidInvoice,
   type InvoiceLineInput,
@@ -22,6 +20,7 @@ export interface BillingBulkActionState {
   error?: string;
   ok?: boolean;
   queued?: number;
+  skipped?: number;
 }
 
 function str(formData: FormData, key: string): string {
@@ -143,66 +142,19 @@ export async function sendInvoiceRemindersAction(
   if (ids.length === 0) return { error: "Select at least one invoice." };
 
   const supabase = await getServerSupabase();
-  const profile = await getMyProfile(supabase);
-  if (!profile?.daycare_id || !(await hasPermission(supabase, "billing", "edit"))) {
-    return { error: "Billing edit permission required." };
-  }
-
-  const { data, error } = await supabase
-    .from("invoices")
-    .select(
-      "id, number, total_cents, due_on, status, billed_to_profile:profiles!invoices_billed_to_fkey(full_name, email)",
-    )
-    .in("id", ids)
-    .in("status", ["open", "overdue"]);
+  const { data, error } = await supabase.rpc("queue_overdue_invoice_reminders", {
+    p_invoice_ids: ids,
+  });
   if (error) return { error: error.message };
-
-  const today = new Date().toISOString().slice(0, 10);
-  let queued = 0;
-  for (const invoice of data ?? []) {
-    const recipient = invoice.billed_to_profile as unknown as {
-      full_name: string;
-      email: string;
-    } | null;
-    if (!recipient?.email) continue;
-    try {
-      const outboxId = await enqueueEmailNotification(supabase, {
-        daycareId: profile.daycare_id,
-        recipientEmail: recipient.email,
-        kind: "invoice_reminder",
-        title: `Reminder: invoice ${invoice.number ?? "from your center"}`,
-        body: `${recipient.full_name}, your ${dollarsForEmail(invoice.total_cents)} invoice${
-          invoice.due_on ? ` was due ${invoice.due_on}` : " is ready"
-        }. Please contact the center if you have questions.`,
-        payload: { type: "invoice_reminder", invoiceId: invoice.id },
-        dedupeKey: `invoice-reminder:${invoice.id}:${today}`,
-      });
-      if (!outboxId) continue;
-      const overdueDays = invoice.due_on
-        ? Math.max(0, Math.floor((Date.parse(`${today}T12:00`) - Date.parse(`${invoice.due_on}T12:00`)) / 86400000))
-        : 0;
-      const { error: historyError } = await supabase.from("invoice_reminder_events").insert({
-        daycare_id: profile.daycare_id,
-        invoice_id: invoice.id,
-        sent_by: profile.id,
-        outbox_id: outboxId,
-        recipient_email: recipient.email,
-        tone: overdueDays >= 14 ? "firm" : "friendly",
-      });
-      if (historyError) throw historyError;
-      queued += 1;
-    } catch {
-      // Continue the batch so one invalid recipient does not block the rest.
-    }
+  const result = data as { queued?: number; skipped?: number } | null;
+  const queued = result?.queued ?? 0;
+  const skipped = result?.skipped ?? 0;
+  if (queued > 0) {
+    revalidatePath("/billing");
+    revalidatePath("/dashboard");
+    return { ok: true, queued, skipped };
   }
-
-  return queued > 0
-    ? { ok: true, queued }
-    : { error: "No selected open invoice has a bill-to email." };
+  return { error: "No selected invoice is eligible. Check due date, balance, autopay, and recipient email.", skipped };
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-function dollarsForEmail(cents: number): string {
-  return (cents / 100).toLocaleString("en-CA", { style: "currency", currency: "CAD" });
-}

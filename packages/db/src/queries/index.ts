@@ -65,6 +65,7 @@ export async function updateMyDaycare(
     closes_at?: string;
     licensed_capacity?: number;
     license_number?: string | null;
+    sick_return_hours?: number;
   },
 ) {
   const profile = await getMyProfile(client);
@@ -73,7 +74,9 @@ export async function updateMyDaycare(
   const { error } = await client
     .from('daycares')
     .update(values)
-    .eq('id', profile.daycare_id);
+    .eq('id', profile.daycare_id)
+    .select('id')
+    .single();
   if (error) throw error;
 }
 

@@ -247,7 +247,23 @@ export async function verifyMobilePickupPass({ token, code, expectedChildId }) {
   throwIfError(error);
   const row = firstRow(data);
   if (!row) throw new Error('No matching pickup pass was found.');
-  return row;
+  // Fail closed if the policy lookup cannot be completed. A successful pass
+  // match alone does not establish whether this adult needs a photo-ID check.
+  const { data: idCheckRequired, error: policyError } = await supabase.rpc(
+    'get_mobile_pickup_id_check_requirement', { p_pass_id: row.pass_id },
+  );
+  throwIfError(policyError);
+  if (typeof idCheckRequired !== 'boolean') {
+    throw new Error('Could not confirm the center pickup ID policy. Try again.');
+  }
+  return { ...row, id_check_required: idCheckRequired === true };
+}
+
+export async function attestMobilePickupIdCheck(passId) {
+  const { error } = await supabase.rpc('attest_mobile_pickup_id_check', {
+    p_pass_id: passId,
+  });
+  throwIfError(error);
 }
 
 export async function completeMobilePickup(passId) {

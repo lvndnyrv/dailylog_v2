@@ -14,8 +14,12 @@ export function createServerSupabase(
   url: string,
   anonKey: string,
   cookies: CookieAdapter,
+  userAgent?: string,
 ) {
-  return createServerClient<Database>(url, anonKey, { cookies });
+  return createServerClient<Database>(url, anonKey, {
+    cookies,
+    ...(userAgent ? { global: { headers: { 'User-Agent': userAgent } } } : {}),
+  });
 }
 
 export type ServerSupabase = ReturnType<typeof createServerSupabase>;

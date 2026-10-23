@@ -118,6 +118,7 @@ export async function listMyNotifications(
     .from('notifications')
     .select('*')
     .order('created_at', { ascending: false })
+    .order('id', { ascending: false })
     .limit(Math.min(Math.max(limit, 1), 200));
   if (error) throw error;
   return data ?? [];

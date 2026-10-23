@@ -9,10 +9,13 @@ import {
   getStaffInvite,
 } from "@dailylog/db/queries";
 import { revalidatePath } from "next/cache";
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { getServerSupabase } from "@/lib/supabase/server";
 import { validateUpload } from "@/lib/uploads";
+import { safeInternalDestination } from "./destination";
 import { roleDestination } from "./redirect";
+import { SESSION_ONLY_COOKIE } from "./session-cookie";
 import { trustedRequestOrigin } from "./trusted-origin";
 
 export interface ActionState {
@@ -22,13 +25,6 @@ export interface ActionState {
 
 function configured(): boolean {
   return Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL);
-}
-
-function safeDestination(value: FormDataEntryValue | null, fallback: string): string {
-  const destination = typeof value === "string" ? value : "";
-  return destination.startsWith("/") && !destination.startsWith("//")
-    ? destination
-    : fallback;
 }
 
 async function securedDestination(
@@ -65,14 +61,29 @@ function validEmail(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 
+async function setRememberPreference(remember: boolean) {
+  const store = await cookies();
+  if (remember) {
+    store.delete(SESSION_ONLY_COOKIE);
+  } else {
+    store.set(SESSION_ONLY_COOKIE, "1", {
+      path: "/",
+      httpOnly: false,
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+    });
+  }
+}
+
 export async function signInAction(
   _prev: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
   if (!configured()) return NOT_CONFIGURED;
+  await setRememberPreference(formData.get("remember") === "on");
   const supabase = await getServerSupabase();
 
-  const { error } = await supabase.auth.signInWithPassword({
+  const { data, error } = await supabase.auth.signInWithPassword({
     email: String(formData.get("email") ?? "").trim(),
     password: String(formData.get("password") ?? ""),
   });
@@ -82,7 +93,10 @@ export async function signInAction(
 
   const profile = await getMyProfile(supabase);
   if (!profile || profile.archived_at) redirect("/account-issue");
-  const destination = safeDestination(formData.get("next"), roleDestination(profile?.role));
+  if (!profile.daycare_id && data.user?.user_metadata?.center_registration_code) {
+    redirect("/start");
+  }
+  const destination = safeInternalDestination(formData.get("next"), roleDestination(profile?.role));
   redirect(await securedDestination(supabase, profile?.role, destination));
 }
 
@@ -100,7 +114,8 @@ export async function magicLinkAction(
   if (!validEmail(email)) {
     return { error: "Enter a valid work email first, then request the link." };
   }
-  const destination = safeDestination(formData.get("next"), "/");
+  await setRememberPreference(formData.get("remember") === "on");
+  const destination = safeInternalDestination(formData.get("next"), "/");
   const callback = new URL("/auth/callback", origin);
   callback.searchParams.set("next", destination);
 
@@ -151,6 +166,12 @@ export async function resetPasswordAction(
   if (error) {
     return { error: "The reset link expired or was already used — request a new one." };
   }
+  // The recovery link itself establishes a session. End that session so the
+  // promised sign-in step really requires the new password.
+  const { error: signOutError } = await supabase.auth.signOut({ scope: "local" });
+  if (signOutError) {
+    return { error: "Password saved, but this recovery session is still open. Sign out before using the new password." };
+  }
   redirect("/sign-in?reset=done");
 }
 
@@ -162,27 +183,37 @@ export async function acceptInviteAction(
   const supabase = await getServerSupabase();
 
   const code = String(formData.get("code") ?? "").trim();
-  const email = String(formData.get("email") ?? "").trim();
+  const invite = await getStaffInvite(supabase, code).catch(() => null);
+  if (!invite) return { error: "This invite expired or was already used. Ask your center to send a new one." };
+  const email = invite.email;
   const password = String(formData.get("password") ?? "");
   const termsAccepted = formData.get("terms_accepted") === "on";
   if (!termsAccepted) {
     return { error: "Accept the Staff Terms and confidentiality policy to continue." };
   }
-  if (password.length < 12) {
-    return { error: "12+ characters — that's the only rule." };
-  }
-
   const {
     data: { user: existing },
   } = await supabase.auth.getUser();
+  if (existing && existing.email?.toLowerCase() !== email.toLowerCase()) {
+    return { error: "This invite belongs to another email. Sign out and open the invite with that account." };
+  }
+  if (!existing && password.length < 12) {
+    return { error: "12+ characters — that's the only rule." };
+  }
 
   if (!existing) {
     // carry the invite's name into the new profile (handle_new_user reads it)
-    const invite = await getStaffInvite(supabase, code).catch(() => null);
+    const origin = await trustedRequestOrigin();
+    if (!origin) return { error: "Could not create a secure confirmation link. Refresh and try again." };
+    const callback = new URL("/auth/callback", origin);
+    callback.searchParams.set("next", `/invite?code=${encodeURIComponent(code)}`);
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      options: { data: { full_name: invite?.full_name ?? "" } },
+      options: {
+        emailRedirectTo: callback.toString(),
+        data: { full_name: invite.full_name ?? "" },
+      },
     });
 
     // Re-opening the link after the account exists (e.g. confirmed email, or a
@@ -234,10 +265,11 @@ export async function startCenterAction(
   const address = String(formData.get("address") ?? "").trim();
   const phone = String(formData.get("phone") ?? "").trim();
   const registrationCode = String(formData.get("registration_code") ?? "").trim();
-  if (!centerName || !fullName || !email || !address || !phone || !registrationCode) {
+  const { data: { user: existingUser } } = await supabase.auth.getUser();
+  if (!centerName || (!existingUser && !fullName) || !email || !address || !phone || !registrationCode) {
     return { error: "Complete every required field, including your registration code." };
   }
-  if (password.length < 12) {
+  if (!existingUser && password.length < 12) {
     return { error: "12+ characters — that's the only rule." };
   }
 
@@ -258,28 +290,43 @@ export async function startCenterAction(
     };
   }
 
-  const { data, error } = await supabase.auth.signUp({
-    email,
-    password,
-    options: {
-      data: {
-        full_name: fullName,
-        center_registration_code: registrationCode,
-        approved_center_name: preview.center_name,
+  if (existingUser) {
+    if (existingUser.email?.toLowerCase() !== email.toLowerCase()) {
+      return { error: "This registration code belongs to another email. Sign out and use the approved account." };
+    }
+    const currentProfile = await getMyProfile(supabase);
+    if (currentProfile?.daycare_id) {
+      return { error: "This account already belongs to a center. Sign in to manage it." };
+    }
+  } else {
+    const origin = await trustedRequestOrigin();
+    if (!origin) return { error: "Could not create a secure confirmation link. Refresh and try again." };
+    const callback = new URL("/auth/callback", origin);
+    callback.searchParams.set("next", "/start");
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        emailRedirectTo: callback.toString(),
+        data: {
+          full_name: fullName,
+          center_registration_code: registrationCode,
+          approved_center_name: preview.center_name,
+        },
       },
-    },
-  });
-  if (error) {
-    return {
-      error:
-        "We could not create this approved account. If this email already has a DailyLog account, sign in or reset its password.",
-    };
-  }
-  if (!data.session) {
-    return {
-      error:
-        "Account created — confirm your email, then finish the approved center setup in the DailyLog app.",
-    };
+    });
+    if (error) {
+      return {
+        error:
+          "We could not create this approved account. If this email already has a DailyLog account, sign in or reset its password.",
+      };
+    }
+    if (!data.session) {
+      return {
+        error:
+          "Account created — confirm your email, then sign in and return here to finish center setup.",
+      };
+    }
   }
 
   try {
@@ -297,7 +344,7 @@ export async function startCenterAction(
     });
   } catch {
     return {
-      error: "The approved center could not be created. Your code was not consumed; try again.",
+      error: "The approved center could not be created. Your code was not consumed; correct any room details and try again here.",
     };
   }
 
@@ -307,7 +354,24 @@ export async function startCenterAction(
 export async function signOutAction(formData?: FormData): Promise<void> {
   const supabase = await getServerSupabase();
   const everywhere = formData?.get("everywhere") === "1";
-  await supabase.auth.signOut({ scope: everywhere ? "global" : "local" });
+  const { error } = await supabase.auth.signOut({ scope: everywhere ? "global" : "local" });
+  if (error) redirect("/sign-out-error");
+  (await cookies()).delete(SESSION_ONLY_COOKIE);
+  revalidatePath("/", "layout");
+  redirect(safeInternalDestination(formData?.get("next") ?? null, "/signed-out"));
+}
+
+export async function signOutWithStateAction(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const supabase = await getServerSupabase();
+  const everywhere = formData.get("everywhere") === "1";
+  const { error } = await supabase.auth.signOut({ scope: everywhere ? "global" : "local" });
+  if (error) {
+    return { error: "We couldn't confirm sign-out. Your session may still be active. Please try again." };
+  }
+  (await cookies()).delete(SESSION_ONLY_COOKIE);
   revalidatePath("/", "layout");
   redirect("/signed-out");
 }

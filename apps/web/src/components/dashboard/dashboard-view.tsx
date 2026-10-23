@@ -78,6 +78,7 @@ export function DashboardView({
   attendance,
   billing,
   overdueInvoices,
+  centerToday,
   enrollment,
   offers,
   certIssues,
@@ -91,6 +92,7 @@ export function DashboardView({
   attendance: AttendanceDayRow[];
   billing: BillingSummary | null;
   overdueInvoices: InvoiceRow[];
+  centerToday: string;
   enrollment: Enrollment;
   offers: Offer[];
   certIssues: CertIssue[];
@@ -411,13 +413,13 @@ export function DashboardView({
                 {Number(billing?.open_count ?? 0)}
               </SnapshotRow>
             </dl>
-            {Number(billing?.overdue_count ?? 0) > 0 && (
+            {overdueInvoices.length > 0 && (
               <button
                 type="button"
                 onClick={() => setPaymentRemindersOpen(true)}
                 className="mt-3 block text-[12px] font-bold text-primary hover:text-primary-hover"
               >
-                Send reminders for {Number(billing?.overdue_count)} overdue →
+                Review {overdueInvoices.length} overdue reminder{overdueInvoices.length === 1 ? "" : "s"} →
               </button>
             )}
           </section>
@@ -456,7 +458,7 @@ export function DashboardView({
 
       {signing && <SignOffModal incident={signing} onClose={closeSignOff} />}
       {paymentRemindersOpen && (
-        <PaymentReminderModal invoices={overdueInvoices} onClose={() => setPaymentRemindersOpen(false)} />
+        <PaymentReminderModal invoices={overdueInvoices} today={centerToday} onClose={() => setPaymentRemindersOpen(false)} />
       )}
       {quietRoom && (
         <QuietRoomModal room={quietRoom} onClose={() => setQuietRoom(null)} />
@@ -534,18 +536,15 @@ function SnapshotRow({
 
 function PaymentReminderModal({
   invoices,
+  today,
   onClose,
 }: {
   invoices: InvoiceRow[];
+  today: string;
   onClose: () => void;
 }) {
-  const [today] = useState(() => new Date().toISOString().slice(0, 10));
   const [selected, setSelected] = useState<Set<string>>(
-    () => new Set(invoices.filter((invoice) => {
-      if (!invoice.due_on) return false;
-      const days = Math.floor((Date.parse(`${today}T12:00`) - Date.parse(`${invoice.due_on}T12:00`)) / 86400000);
-      return days < 21;
-    }).map((invoice) => invoice.id)),
+    () => new Set(invoices.map((invoice) => invoice.id)),
   );
   const [message, setMessage] = useState<{ tone: "success" | "error"; text: string } | null>(null);
   const [pending, startTransition] = useTransition();
@@ -571,7 +570,7 @@ function PaymentReminderModal({
               <span className="min-w-0 flex-1">
                 <b className="block truncate text-[13px] text-ink">{name} · {dollars(invoice.total_cents)}</b>
                 <span className="block text-[11.5px] text-muted">
-                  {days} day{days === 1 ? "" : "s"} · {days >= 14 ? "follow-up — firmer tone" : "first reminder — friendly tone"}
+                  {days} day{days === 1 ? "" : "s"} overdue · tone follows prior reminder history
                 </span>
               </span>
               <input
@@ -593,7 +592,7 @@ function PaymentReminderModal({
         <div className="rounded-[13px] bg-canvas px-4 py-3">
           <p className="font-mono text-[10px] font-bold uppercase tracking-[.07em] text-faint">What families get</p>
           <p className="mt-1 text-[12.5px] leading-relaxed text-ink">
-            “Hi — a reminder that your DailyLog invoice is past due. Pay securely from the app, or reply if something is up.”
+            An email with the remaining balance and due date, plus a secure payment prompt. A prior reminder changes the tone to a follow-up.
           </p>
         </div>
       )}

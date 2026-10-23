@@ -2,6 +2,7 @@ import {
   getBillingSummary,
   listBillingPlans,
   listChildTuitionRates,
+  listFamilies,
   listInvoices,
   listRoster,
 } from "@dailylog/db/queries";
@@ -18,12 +19,14 @@ export default async function BillingPage({
 }) {
   const params = await searchParams;
   const supabase = await getServerSupabase();
-  const [summary, invoices, plans, tuitionRates, roster] = await Promise.all([
+  const [summary, invoices, plans, tuitionRates, roster, families, reminderEligibility] = await Promise.all([
     getBillingSummary(supabase),
     listInvoices(supabase),
     listBillingPlans(supabase),
     listChildTuitionRates(supabase),
     listRoster(supabase),
+    listFamilies(supabase, { includeArchived: true }),
+    supabase.rpc("get_overdue_reminder_eligible_ids"),
   ]);
 
   const monthLabel = new Date().toLocaleDateString("en-CA", { month: "long" });
@@ -37,6 +40,7 @@ export default async function BillingPage({
       <BillingView
         summary={summary}
         invoices={invoices}
+        reminderEligibleIds={reminderEligibility.error ? [] : reminderEligibility.data ?? []}
         plans={plans}
         tuitionRates={tuitionRates}
         openNew={params.new === "1"}
@@ -57,6 +61,14 @@ export default async function BillingPage({
             } : null,
           };
         })}
+        families={families.map((family) => ({
+          id: family.id,
+          name: family.display_name,
+          archived: family.status !== "active" || !!family.archived_at,
+          childNames: family.children
+            .filter((entry) => entry.child)
+            .map((entry) => `${entry.child!.first_name} ${entry.child!.last_name}`),
+        }))}
       />
     </>
   );

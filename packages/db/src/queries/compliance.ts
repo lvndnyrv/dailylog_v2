@@ -81,6 +81,9 @@ export interface ComplianceInspectionPack {
     observed_minutes: number;
     compliant_minutes: number;
     over_minutes: number;
+    occupied_minutes: number;
+    occupied_compliant_minutes: number;
+    occupied_over_minutes: number;
     intervals: {
       id: string;
       room: string;

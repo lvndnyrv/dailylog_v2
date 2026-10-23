@@ -12,7 +12,7 @@ import { showToast } from '../../components/Toast';
 import { supabase } from '../../lib/supabase';
 import { colors, fonts, radius, spacing } from '../../theme';
 
-const METHODS = ['cash', 'cheque', 'e-transfer', 'card', 'other'];
+const METHODS = ['cash', 'cheque', 'etransfer', 'card', 'other'];
 
 function relation(value) {
   return Array.isArray(value) ? value[0] : value;
@@ -38,13 +38,13 @@ function parseAmount(value) {
 
 function PaymentModal({ visible, balanceCents, busy, onClose, onSubmit }) {
   const [amount, setAmount] = useState('');
-  const [method, setMethod] = useState('e-transfer');
+  const [method, setMethod] = useState('etransfer');
   const [error, setError] = useState('');
 
   React.useEffect(() => {
     if (!visible) return;
     setAmount((Math.max(0, balanceCents) / 100).toFixed(2));
-    setMethod('e-transfer');
+    setMethod('etransfer');
     setError('');
   }, [balanceCents, visible]);
 
@@ -84,7 +84,7 @@ function PaymentModal({ visible, balanceCents, busy, onClose, onSubmit }) {
           <View style={styles.methodGrid}>
             {METHODS.map(option => (
             <TouchableOpacity key={option} onPress={() => setMethod(option)} style={[styles.methodButton, method === option && styles.methodButtonActive]} accessibilityRole="button" accessibilityState={{ selected: method === option }}>
-                <Text style={[styles.methodText, method === option && styles.methodTextActive]}>{option === 'e-transfer' ? 'E-transfer' : option[0].toUpperCase() + option.slice(1)}</Text>
+                <Text style={[styles.methodText, method === option && styles.methodTextActive]}>{option === 'etransfer' ? 'E-transfer' : option[0].toUpperCase() + option.slice(1)}</Text>
               </TouchableOpacity>
             ))}
           </View>

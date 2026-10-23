@@ -2,6 +2,7 @@
 
 import type { BillingPlan, BillingSummary, ChildTuitionRateRow, InvoiceRow } from "@dailylog/db/queries";
 import { Download, Mail, MoreHorizontal, X } from "lucide-react";
+import Link from "next/link";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { Avatar } from "@/components/ui/avatar";
 import { sendInvoiceRemindersAction, voidInvoiceAction } from "@/lib/billing/actions";
@@ -18,7 +19,7 @@ export function dollars(cents: number): string {
 }
 
 type Filter = "all" | "overdue" | "open" | "paid";
-type Tab = "invoices" | "plans";
+type Tab = "invoices" | "families" | "plans";
 
 export interface ChildOption {
   id: string;
@@ -31,17 +32,21 @@ export interface ChildOption {
 export function BillingView({
   summary,
   invoices,
+  reminderEligibleIds,
   plans,
   tuitionRates,
   childrenRows,
+  families,
   openNew = false,
   openInvoiceId,
 }: {
   summary: BillingSummary | null;
   invoices: InvoiceRow[];
+  reminderEligibleIds: string[];
   plans: BillingPlan[];
   tuitionRates: ChildTuitionRateRow[];
   childrenRows: ChildOption[];
+  families: { id: string; name: string; childNames: string[]; archived: boolean }[];
   openNew?: boolean;
   openInvoiceId?: string;
 }) {
@@ -55,6 +60,8 @@ export function BillingView({
     return invoice ? { invoice } : "none";
   });
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const reminderEligibleSet = new Set(reminderEligibleIds);
+  const selectedReminderIds = [...selectedIds].filter((id) => reminderEligibleSet.has(id));
   const [lastSelectedIndex, setLastSelectedIndex] = useState<number | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
   const [bulkMessage, setBulkMessage] = useState<{ tone: "success" | "error"; text: string } | null>(null);
@@ -63,7 +70,8 @@ export function BillingView({
 
   const [today] = useState(() => new Date().toISOString().slice(0, 10));
   const isOverdue = (invoice: InvoiceRow) =>
-    invoice.status === "open" && !!invoice.due_on && invoice.due_on < today;
+    invoice.status === "overdue" ||
+    (invoice.status === "open" && !!invoice.due_on && invoice.due_on < today);
 
   const visible = invoices.filter((invoice) => {
     if (filter === "overdue") return isOverdue(invoice);
@@ -179,6 +187,9 @@ export function BillingView({
         <button type="button" className={tabClass(tab === "invoices")} onClick={() => setTab("invoices")}>
           Invoices
         </button>
+        <button type="button" className={tabClass(tab === "families")} onClick={() => setTab("families")}>
+          Families
+        </button>
         <button type="button" className={tabClass(tab === "plans")} onClick={() => setTab("plans")}>
           Plans
         </button>
@@ -191,7 +202,7 @@ export function BillingView({
           >
             + New invoice
           </button>
-        ) : (
+        ) : tab === "plans" ? (
           <button
             type="button"
             onClick={() => setModal("plan")}
@@ -199,8 +210,28 @@ export function BillingView({
           >
             + New plan
           </button>
-        )}
+        ) : null}
       </div>
+
+      {tab === "families" && (
+        <div className="overflow-hidden rounded-2xl border-[1.5px] border-[#D6E1F0] bg-card">
+          <div className="border-b border-[#EDF3FB] bg-[#F8FBFE] px-[18px] py-3">
+            <h2 className="text-[13px] font-extrabold text-ink">Family accounts</h2>
+            <p className="mt-0.5 text-[11.5px] text-muted">Open a household to see its complete ledger and invoice history.</p>
+          </div>
+          {families.map((family) => (
+            <Link key={family.id} href={`/billing/families/${family.id}`} className="flex items-center gap-3 border-b border-[#EDF3FB] px-[18px] py-3 last:border-0 hover:bg-[#F8FBFE]">
+              <Avatar name={family.name} size={32} />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[13px] font-bold text-ink">{family.name}{family.archived ? <span className="ml-2 rounded-full bg-canvas px-2 py-0.5 text-[10px] text-faint">Archived</span> : null}</span>
+                <span className="block truncate text-[11.5px] text-muted">{family.childNames.join(", ") || "No child linked"}</span>
+              </span>
+              <span className="text-[12px] font-bold text-primary">View statement →</span>
+            </Link>
+          ))}
+          {families.length === 0 && <p className="px-5 py-8 text-center text-[12.5px] text-faint">No active families yet.</p>}
+        </div>
+      )}
 
       {tab === "invoices" && (
         <>
@@ -323,7 +354,7 @@ export function BillingView({
                     )}
                   </span>
                   <span className="text-right text-[12px] font-bold text-primary">
-                    {invoice.status === "open" ? "Record →" : "View →"}
+                    {invoice.status === "open" || invoice.status === "overdue" ? "Record →" : "View →"}
                   </span>
                 </div>
               );
@@ -401,10 +432,10 @@ export function BillingView({
           <span className="flex-1" />
           <button
             type="button"
-            disabled={reminding}
+            disabled={reminding || selectedReminderIds.length === 0}
             onClick={() =>
               startReminder(async () => {
-                const result = await sendInvoiceRemindersAction([...selectedIds]);
+                const result = await sendInvoiceRemindersAction(selectedReminderIds);
                 setBulkMessage(
                   result.ok
                     ? { tone: "success", text: `${result.queued} reminder${result.queued === 1 ? "" : "s"} queued` }
@@ -415,7 +446,7 @@ export function BillingView({
             className="flex items-center gap-1.5 text-[12.5px] font-bold hover:opacity-80 disabled:opacity-60"
           >
             <Mail size={14} strokeWidth={1.8} aria-hidden />
-            {reminding ? "Queuing…" : "Remind"}
+            {reminding ? "Queuing…" : `Remind ${selectedReminderIds.length}`}
           </button>
           <span className="h-[18px] w-px bg-white/20" />
           <a

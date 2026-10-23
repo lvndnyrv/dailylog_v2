@@ -63,7 +63,7 @@ export function DeliveryHealthModal({
         </p>
       </div>
 
-      <div className="grid grid-cols-4 gap-2.5">
+      <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
         <Metric label="Delivered" value={health.counts.delivered} tone="success" />
         <Metric label="Queued" value={health.counts.queued + health.counts.processing} />
         <Metric label="Retrying" value={health.counts.retrying} tone="warning" />
@@ -83,18 +83,18 @@ export function DeliveryHealthModal({
           </span>
         </div>
         {pushReachability.gaps.length > 0 && (
-          <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1.5 border-t border-[#D6E1F0] pt-3">
+          <div className="mt-3 grid grid-cols-1 gap-x-4 gap-y-1.5 border-t border-[#D6E1F0] pt-3 sm:grid-cols-2">
             {pushReachability.gaps.slice(0, 8).map((profile) => (
               <div key={profile.profileId} className="flex min-w-0 items-center gap-2 text-[10.5px]">
                 <span className="min-w-0 flex-1 truncate font-bold text-ink">{profile.fullName}</span>
                 <span className="text-faint">{profile.role === "parent" ? "Family" : "Staff"}</span>
                 <span className={profile.emailPresent ? "text-success" : "text-danger"}>
-                  {profile.emailPresent ? "Email on file" : "No fallback"}
+                  {profile.emailPresent ? "Email address on file" : "No email address"}
                 </span>
               </div>
             ))}
             {pushReachability.gaps.length > 8 && (
-              <p className="col-span-2 mt-1 text-[10.5px] text-faint">
+              <p className="mt-1 text-[10.5px] text-faint sm:col-span-2">
                 + {pushReachability.gaps.length - 8} more accounts without a registered device
               </p>
             )}
@@ -105,7 +105,7 @@ export function DeliveryHealthModal({
       {error && <Notice tone="error">{error}</Notice>}
       {providerSetupNeeded && (
         <Notice tone="info">
-          <b>Email setup required.</b> Connect the center&apos;s email delivery provider before retrying these messages. Push and in-app delivery continue independently.
+          <b>Email setup required.</b> The app&apos;s email delivery provider is not configured. An address on file is not a working fallback until the provider is connected; push and in-app delivery continue independently.
         </Notice>
       )}
 

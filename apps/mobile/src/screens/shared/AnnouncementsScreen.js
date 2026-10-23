@@ -25,6 +25,7 @@ import { Button, EmptyState, Input } from '../../components/ui';
 import { DatePickerField } from '../../components/DatePickerField';
 import { showToast } from '../../components/Toast';
 import { colors, fonts, radius, spacing } from '../../theme';
+import FamilyScreenHeader from '../parent/FamilyScreenHeader';
 
 function announcementTime(value) {
   const date = new Date(value);
@@ -118,7 +119,12 @@ export default function AnnouncementsScreen({ navigation, route }) {
       setRefreshing(false);
       return;
     }
-    setItems(announcements);
+    setItems(focusAnnouncementId && !isStaff
+      ? [
+        ...announcements.filter((item) => item.id === focusAnnouncementId),
+        ...announcements.filter((item) => item.id !== focusAnnouncementId),
+      ]
+      : announcements);
     if (canViewMetrics && announcements.length) {
       const { data: metrics } = await supabase.rpc('list_broadcast_delivery_metrics', {
         p_announcement_ids: announcements.map((item) => item.id),
@@ -461,7 +467,7 @@ export default function AnnouncementsScreen({ navigation, route }) {
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
       <View style={styles.container}>
-        <View style={styles.header}>
+        {isStaff ? <View style={styles.header}>
           <TouchableOpacity
             onPress={() => navigation.goBack()}
             style={styles.headerButton}
@@ -486,7 +492,7 @@ export default function AnnouncementsScreen({ navigation, route }) {
               <Ionicons name="megaphone-outline" size={18} color={colors.primary} />
             </View>
           )}
-        </View>
+        </View> : <FamilyScreenHeader navigation={navigation} title="Center news" subtitle={centerName} />}
 
         {loading ? (
           <View style={styles.loadingWrap}>

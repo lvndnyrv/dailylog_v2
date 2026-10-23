@@ -3,6 +3,7 @@ import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'rea
 import { Ionicons } from '@expo/vector-icons';
 
 import { colors, fonts, radius, spacing } from '../../theme';
+import FamilyScreenHeader from './FamilyScreenHeader';
 
 export function initials(name) {
   return (name || '?').split(/\s+/).filter(Boolean).slice(0, 2)
@@ -10,22 +11,7 @@ export function initials(name) {
 }
 
 export function ParentAccountHeader({ navigation, title, subtitle }) {
-  return (
-    <View style={styles.header}>
-      <TouchableOpacity
-        style={styles.backButton}
-        onPress={() => navigation.goBack()}
-        accessibilityRole="button"
-        accessibilityLabel="Go back"
-      >
-        <Ionicons name="chevron-back" size={20} color={colors.textPrimary} />
-      </TouchableOpacity>
-      <View style={styles.headerCopy}>
-        <Text style={styles.headerTitle}>{title}</Text>
-        {subtitle ? <Text style={styles.headerSubtitle}>{subtitle}</Text> : null}
-      </View>
-    </View>
-  );
+  return <FamilyScreenHeader navigation={navigation} title={title} subtitle={subtitle} />;
 }
 
 export function AccountIcon({ name, tone = 'blue' }) {
@@ -65,21 +51,6 @@ export function ErrorCard({ message, onRetry }) {
 }
 
 const styles = StyleSheet.create({
-  header: {
-    flexDirection: 'row', alignItems: 'center', gap: spacing.md,
-    paddingHorizontal: spacing.xl, paddingTop: spacing.sm, paddingBottom: spacing.md,
-  },
-  backButton: {
-    width: 36, height: 36, borderRadius: 18,
-    alignItems: 'center', justifyContent: 'center',
-    backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.borderSoft,
-  },
-  headerCopy: { flex: 1, minWidth: 0 },
-  headerTitle: { color: colors.textPrimary, fontFamily: fonts.black, fontSize: 21 },
-  headerSubtitle: {
-    color: colors.textMuted, fontFamily: fonts.regular, fontSize: 12,
-    marginTop: 2,
-  },
   icon: {
     width: 38, height: 38, borderRadius: radius.md,
     alignItems: 'center', justifyContent: 'center',

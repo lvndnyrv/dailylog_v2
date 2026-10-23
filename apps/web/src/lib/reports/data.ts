@@ -2,8 +2,10 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@dailylog/db";
-import { addDateDays, dateInTimeZone } from "@/lib/center-date";
+import { addDateDays, dateInTimeZone, zonedLocalToIso } from "@/lib/center-date";
 import { REPORT_CATALOG, type ReportKind } from "./catalog";
+import { fetchAllReportRows } from "./pagination";
+import { summarizePayrollEntries } from "./payroll";
 
 type Client = SupabaseClient<Database>;
 
@@ -40,12 +42,12 @@ const money = (cents: number) =>
     currency: "CAD",
     maximumFractionDigits: 0,
   }).format(cents / 100);
-const minutes = (start: string, end: string | null, ceiling = new Date()) =>
+const overlapMinutes = (start: string, end: string | null, rangeStart: string, rangeEnd: string, now: string) =>
   Math.max(
     0,
     Math.round(
-      ((end ? new Date(end) : ceiling).getTime() - new Date(start).getTime()) /
-        60000,
+      (Math.min(new Date(end ?? now).getTime(), new Date(rangeEnd).getTime(), new Date(now).getTime()) -
+        Math.max(new Date(start).getTime(), new Date(rangeStart).getTime())) / 60000,
     ),
   );
 const percentage = (part: number, whole: number) =>
@@ -57,10 +59,13 @@ export async function getReportPreview(
   startsOn: string,
   endsOn: string,
   timeZone: string,
+  daycareId: string,
 ): Promise<ReportPreview> {
   const definition = REPORT_CATALOG[kind];
   const generatedAt = new Date().toISOString();
   const through = addDateDays(endsOn, 1);
+  const rangeStart = zonedLocalToIso(startsOn, "00:00", timeZone);
+  const rangeEnd = zonedLocalToIso(through, "00:00", timeZone);
   const base = {
     kind,
     title: definition.title,
@@ -72,17 +77,21 @@ export async function getReportPreview(
 
   if (kind === "attendance") {
     const [{ data, error }, { data: rooms, error: roomError }] = await Promise.all([
-      client
+      fetchAllReportRows((from, to) => client
         .from("attendance_records")
         .select(
-          "date,status,checked_in_at,checked_out_at,child:children(first_name,last_name,classroom:classrooms(id,name,capacity))",
+          "id,date,status,checked_in_at,checked_out_at,child:children(first_name,last_name,classroom:classrooms(id,name,capacity))",
         )
+        .eq("daycare_id", daycareId)
         .gte("date", startsOn)
         .lte("date", endsOn)
-        .order("date"),
+        .order("date")
+        .order("id")
+        .range(from, to)),
       client
         .from("classrooms")
         .select("id,name,capacity")
+        .eq("daycare_id", daycareId)
         .is("archived_at", null)
         .order("min_age_months", { ascending: true, nullsFirst: false }),
     ]);
@@ -154,14 +163,17 @@ export async function getReportPreview(
   }
 
   if (kind === "billing") {
-    const { data, error } = await client
+    const { data, error } = await fetchAllReportRows((from, to) => client
       .from("invoices")
       .select(
-        "number,status,issued_on,due_on,total_cents,family:families(display_name),payments:payments!payments_invoice_id_fkey(amount_cents,paid_at)",
+        "id,number,status,issued_on,due_on,total_cents,family:families(display_name),payments:payments!payments_invoice_id_fkey(amount_cents,paid_at)",
       )
+      .eq("daycare_id", daycareId)
       .gte("issued_on", startsOn)
       .lte("issued_on", endsOn)
-      .order("issued_on", { ascending: false });
+      .order("issued_on", { ascending: false })
+      .order("id")
+      .range(from, to));
     if (error) throw error;
     type Invoice = {
       number: string | null;
@@ -202,14 +214,17 @@ export async function getReportPreview(
   }
 
   if (kind === "ratio") {
-    const { data, error } = await client
+    const { data, error } = await fetchAllReportRows((from, to) => client
       .from("room_ratio_history")
       .select(
-        "starts_at,ends_at,present_count,staff_count,required_staff,source,classroom:classrooms(name)",
+        "id,starts_at,ends_at,present_count,staff_count,required_staff,source,classroom:classrooms(name)",
       )
-      .lt("starts_at", `${through}T00:00:00`)
-      .or(`ends_at.is.null,ends_at.gte.${startsOn}T00:00:00`)
-      .order("starts_at", { ascending: false });
+      .eq("daycare_id", daycareId)
+      .lt("starts_at", rangeEnd)
+      .or(`ends_at.is.null,ends_at.gt.${rangeStart}`)
+      .order("starts_at", { ascending: false })
+      .order("id")
+      .range(from, to));
     if (error) throw error;
     type Interval = {
       starts_at: string;
@@ -226,7 +241,7 @@ export async function getReportPreview(
     const byRoom = new Map<string, { observed: number; compliant: number; events: number }>();
     for (const interval of intervals) {
       const room = interval.classroom?.name ?? "Archived room";
-      const observed = minutes(interval.starts_at, interval.ends_at);
+      const observed = overlapMinutes(interval.starts_at, interval.ends_at, rangeStart, rangeEnd, generatedAt);
       const current = byRoom.get(room) ?? { observed: 0, compliant: 0, events: 0 };
       current.observed += observed;
       if (interval.staff_count >= interval.required_staff) current.compliant += observed;
@@ -255,16 +270,20 @@ export async function getReportPreview(
   }
 
   if (kind === "timesheets") {
-    const { data, error } = await client
+    const { data, error } = await fetchAllReportRows((from, to) => client
       .from("staff_time_entries")
       .select(
-        "clocked_in_at,clocked_out_at,break_minutes,status,staff:staff_members(profile:profiles(full_name))",
+        "id,staff_member_id,clocked_in_at,clocked_out_at,break_minutes,status,staff:staff_members(profile:profiles(full_name))",
       )
-      .gte("clocked_in_at", `${startsOn}T00:00:00`)
-      .lt("clocked_in_at", `${through}T00:00:00`)
-      .order("clocked_in_at");
+      .eq("daycare_id", daycareId)
+      .gte("clocked_in_at", rangeStart)
+      .lt("clocked_in_at", rangeEnd)
+      .order("clocked_in_at")
+      .order("id")
+      .range(from, to));
     if (error) throw error;
     type Entry = {
+      staff_member_id: string;
       clocked_in_at: string;
       clocked_out_at: string | null;
       break_minutes: number;
@@ -272,17 +291,9 @@ export async function getReportPreview(
       staff: { profile: { full_name: string } | null } | null;
     };
     const entries = (data ?? []) as unknown as Entry[];
-    const byStaff = new Map<string, { minutes: number; entries: number; approved: boolean }>();
-    for (const entry of entries) {
-      const name = entry.staff?.profile?.full_name ?? "Unlinked staff";
-      const current = byStaff.get(name) ?? { minutes: 0, entries: 0, approved: true };
-      current.minutes += Math.max(0, minutes(entry.clocked_in_at, entry.clocked_out_at) - entry.break_minutes);
-      current.entries += 1;
-      current.approved = current.approved && entry.status === "approved";
-      byStaff.set(name, current);
-    }
+    const byStaff = summarizePayrollEntries(entries);
     const totalMinutes = [...byStaff.values()].reduce((sum, row) => sum + row.minutes, 0);
-    const overtime = [...byStaff.values()].reduce(
+    const aboveForty = [...byStaff.values()].reduce(
       (sum, row) => sum + Math.max(0, row.minutes - 40 * 60),
       0,
     );
@@ -291,12 +302,12 @@ export async function getReportPreview(
       ...base,
       metrics: [
         { label: "paid hours", value: (totalMinutes / 60).toFixed(1) },
-        { label: "overtime", value: `${(overtime / 60).toFixed(1)} h`, tone: overtime ? "warning" : "default" },
+        { label: "hours above 40 per staff (review)", value: `${(aboveForty / 60).toFixed(1)} h`, tone: aboveForty ? "warning" : "default" },
         { label: "unapproved entries", value: String(unapproved), tone: unapproved ? "warning" : "success" },
       ],
-      columns: ["STAFF", "ENTRIES", "PAID HOURS", "OVERTIME", "STATUS"],
-      rows: [...byStaff].map(([name, value]) => [
-        name,
+      columns: ["STAFF", "ENTRIES", "PAID HOURS", "OVER 40 H (REVIEW)", "STATUS"],
+      rows: [...byStaff.values()].map((value) => [
+        value.name,
         String(value.entries),
         (value.minutes / 60).toFixed(2),
         (Math.max(0, value.minutes - 40 * 60) / 60).toFixed(2),
@@ -310,15 +321,18 @@ export async function getReportPreview(
   }
 
   if (kind === "incidents") {
-    const { data, error } = await client
+    const { data, error } = await fetchAllReportRows((from, to) => client
       .from("incident_reports")
       .select(
-        "occurred_at,severity,injury_type,status,parent_acknowledged_at,child:children(first_name,last_name),classroom:classrooms(name)",
+        "id,occurred_at,severity,injury_type,status,parent_acknowledged_at,child:children(first_name,last_name),classroom:classrooms(name)",
       )
-      .gte("occurred_at", `${startsOn}T00:00:00`)
-      .lt("occurred_at", `${through}T00:00:00`)
+      .eq("daycare_id", daycareId)
+      .gte("occurred_at", rangeStart)
+      .lt("occurred_at", rangeEnd)
       .neq("status", "draft")
-      .order("occurred_at", { ascending: false });
+      .order("occurred_at", { ascending: false })
+      .order("id")
+      .range(from, to));
     if (error) throw error;
     type Incident = {
       occurred_at: string;
@@ -349,14 +363,17 @@ export async function getReportPreview(
     };
   }
 
-  const { data, error } = await client
+  const { data, error } = await fetchAllReportRows((from, to) => client
     .from("enrollments")
     .select(
-      "created_at,child_first_name,child_last_name,guardian_name,stage,desired_start_date,source,classroom:classrooms(name)",
+      "id,created_at,child_first_name,child_last_name,guardian_name,stage,desired_start_date,source,classroom:classrooms(name)",
     )
-    .gte("created_at", `${startsOn}T00:00:00`)
-    .lt("created_at", `${through}T00:00:00`)
-    .order("created_at", { ascending: false });
+    .eq("daycare_id", daycareId)
+    .gte("created_at", rangeStart)
+    .lt("created_at", rangeEnd)
+    .order("created_at", { ascending: false })
+    .order("id")
+    .range(from, to));
   if (error) throw error;
   type Enrollment = {
     created_at: string;

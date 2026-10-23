@@ -10,7 +10,7 @@ const metricTone = {
   success: "text-success",
 };
 
-export function ReportViewer({ preview }: { preview: ReportPreview }) {
+export function ReportViewer({ preview, canSchedule }: { preview: ReportPreview; canSchedule: boolean }) {
   const report = REPORT_CATALOG[preview.kind];
   return (
     <main className="flex-1 p-5 lg:p-7 print:p-0">
@@ -102,7 +102,7 @@ export function ReportViewer({ preview }: { preview: ReportPreview }) {
             )}
           </div>
           <div className="mt-5 print:hidden">
-            <ReportExportButtons preview={preview} />
+            <ReportExportButtons preview={preview} canSchedule={canSchedule} />
           </div>
           <p className="mt-4 border-t border-[#EDF3FB] pt-3 text-[10.5px] leading-relaxed text-faint print:text-black">
             Built from the live center record. Corrections are reflected the next time this report runs;

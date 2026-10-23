@@ -1,12 +1,15 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useActionState, useCallback, useState } from "react";
 import {
   kioskCheckAction,
   kioskLookupAction,
+  kioskScanQrAction,
   type KioskState,
+  type KioskQrResult,
 } from "@/lib/attendance/actions";
 import { BrandMark } from "@/components/brand";
+import { KioskQrScanner } from "./kiosk-qr-scanner";
 
 // Kiosk 8b — big targets, one flow: code → family → tap a child.
 export function KioskView() {
@@ -19,6 +22,22 @@ export function KioskView() {
     {},
   );
   const [pin, setPin] = useState("");
+  const [scanOpen, setScanOpen] = useState(false);
+  const [scanPending, setScanPending] = useState(false);
+  const [scanResult, setScanResult] = useState<KioskQrResult>({});
+
+  const onDecoded = useCallback(async (payload: string) => {
+    setScanOpen(false);
+    setScanPending(true);
+    try {
+      const result = await kioskScanQrAction(payload);
+      setScanResult(result);
+    } catch {
+      setScanResult({ error: "The scanner lost its connection. Try again or use your PIN." });
+    } finally {
+      setScanPending(false);
+    }
+  }, []);
 
   const state = checkState.family ? checkState : lookupState;
   const family = state.family;
@@ -27,14 +46,36 @@ export function KioskView() {
     <main className="flex min-h-screen flex-col items-center justify-center gap-7 bg-canvas p-8">
       <BrandMark />
 
-      {!family ? (
+      {scanOpen ? (
+        <KioskQrScanner onDecoded={onDecoded} onClose={() => setScanOpen(false)} />
+      ) : !family ? (
         <>
           <div className="text-center">
             <h1 className="text-[28px] font-extrabold text-ink">Good morning!</h1>
             <p className="mt-1 text-[15px] text-muted">
-              Tap in your family&apos;s 4-digit code
+              Scan your family attendance pass or tap your 4-digit code
             </p>
           </div>
+
+          {scanResult.result && (
+            <p role="status" className="rounded-[13px] border border-[#BFE3D0] bg-[#E4F3EC] px-5 py-3 text-center text-[15px] font-bold text-ink">
+              ✓ {scanResult.result.childName} {scanResult.result.direction} with {scanResult.result.presenterName}
+            </p>
+          )}
+          {scanResult.error && (
+            <p role="alert" className="rounded-[13px] border border-[#EFC9C9] bg-danger-bg px-5 py-3 text-center text-[13px] font-semibold text-ink">
+              {scanResult.error}
+            </p>
+          )}
+          <button
+            type="button"
+            disabled={scanPending}
+            onClick={() => { setScanResult({}); setScanOpen(true); }}
+            className="rounded-full bg-primary px-8 py-4 text-[16px] font-bold text-white disabled:opacity-50"
+          >
+            {scanPending ? "Checking pass…" : "Scan family pass"}
+          </button>
+          <span className="text-[12px] text-faint">or use your approved pickup PIN</span>
 
           <form action={lookup} className="flex flex-col items-center gap-6">
             <input type="hidden" name="pin" value={pin} />
@@ -110,6 +151,7 @@ export function KioskView() {
           <div className="flex w-full max-w-sm flex-col gap-3">
             {family.map((child) => {
               const isIn = child.checked_in_at && !child.checked_out_at;
+              const doneToday = Boolean(child.checked_out_at);
               return (
                 <form key={child.child_id} action={check}>
                   <input type="hidden" name="child_id" value={child.child_id} />
@@ -121,7 +163,7 @@ export function KioskView() {
                   />
                   <button
                     type="submit"
-                    disabled={checking}
+                    disabled={checking || doneToday}
                     className={`flex w-full items-center gap-3 rounded-2xl border-[1.5px] p-4 text-left ${
                       isIn
                         ? "border-[#D6E1F0] bg-card"
@@ -136,7 +178,11 @@ export function KioskView() {
                         ) : null}
                       </span>
                       <span className="block text-[12px] text-muted">
-                        {isIn ? "in right now" : child.checked_out_at ? "checked out" : "not in yet"}
+                        {isIn
+                          ? "in right now"
+                          : doneToday
+                            ? "checked out today · ask staff if this needs correction"
+                            : "not in yet"}
                       </span>
                     </span>
                     <span
@@ -144,7 +190,11 @@ export function KioskView() {
                         isIn ? "bg-warning-bg text-warning-text" : "bg-primary text-white"
                       }`}
                     >
-                      {isIn ? `Check out ${child.first_name}` : `Check in ${child.first_name}`}
+                      {doneToday
+                        ? "Done today"
+                        : isIn
+                          ? `Check out ${child.first_name}`
+                          : `Check in ${child.first_name}`}
                     </span>
                   </button>
                 </form>

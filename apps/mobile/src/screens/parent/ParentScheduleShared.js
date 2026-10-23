@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { format, parseISO } from 'date-fns';
 
 import { colors, fonts, radius, spacing } from '../../theme';
+import FamilyScreenHeader from './FamilyScreenHeader';
 
 export function scheduleDate(value, pattern = 'EEE, MMM d') {
   if (!value) return '—';
@@ -35,27 +36,7 @@ export function money(cents, currency = 'CAD') {
 }
 
 export function ScheduleHeader({ navigation, title, close = false }) {
-  function leaveScreen() {
-    if (navigation.canGoBack()) {
-      navigation.goBack();
-      return;
-    }
-    navigation.navigate('ParentTabs', { screen: 'ParentHome' });
-  }
-
-  return (
-    <View style={styles.header}>
-      <TouchableOpacity
-        style={styles.back}
-        onPress={leaveScreen}
-        accessibilityRole="button"
-        accessibilityLabel={close ? 'Close' : 'Go back'}
-      >
-        <Ionicons name={close ? 'close' : 'chevron-back'} size={20} color={colors.textPrimary} />
-      </TouchableOpacity>
-      <Text style={styles.headerTitle} numberOfLines={2}>{title}</Text>
-    </View>
-  );
+  return <FamilyScreenHeader navigation={navigation} title={title} />;
 }
 
 export function ScheduleLoading() {
@@ -120,17 +101,6 @@ export const scheduleStyles = StyleSheet.create({
 });
 
 const styles = StyleSheet.create({
-  header: {
-    flexDirection: 'row', alignItems: 'center', gap: spacing.md,
-    paddingHorizontal: spacing.xl, paddingTop: spacing.sm, paddingBottom: spacing.lg,
-  },
-  back: {
-    width: 34, height: 34, borderRadius: 17,
-    alignItems: 'center', justifyContent: 'center', backgroundColor: colors.primarySoft,
-  },
-  headerTitle: {
-    flex: 1, color: colors.textPrimary, fontFamily: fonts.black, fontSize: 21,
-  },
   stateCard: {
     marginHorizontal: spacing.xl, marginTop: spacing.xxxl,
     alignItems: 'center', gap: spacing.sm, padding: spacing.xl,

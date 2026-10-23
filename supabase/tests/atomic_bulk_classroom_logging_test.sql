@@ -125,13 +125,20 @@ begin
     select checked_in_at from public.attendance_records
      where child_id = v_child_one and date = public.center_today()
   ) then raise exception 'FAIL: repeated check-in changed the original arrival'; end if;
-  v_result := public.bulk_set_mobile_attendance(
-    array[v_child_one, v_child_two], 'check-out'
-  );
-  if (v_result->>'affectedCount')::integer <> 2 then
-    raise exception 'FAIL: group checkout was partial';
-  end if;
-  raise notice 'PASS: group attendance preserves original arrivals and closes atomically';
+  begin
+    v_result := public.bulk_set_mobile_attendance(
+      array[v_child_one, v_child_two], 'check-out'
+    );
+    raise exception 'FAIL: bulk checkout bypassed pickup verification';
+  exception when others then
+    if sqlerrm not like '%Bulk check-out is unavailable%' then raise; end if;
+  end;
+  if exists (
+    select 1 from public.attendance_records
+     where child_id in (v_child_one, v_child_two)
+       and date = public.center_today() and checked_out_at is not null
+  ) then raise exception 'FAIL: rejected bulk checkout changed attendance'; end if;
+  raise notice 'PASS: group attendance preserves arrivals and rejects unverified checkout';
 
   perform pg_temp.impersonate('postgres', v_owner);
   insert into public.consents (daycare_id, child_id, kind, version, granted, granted_at)

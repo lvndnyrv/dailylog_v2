@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
 import { Menu, X } from "lucide-react";
 import { NAV_ITEMS } from "./nav-config";
 import { AccountMenu } from "./account-menu";
@@ -48,9 +48,23 @@ export function Sidebar({
   locations?: DaycareLocationRow[];
 }) {
   const pathname = usePathname();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const sessionsRequested = pathname === "/settings" && searchParams.get("account") === "sessions";
+  const reviewSessionId = sessionsRequested ? searchParams.get("session") : null;
   const [menuOpen, setMenuOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const accountButtonRef = useRef<HTMLButtonElement>(null);
+  const restoreSessionFocusRef = useRef(false);
   const brandName = compactCenterName(daycareName);
+  const showAccountMenu = menuOpen || sessionsRequested;
+
+  useEffect(() => {
+    if (!sessionsRequested && restoreSessionFocusRef.current) {
+      restoreSessionFocusRef.current = false;
+      accountButtonRef.current?.focus();
+    }
+  }, [sessionsRequested]);
 
   return (
     <>
@@ -120,12 +134,13 @@ export function Sidebar({
         <LocationSwitcher locations={locations} />
 
         <button
+          ref={accountButtonRef}
           type="button"
           onClick={() => setMenuOpen((v) => !v)}
           aria-haspopup="menu"
-          aria-expanded={menuOpen}
+          aria-expanded={showAccountMenu}
           className={`flex items-center gap-[9px] rounded-xl px-2.5 py-1.5 text-left ${
-            menuOpen ? "border-[1.5px] border-[#D6E1F0] bg-canvas" : "hover:bg-canvas"
+            showAccountMenu ? "border-[1.5px] border-[#D6E1F0] bg-canvas" : "hover:bg-canvas"
           }`}
         >
           <Avatar name={profile.full_name} src={profile.avatar_url} />
@@ -140,11 +155,22 @@ export function Sidebar({
         </button>
       </div>
 
-      {menuOpen && (
+      {showAccountMenu && (
         <AccountMenu
+          key={sessionsRequested ? `sessions:${reviewSessionId ?? "list"}` : "menu"}
           profile={profile}
           daycareName={daycareName}
-          onClose={() => setMenuOpen(false)}
+          initialModal={sessionsRequested ? "sessions" : "none"}
+          initialReviewSessionId={reviewSessionId}
+          onClose={() => {
+            setMenuOpen(false);
+            if (sessionsRequested) {
+              restoreSessionFocusRef.current = true;
+              router.replace("/settings", { scroll: false });
+            } else {
+              accountButtonRef.current?.focus();
+            }
+          }}
         />
       )}
     </aside>

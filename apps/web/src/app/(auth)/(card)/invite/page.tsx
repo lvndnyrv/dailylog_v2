@@ -1,5 +1,6 @@
 import { getStaffInvite } from "@dailylog/db/queries";
 import { BrandMark } from "@/components/brand";
+import { signOutAction } from "@/lib/auth/actions";
 import { getServerSupabase } from "@/lib/supabase/server";
 import { InviteForm } from "./invite-form";
 
@@ -30,10 +31,15 @@ export default async function InvitePage({
   if (!code || !process.env.NEXT_PUBLIC_SUPABASE_URL) return invalid;
 
   const supabase = await getServerSupabase();
-  const invite = await getStaffInvite(supabase, code).catch(() => null);
+  const [invite, userResult] = await Promise.all([
+    getStaffInvite(supabase, code).catch(() => null),
+    supabase.auth.getUser(),
+  ]);
   if (!invite) return invalid;
 
   const roleLabel = invite.role === "educator" ? "an educator" : "a delegated admin";
+  const signedInEmail = userResult.data.user?.email;
+  const wrongAccount = signedInEmail && signedInEmail.toLowerCase() !== invite.email.toLowerCase();
 
   return (
     <>
@@ -86,7 +92,15 @@ export default async function InvitePage({
         </p>
       )}
 
-      <InviteForm code={code} email={invite.email} />
+      {wrongAccount ? (
+        <div className="rounded-[13px] bg-warning-bg px-4 py-3 text-[12px] leading-normal text-warning-text">
+          You are signed in as {signedInEmail}. This invite belongs to {invite.email}.
+          <form action={signOutAction} className="mt-2">
+            <input type="hidden" name="next" value={`/invite?code=${encodeURIComponent(code)}`} />
+            <button type="submit" className="font-bold text-primary">Sign out to use the invited account →</button>
+          </form>
+        </div>
+      ) : <InviteForm code={code} signedIn={Boolean(signedInEmail)} />}
 
       <p className="text-center text-[11.5px] leading-normal text-faint">
         Invites expire after 7 days and work once.

@@ -180,7 +180,7 @@ export function ChildProfileView({
         </span>
         <span className="flex-1" />
         <a
-          href={`/reports-export/attendance-month?month=${new Date().toISOString().slice(0, 7)}&child=${child.id}`}
+          href={`/attendance-record?child=${child.id}`}
           className="rounded-btn border-[1.5px] border-[#D6E1F0] bg-card px-4 py-2.5 text-[13px] font-bold text-ink hover:bg-canvas"
         >
           Attendance record

@@ -14,6 +14,7 @@ import { useEffect, useRef, useState } from "react";
 import { NotificationTray } from "@/components/notifications/notification-tray";
 import { useNotificationCenter } from "@/components/notifications/notification-center";
 import { GlobalSearch } from "@/components/shell/global-search";
+import { HelpCenter } from "@/components/shell/help-center";
 
 // Per-section header: title/subtitle, search, "+ New" create menu (18b), bell
 // (15a — empty tray stub in Phase 1). Location switcher 18d hidden (single
@@ -90,6 +91,7 @@ export function SectionHeader({
       )}
 
       <div className="relative flex w-full flex-wrap items-center gap-2 md:w-auto" ref={ref}>
+        {showUtilities && <HelpCenter onOpen={() => setOpen("none")} />}
         {showUtilities && (
           <button
             ref={bellRef}

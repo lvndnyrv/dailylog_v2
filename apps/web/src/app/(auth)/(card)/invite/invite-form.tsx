@@ -7,7 +7,7 @@ import { Field } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
 import { RuleHint } from "@/components/ui/rule-hint";
 
-export function InviteForm({ code, email }: { code: string; email: string }) {
+export function InviteForm({ code, signedIn }: { code: string; signedIn: boolean }) {
   const [state, action, pending] = useActionState<ActionState, FormData>(
     acceptInviteAction,
     {},
@@ -16,17 +16,20 @@ export function InviteForm({ code, email }: { code: string; email: string }) {
   return (
     <form action={action} className="flex flex-col gap-4">
       <input type="hidden" name="code" value={code} />
-      <input type="hidden" name="email" value={email} />
 
-      <Field
-        label="Create a password"
-        name="password"
-        type="password"
-        autoComplete="new-password"
-        minLength={12}
-        required
-      />
-      <RuleHint />
+      {signedIn ? (
+        <Notice tone="info">Your account is ready. Review the invite and accept the staff terms to join this center.</Notice>
+      ) : <>
+        <Field
+          label="Create a password"
+          name="password"
+          type="password"
+          autoComplete="new-password"
+          minLength={12}
+          required
+        />
+        <RuleHint />
+      </>}
 
       <label className="flex cursor-pointer items-start gap-2.5 text-[12.5px] leading-normal text-muted">
         <input

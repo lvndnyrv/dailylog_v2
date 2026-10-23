@@ -6,7 +6,7 @@ import { BrandMark } from "@/components/brand";
 export default function SignedOutPage() {
   return (
     <main className="flex min-h-screen bg-card">
-      <div className="flex flex-1 flex-col justify-center gap-[22px] px-[88px] py-12">
+      <div className="flex min-w-0 flex-1 flex-col justify-center gap-[22px] px-6 py-12 sm:px-12 lg:px-[88px]">
         <BrandMark />
         <div className="flex items-center gap-[11px] self-start rounded-[13px] border-[1.5px] border-[#BFE3D0] bg-[#E4F3EC] px-[15px] py-3">
           <svg width="16" height="16" viewBox="0 0 20 20" fill="none" aria-hidden>
@@ -30,7 +30,7 @@ export default function SignedOutPage() {
             account menu.
           </p>
         </div>
-        <div className="flex items-center gap-2.5">
+        <div className="flex flex-wrap items-center gap-2.5">
           <a
             href="/sign-in"
             className="rounded-btn bg-primary px-[22px] py-3.5 text-sm font-bold text-white hover:bg-primary-hover"

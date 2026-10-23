@@ -7,7 +7,7 @@ import {
   listRoomsLive,
   listStaff,
   listComplianceDueItems,
-  listInvoices,
+  listInvoicesByIds,
   listRecentRoomActivityNudges,
   listRoomCombinations,
   getMyDaycare,
@@ -33,22 +33,22 @@ export default async function DashboardPage({
 }) {
   const { review } = await searchParams;
   const supabase = await getServerSupabase();
-  const today = new Date().toISOString().slice(0, 10);
+  const center = await getMyDaycare(supabase);
+  const today = dateInTimeZone(new Date(), center?.timezone ?? "America/Toronto");
 
-  const [profile, rooms, incidents, attendance, billing, invoices, enrollments, staff, complianceDue, roomNudges, combinations, center] =
+  const [profile, rooms, incidents, attendance, billing, enrollments, staff, complianceDue, roomNudges, combinations, reminderEligibility] =
     await Promise.all([
       getMyProfile(supabase),
       listRoomsLive(supabase),
       listIncidentsAwaitingSignoff(supabase),
       listAttendanceDay(supabase, today),
       getBillingSummary(supabase),
-      listInvoices(supabase),
       listEnrollments(supabase),
       listStaff(supabase),
       listComplianceDueItems(supabase),
       listRecentRoomActivityNudges(supabase),
       listRoomCombinations(supabase),
-      getMyDaycare(supabase),
+      supabase.rpc("get_overdue_reminder_eligible_ids"),
     ]);
 
   const firstName = profile?.full_name.split(" ")[0] ?? "there";
@@ -87,9 +87,9 @@ export default async function DashboardPage({
       })),
   );
 
-  const overdueInvoices = invoices.filter(
-    (invoice) => invoice.status === "open" && invoice.due_on && invoice.due_on < today,
-  );
+  const eligibleInvoiceIds = new Set(reminderEligibility.error ? [] : reminderEligibility.data ?? []);
+  const invoices = await listInvoicesByIds(supabase, [...eligibleInvoiceIds]);
+  const overdueInvoices = invoices.filter((invoice) => eligibleInvoiceIds.has(invoice.id));
 
   // Assigned educators today (one row per educator, first room).
   const seen = new Set<string>();
@@ -122,6 +122,7 @@ export default async function DashboardPage({
         attendance={attendance}
         billing={billing}
         overdueInvoices={overdueInvoices}
+        centerToday={today}
         enrollment={{ capacity, filled, waitlist, tours }}
         offers={offers}
         certIssues={certIssues}

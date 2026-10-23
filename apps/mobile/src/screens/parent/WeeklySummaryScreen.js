@@ -10,6 +10,7 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import FamilyScreenHeader from './FamilyScreenHeader';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import {
   addWeeks,
@@ -388,6 +389,16 @@ export default function WeeklySummaryScreen({ route }) {
     else navigation.navigate('MessagesTab', { childId, childName });
   };
 
+  const returnToToday = () => {
+    if (navigation.getState()?.routeNames?.includes('ParentHome')) {
+      navigation.navigate('ParentHome');
+    } else if (navigation.canGoBack()) {
+      navigation.goBack();
+    } else {
+      navigation.navigate('ParentTabs', { screen: 'ParentHome' });
+    }
+  };
+
   const shareSummary = async () => {
     if (!current) return;
     await Share.share({
@@ -640,14 +651,16 @@ export default function WeeklySummaryScreen({ route }) {
       contentContainerStyle={styles.content}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => loadWeek({ silent: true })} tintColor={colors.primary} />}
     >
-      <View style={styles.titleRow}>
-        <View style={styles.titleTextWrap}>
-          <Text style={styles.pageTitle}>{childName}'s week</Text>
-          <Text style={styles.pageSubtitle}>A clear look at care, learning and routines</Text>
-        </View>
-        <TouchableOpacity accessibilityLabel="Share weekly recap" style={styles.headerShare} onPress={shareSummary} disabled={!current?.logCount}>
-          <Ionicons name="share-outline" size={20} color={current?.logCount ? colors.primary : colors.textFaint} />
-        </TouchableOpacity>
+      <View style={styles.pageHeaderWrap}>
+        <FamilyScreenHeader
+          navigation={navigation}
+          onBack={returnToToday}
+          title={`${childName}'s week`}
+          subtitle="A clear look at care, learning and routines"
+          action={<TouchableOpacity accessibilityRole="button" accessibilityLabel="Share weekly recap" style={styles.headerShare} onPress={shareSummary} disabled={!current?.logCount}>
+            <Ionicons name="share-outline" size={20} color={current?.logCount ? colors.primary : colors.textFaint} />
+          </TouchableOpacity>}
+        />
       </View>
 
       {error ? (
@@ -706,10 +719,7 @@ export default function WeeklySummaryScreen({ route }) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
   content: { padding: spacing.lg, paddingBottom: 44 },
-  titleRow: { flexDirection: 'row', alignItems: 'center', marginBottom: spacing.lg },
-  titleTextWrap: { flex: 1 },
-  pageTitle: { color: colors.textPrimary, fontFamily: fonts.black, fontSize: 25 },
-  pageSubtitle: { color: colors.textSecondary, fontFamily: fonts.regular, fontSize: 13, marginTop: 3 },
+  pageHeaderWrap: { marginHorizontal: -spacing.lg, marginBottom: spacing.md },
   headerShare: { width: 42, height: 42, borderRadius: radius.full, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
   errorBanner: { borderWidth: 1, borderColor: `${colors.danger}44`, borderRadius: radius.md, backgroundColor: colors.dangerLight, padding: spacing.md, marginBottom: spacing.md },
   errorText: { color: colors.danger, fontFamily: fonts.bold, fontSize: 12.5, lineHeight: 18 },

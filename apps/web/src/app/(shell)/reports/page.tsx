@@ -8,8 +8,15 @@ import {
 import { ReportsView } from "@/components/reports/reports-view";
 import { SectionHeader } from "@/components/shell/header";
 import { getServerSupabase } from "@/lib/supabase/server";
+import { isReportKind } from "@/lib/reports/catalog";
 
-export default async function ReportsPage() {
+export default async function ReportsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ schedule?: string }>;
+}) {
+  const { schedule } = await searchParams;
+  const scheduleKind = schedule && isReportKind(schedule) ? schedule : null;
   const client = await getServerSupabase();
   const profile = await getMyProfile(client);
   const canView = await hasPermission(client, "reports", "view");
@@ -36,11 +43,13 @@ export default async function ReportsPage() {
   ]);
   return (
     <ReportsView
+      key={scheduleKind ?? "library"}
       schedules={schedules}
       exports={exports}
       admins={admins}
       canEdit={canEdit}
       profileId={profile.id}
+      initialScheduleKind={canEdit ? scheduleKind : null}
     />
   );
 }

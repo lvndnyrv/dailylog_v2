@@ -109,10 +109,14 @@ export function GlobalSearch({ placeholder }: { placeholder: string }) {
                 onChange={(event) => {
                   const value = event.target.value;
                   setQuery(value);
+                  // Do not leave clickable results from the previous term
+                  // visible during the debounce for this search.
+                  setResults([]);
+                  setActive(0);
                   if (value.trim().length < 2) {
-                    setResults([]);
                     setLoading(false);
-                    setActive(0);
+                  } else {
+                    setLoading(true);
                   }
                 }}
                 onKeyDown={(event) => {

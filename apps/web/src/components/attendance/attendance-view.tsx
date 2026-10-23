@@ -122,6 +122,14 @@ export function AttendanceView({
         >
           Monthly attendance CSV →
         </Link>
+        <Link
+          href={`/attendance-record?month=${date.slice(0, 7)}`}
+          target="_blank"
+          prefetch={false}
+          className="text-[11.5px] font-bold text-primary hover:text-primary-hover"
+        >
+          Monthly print / PDF ↗
+        </Link>
       </div>
 
       {missingCheckouts.length > 0 && (
@@ -314,8 +322,9 @@ export function AttendanceView({
                     </span>
                     <span className="truncate text-[12px] text-muted">
                       {attendance.dropped_off_by ??
-                        attendance.checked_in_by_profile?.full_name ??
-                        "—"}
+                        (attendance.checked_in_by_profile?.full_name
+                          ? `Recorded by ${attendance.checked_in_by_profile.full_name}`
+                          : "Adult not recorded")}
                       {attendance.method === "kiosk" && (
                         <span className="ml-1 text-[10.5px] font-bold text-primary">
                           · verified PIN

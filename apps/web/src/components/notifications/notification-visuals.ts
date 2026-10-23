@@ -213,17 +213,22 @@ export function notificationPresentation(
         urgent: notification.kind === "coverage_review" || notification.kind === "room_lead_handoff" || notification.kind === "room_transition_review"
           || payloadString(payload, "response") === "declined",
       };
-    case "new_device_sign_in":
+    case "new_device_sign_in": {
+      const sessionId = payloadString(payload, "session_id");
+      const sessionHref = sessionId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(sessionId)
+        ? `/settings?account=sessions&session=${encodeURIComponent(sessionId)}`
+        : "/settings?account=sessions";
       return {
         icon: Smartphone,
         iconClassName: "bg-[#EEF3FA] text-body",
         accentClassName: "bg-faint",
         category: "sessions",
         source: overrides.source ?? "Security",
-        href: overrides.href ?? "/settings#security",
-        actionLabel: overrides.actionLabel ?? "Review devices",
+        href: sessionHref,
+        actionLabel: overrides.actionLabel ?? "Review sign-in",
         urgent: false,
       };
+    }
     case "compliance_due":
       return {
         icon: CalendarClock,

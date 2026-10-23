@@ -9,12 +9,12 @@ import { useClassroom } from './useClassroom';
 const EMPTY_ATTENDANCE = {};
 
 /**
- * Attendance hook — check-in / check-out for a classroom on a given date.
+ * Attendance hook — classroom attendance status and arrivals for a given date.
  * One attendance_records row per child per day (unique child_id+date).
  *
  * Returns:
  *  - attendance: { [childId]: { id, checked_in_at, checked_out_at } }
- *  - checkIn(childId), checkOut(childId), undoCheckIn(childId)
+ *  - checkIn(childId)
  *  - presentCount / checkedOutCount
  */
 export function useAttendance(classroomId, date = new Date(), educatorId) {
@@ -89,26 +89,6 @@ export function useAttendance(classroomId, date = new Date(), educatorId) {
     }
   }
 
-  async function checkOut(childId) {
-    const actionScope = scope;
-    const existing = attendance[childId];
-    if (!existing?.checked_in_at) return;
-    const now = new Date().toISOString();
-
-    setAttendance(prev => ({
-      ...prev,
-      [childId]: { ...existing, checked_out_at: now },
-    }));
-    const { error } = await mutate({
-      type: 'update', table: 'attendance_records', id: existing.id,
-      data: { checked_out_at: now, checked_out_by: educatorId },
-    });
-    if (error && actionScope === currentScope.current) {
-      setAttendance(prev => ({ ...prev, [childId]: existing }));
-      showToast('Check-out failed', 'error');
-    }
-  }
-
   function getStatus(childId) {
     const rec = attendance[childId];
     if (!rec) return 'awaited';
@@ -126,5 +106,5 @@ export function useAttendance(classroomId, date = new Date(), educatorId) {
   const departedCount = Object.values(attendance)
     .filter(r => r.checked_in_at && r.checked_out_at).length;
 
-  return { attendance, checkIn, checkOut, getStatus, presentCount, departedCount, refresh: load };
+  return { attendance, checkIn, getStatus, presentCount, departedCount, refresh: load };
 }

@@ -107,7 +107,8 @@ export function NotificationSettingsModal({
               <ChannelToggle
                 label={`${label.title} in-app`}
                 checked={preference.inApp}
-                disabled={preference.kind === "ratio_alert"}
+                locked={preference.kind === "ratio_alert" || preference.kind === "incident_report" || preference.kind === "new_device_sign_in"}
+                disabled={preference.kind === "ratio_alert" || preference.kind === "incident_report" || preference.kind === "new_device_sign_in"}
                 onChange={(checked) => setChannel(preference.kind, "inApp", checked)}
               />
               <ChannelToggle

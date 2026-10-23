@@ -10,6 +10,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import FamilyScreenHeader from './FamilyScreenHeader';
 import { format } from 'date-fns';
 import QRCode from 'qrcode';
 
@@ -23,7 +24,7 @@ import {
 import { supabase } from '../../lib/supabase';
 import { colors, fonts, radius, spacing } from '../../theme';
 
-function QrMatrix({ value, size = 244 }) {
+export function QrMatrix({ value, size = 244, accessibilityLabel = 'Short-lived pickup QR code' }) {
   const matrix = useMemo(() => {
     if (!value) return null;
     try {
@@ -40,7 +41,7 @@ function QrMatrix({ value, size = 244 }) {
       style={[styles.qrQuietZone, { width: size, height: size }]}
       accessible
       accessibilityRole="image"
-      accessibilityLabel="Short-lived pickup QR code"
+      accessibilityLabel={accessibilityLabel}
     >
       <View
         style={styles.qrGrid}
@@ -202,19 +203,11 @@ export default function PickupPassScreen({ navigation, route }) {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.headerButton} onPress={() => navigation.goBack()}>
-          <Ionicons name="chevron-back" size={22} color={colors.white} />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Family pickup pass</Text>
-        <TouchableOpacity
-          style={styles.headerButton}
-          onPress={() => navigation.navigate('AuthorizedPickups', { child })}
-          accessibilityLabel="Manage authorized pickups"
-        >
+      <FamilyScreenHeader navigation={navigation} title="Pickup pass" subtitle={child?.first_name ? `For ${child.first_name}` : 'Secure family pass'} dark action={
+        <TouchableOpacity style={styles.headerButton} onPress={() => navigation.navigate('AuthorizedPickups', { child })} accessibilityRole="button" accessibilityLabel="Manage authorized pickups">
           <Ionicons name="people-outline" size={21} color={colors.white} />
         </TouchableOpacity>
-      </View>
+      } />
 
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.childBadge}>

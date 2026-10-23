@@ -11,10 +11,12 @@ import { Notice } from "@/components/ui/notice";
 import {
   addClosureAction,
   deleteClosureAction,
+  saveBillingTaxProfileAction,
   saveLatePickupPolicyAction,
   setAdminMfaRequirementAction,
   updateCenterAction,
   updateParentDataRequestAction,
+  updateSickReturnPolicyAction,
   type SettingsActionState,
 } from "@/lib/settings/actions";
 
@@ -56,8 +58,20 @@ export interface ClientErrorReport {
 type LatePickupPolicy = Tables<"late_pickup_policies">;
 type AuditCategory = "all" | "security" | "money" | "records";
 
+export interface BillingTaxProfileSummary {
+  legal_name: string;
+  statement_address: string;
+  registration_label: string;
+  registration_number_saved: boolean;
+  registration_number_last4: string | null;
+  license_number: string;
+  signer_name: string;
+  signer_title: string;
+}
+
 const AUDIT_LABELS: Record<string, string> = {
   account_security: "account security",
+  billing_tax_profiles: "billing provider profile",
   attendance_records: "attendance record",
   center_closures: "center closure",
   center_roles: "staff role",
@@ -74,7 +88,7 @@ const AUDIT_LABELS: Record<string, string> = {
   report_schedules: "report schedule",
   staff_delegations: "delegation",
 };
-const MONEY_ENTITIES = new Set(["invoices", "payments", "family_ledger_entries", "late_pickup_events"]);
+const MONEY_ENTITIES = new Set(["invoices", "payments", "family_ledger_entries", "late_pickup_events", "billing_tax_profiles"]);
 const SECURITY_ENTITIES = new Set(["account_security", "center_roles", "profiles", "staff_delegations", "staff_invites", "roles", "role_permissions"]);
 const SAFE_CHANGE_KEYS = new Set([
   "name", "address", "phone", "opens_at", "closes_at", "licensed_capacity",
@@ -86,6 +100,8 @@ const SAFE_CHANGE_KEYS = new Set([
 
 export function SettingsView({
   daycare,
+  billingTaxProfile,
+  canEditBillingTaxProfile = false,
   closures,
   audit = [],
   dataRequests = [],
@@ -95,6 +111,8 @@ export function SettingsView({
   mfaEnabled,
 }: {
   daycare: Tables<"daycares"> | null;
+  billingTaxProfile?: BillingTaxProfileSummary | null;
+  canEditBillingTaxProfile?: boolean;
   closures: Closure[];
   audit?: AuditEntry[];
   dataRequests?: ParentDataRequest[];
@@ -103,7 +121,7 @@ export function SettingsView({
   notificationPreferences?: NotificationPreferenceRow[];
   mfaEnabled: boolean;
 }) {
-  const [modal, setModal] = useState<"none" | "center" | "closure" | "late-pickup">("none");
+  const [modal, setModal] = useState<"none" | "center" | "tax-profile" | "closure" | "late-pickup" | "sick-return">("none");
   const [auditCategory, setAuditCategory] = useState<AuditCategory>("all");
   const [expandedAudit, setExpandedAudit] = useState<string | null>(null);
   const [auditLimit, setAuditLimit] = useState(12);
@@ -136,15 +154,30 @@ export function SettingsView({
             <p className="mt-3 text-[11.5px] text-faint">These facts print on invoices, tax forms, attendance records and exports.</p>
           </section>
 
+          {canEditBillingTaxProfile && <section className={card}>
+            <div className="mb-3 flex items-center gap-2">
+              <h2 className={cardTitle}>Billing provider profile</h2><span className="flex-1" />
+              <button type="button" onClick={() => setModal("tax-profile")} className="text-[12.5px] font-bold text-primary hover:text-primary-hover">{billingTaxProfile ? "Edit" : "Set up"}</button>
+            </div>
+            <dl className="grid gap-x-7 gap-y-2 md:grid-cols-2">
+              <Row label="Legal name">{billingTaxProfile?.legal_name || "Not entered"}</Row>
+              <Row label="Statement address">{billingTaxProfile?.statement_address || "Not entered"}</Row>
+              <Row label="Registration ID">{billingTaxProfile?.registration_number_saved ? `${billingTaxProfile.registration_label || "ID"} ····${billingTaxProfile.registration_number_last4}` : "Not entered"}</Row>
+              <Row label="License no.">{billingTaxProfile?.license_number || "Not entered"}</Row>
+              <Row label="Signer">{billingTaxProfile?.signer_name ? `${billingTaxProfile.signer_name} · ${billingTaxProfile.signer_title}` : "Not entered"}</Row>
+            </dl>
+            <p className="mt-3 text-[11.5px] text-faint">Private to billing admins. These details will be reviewed before any annual statement is published; saving them does not create or send a statement.</p>
+          </section>}
+
           <section className={card}>
             <div className="mb-3 flex items-center gap-2">
               <h2 className={cardTitle}>Policies</h2><span className="flex-1" />
               <button type="button" onClick={() => setModal("late-pickup")} className="text-[12.5px] font-bold text-primary hover:text-primary-hover">Edit late-pickup policy</button>
             </div>
-            <PolicyRow title="Late pickup fee" description={lateSummary} status="Active" editable />
-            <PolicyRow title="Sick return rule" description={`${daycare?.sick_return_hours ?? 24} h fever-free before returning`} status="Active" />
-            <PolicyRow title="Photo consent required" description="Children without consent are blocked from shared photos" status="Required" />
-            <PolicyRow title="ID check for new pickup people" description="Pickup PIN and approved-person checks stay enforced" status="Required" />
+            <PolicyRow title="Late pickup fee" description={lateSummary} status="Active" editable onEdit={() => setModal("late-pickup")} />
+            <PolicyRow title="Sick return rule" description={`${daycare?.sick_return_hours ?? 24} h fever-free before returning`} status="Active" editable onEdit={() => setModal("sick-return")} />
+            <PolicyRow title="Photo consent required" description={daycare?.photo_consent_required ? "Center policy requires family consent" : "Center requirement is off"} status={daycare?.photo_consent_required ? "Required" : "Off"} />
+            <PolicyRow title="ID check for new pickup people" description={daycare?.pickup_id_check_required ? "Center policy requires an ID check" : "Center requirement is off"} status={daycare?.pickup_id_check_required ? "Required" : "Off"} />
           </section>
 
           <section className={card}>
@@ -181,7 +214,7 @@ export function SettingsView({
               mfaEnabled={mfaEnabled}
             />
             <Row label="Default delegation">{daycare?.default_delegation_days ?? 14} days</Row>
-            <Row label="Delegations need expiry"><span className="font-bold text-success">Always</span></Row><Row label="Audit retention">7 years</Row>
+            <Row label="Delegations need expiry"><span className="font-bold text-success">Always</span></Row><Row label="Audit history">Available below</Row>
             {!mfaEnabled && <p className="mt-3 rounded-xl bg-warning-bg px-3 py-2 text-[11.5px] leading-relaxed text-warning-text">Protect your account first, then you can require two-step verification for every administrator.</p>}
             <Link href={mfaEnabled ? "/two-step?mode=manage" : "/two-step?mode=setup&next=/settings"} className="mt-3 block text-[12px] font-bold text-primary">{mfaEnabled ? "Manage your authenticators" : "Set up two-step verification"} →</Link>
             <Link href="/staff?tab=delegations" className="mt-3 block text-[12px] font-bold text-primary">Manage delegations →</Link>
@@ -223,17 +256,19 @@ export function SettingsView({
         {visibleAudit.length === 0 ? <p className="border-t border-[#EDF3FB] px-5 py-6 text-[12.5px] text-faint">No matching changes yet.</p> : visibleAudit.map((entry) => {
           const changes = auditChanges(entry);
           return <button key={entry.id} type="button" onClick={() => setExpandedAudit((value) => value === entry.id ? null : entry.id)} className="block w-full border-t border-[#EDF3FB] px-5 py-3 text-left hover:bg-[#F8FBFE]">
-            <span className="flex items-start gap-3"><span className="w-[108px] flex-none text-[10.5px] font-bold text-faint">{entry.created_at ? new Date(entry.created_at).toLocaleString("en-CA", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : ""}</span><span className="min-w-0 flex-1 text-[12.5px] text-ink"><b>{entry.actor?.full_name ?? "System"}</b> {auditVerb(entry.action)} {AUDIT_LABELS[entry.entity_type] ?? humanize(entry.entity_type)}</span><span className="text-[11px] font-bold text-faint">{expandedAudit === entry.id ? "Hide" : "Details"}</span></span>
+            <span className="flex items-start gap-3"><span className="w-[108px] flex-none text-[10.5px] font-bold text-faint">{entry.created_at ? new Date(entry.created_at).toLocaleString("en-CA", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : ""}</span><span className="min-w-0 flex-1 text-[12.5px] text-ink"><b>{entry.actor?.full_name ?? "System"}</b> {entry.action === "session_ended" ? "had an account session end" : `${auditVerb(entry.action)} ${AUDIT_LABELS[entry.entity_type] ?? humanize(entry.entity_type)}`}</span><span className="text-[11px] font-bold text-faint">{expandedAudit === entry.id ? "Hide" : "Details"}</span></span>
             {expandedAudit === entry.id && <span className="mt-2 block rounded-xl bg-canvas px-3 py-2 text-[11.5px] leading-relaxed text-muted">{changes || "The event is retained with its original timestamp and actor."}</span>}
           </button>;
         })}
         {filteredAudit.length > visibleAudit.length && <button type="button" onClick={() => setAuditLimit((value) => value + 12)} className="block w-full border-t border-[#EDF3FB] py-3 text-center text-[12px] font-bold text-primary hover:bg-[#F8FBFE]">Show 12 more changes</button>}
-        <div className="flex items-center gap-3 border-t border-[#E4ECF6] bg-[#F8FBFE] px-5 py-3"><span className="text-[11.5px] text-faint">Kept 7 years · cannot be edited or deleted</span><span className="flex-1" /><a href="/settings/audit-export" className="text-[12px] font-bold text-primary">Export for an inspection →</a></div>
+        <div className="flex items-center gap-3 border-t border-[#E4ECF6] bg-[#F8FBFE] px-5 py-3"><span className="text-[11.5px] text-faint">Audit events cannot be edited here</span><span className="flex-1" /><a href="/settings/audit-export" className="text-[12px] font-bold text-primary">Export for an inspection →</a></div>
       </section>
 
       {modal === "center" && daycare && <CenterModal daycare={daycare} onClose={() => setModal("none")} />}
+      {modal === "tax-profile" && daycare && <BillingTaxProfileModal daycare={daycare} profile={billingTaxProfile ?? null} onClose={() => setModal("none")} />}
       {modal === "closure" && <ClosureModal onClose={() => setModal("none")} />}
       {modal === "late-pickup" && daycare && <LatePickupPolicyModal daycare={daycare} policy={latePickupPolicy} onClose={() => setModal("none")} />}
+      {modal === "sick-return" && daycare && <SickReturnPolicyModal daycare={daycare} onClose={() => setModal("none")} />}
     </div>
   );
 }
@@ -241,7 +276,7 @@ export function SettingsView({
 function Row({ label, children }: { label: string; children: React.ReactNode }) { return <div className="flex justify-between gap-3 py-0.5"><dt className="text-[12.5px] text-muted">{label}</dt><dd className="text-right text-[12.5px] font-semibold text-ink">{children}</dd></div>; }
 function StatusPill({ on, children }: { on: boolean; children: React.ReactNode }) { return <span className={`rounded-full px-2 py-0.5 text-[10.5px] font-bold ${on ? "bg-[#E4F3EC] text-success" : "bg-warning-bg text-warning-text"}`}>{children}</span>; }
 function roleLabel(role?: ParentDataRequest["role"]): string { return role === "owner_admin" ? "Owner" : role === "admin" ? "Admin" : "Educator"; }
-function PolicyRow({ title, description, status, editable = false }: { title: string; description: string; status: string; editable?: boolean }) { return <div className="flex items-center gap-3 border-t border-[#EDF3FB] py-2.5 first:border-t-0"><span className="min-w-0 flex-1"><span className="block text-[13px] font-bold text-ink">{title}</span><span className="block text-[11.5px] text-muted">{description}</span></span><span className={`rounded-full px-2.5 py-1 text-[10.5px] font-bold ${editable ? "bg-[#E3EDFA] text-primary" : "bg-[#E4F3EC] text-success"}`}>{status}</span></div>; }
+function PolicyRow({ title, description, status, editable = false, onEdit }: { title: string; description: string; status: string; editable?: boolean; onEdit?: () => void }) { return <div className="flex items-center gap-3 border-t border-[#EDF3FB] py-2.5 first:border-t-0"><span className="min-w-0 flex-1"><span className="block text-[13px] font-bold text-ink">{title}</span><span className="block text-[11.5px] text-muted">{description}</span></span>{onEdit && <button type="button" onClick={onEdit} className="text-[11.5px] font-bold text-primary hover:underline" aria-label={`Edit ${title}`}>Edit</button>}<span className={`rounded-full px-2.5 py-1 text-[10.5px] font-bold ${status === "Off" ? "bg-[#EDF2F9] text-muted" : editable ? "bg-[#E3EDFA] text-primary" : "bg-[#E4F3EC] text-success"}`}>{status}</span></div>; }
 function NotificationRow({ label, enabled, detail }: { label: string; enabled: boolean; detail: string }) { return <div className="flex items-center gap-2 border-t border-[#EDF3FB] py-2.5 first:border-t-0"><span className="min-w-0 flex-1"><span className="block text-[12.5px] font-semibold text-ink">{label}</span><span className="block text-[10.5px] text-faint">{detail}</span></span><span className={`h-[22px] w-[38px] rounded-full p-0.5 ${enabled ? "bg-primary" : "bg-[#D6E1F0]"}`}><span className={`block size-[18px] rounded-full bg-white transition-transform ${enabled ? "translate-x-4" : ""}`} /></span></div>; }
 
 function SecurityRequirementControl({ enabled, mfaEnabled }: { enabled: boolean; mfaEnabled: boolean }) {
@@ -272,6 +307,35 @@ function CenterModal({ daycare, onClose }: { daycare: Tables<"daycares">; onClos
   </form></Modal>;
 }
 
+function BillingTaxProfileModal({ daycare, profile, onClose }: {
+  daycare: Tables<"daycares">;
+  profile: BillingTaxProfileSummary | null;
+  onClose: () => void;
+}) {
+  const [state, action, pending] = useActionState<SettingsActionState, FormData>(saveBillingTaxProfileAction, {});
+  return <Modal onClose={onClose} width={540}>
+    <div><h2 className="text-[19px] font-extrabold text-ink">Billing provider profile</h2><p className="mt-0.5 text-[12.5px] text-muted">Review the provider details that may appear on future year-end statements. Nothing is published by saving this form.</p></div>
+    <form action={action} className="flex flex-col gap-4">
+      <Field label="Legal business name" name="legal_name" maxLength={200} defaultValue={profile?.legal_name || daycare.name} required />
+      <Field label="Address for statements" name="statement_address" maxLength={500} defaultValue={profile?.statement_address || daycare.address || ""} required />
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Field label="Registration ID type (if applicable)" name="registration_label" maxLength={80} placeholder="e.g. BN or EIN" defaultValue={profile?.registration_label || ""} />
+        <Field label={profile?.registration_number_saved ? "Replace saved ID (optional)" : "Registration ID (optional)"} name="registration_number" maxLength={100} autoComplete="off" placeholder={profile?.registration_number_saved ? "Leave blank to keep saved ID" : "Enter only if applicable"} />
+      </div>
+      {profile?.registration_number_saved && <label className="flex items-center gap-2 text-[12px] text-muted"><input type="checkbox" name="clear_registration_number" className="accent-primary" />Remove saved registration ID</label>}
+      <Field label="License number (if applicable)" name="license_number" maxLength={100} defaultValue={profile?.license_number || daycare.license_number || ""} />
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Field label="Signer name" name="signer_name" maxLength={150} defaultValue={profile?.signer_name || ""} required />
+        <Field label="Signer title" name="signer_title" maxLength={100} defaultValue={profile?.signer_title || ""} placeholder="Director" required />
+      </div>
+      <p className="rounded-[13px] bg-canvas px-3.5 py-3 text-[11.5px] leading-relaxed text-muted">Use the identifier and wording appropriate to your jurisdiction. The saved identifier is masked here and omitted from the audit log. A separate review is required before any document reaches families.</p>
+      {state.ok && <Notice tone="success">Provider details saved. No statements were published.</Notice>}
+      {state.error && <Notice tone="error">{state.error}</Notice>}
+      <div className="flex gap-2.5"><Button type="button" variant="secondary" className="flex-1 py-3 text-sm" onClick={onClose}>{state.ok ? "Close" : "Cancel"}</Button><Button type="submit" className="flex-1 py-3 text-sm" disabled={pending}>{pending ? "Saving…" : "Save provider details"}</Button></div>
+    </form>
+  </Modal>;
+}
+
 function ClosureModal({ onClose }: { onClose: () => void }) {
   const [state, action, pending] = useActionState<SettingsActionState, FormData>(addClosureAction, {});
   return <Modal onClose={onClose} width={430}><div><h2 className="text-[19px] font-extrabold text-ink">Add a closure</h2><p className="mt-0.5 text-[12.5px] text-muted">The center is closed — the calendar, families and operations adjust together.</p></div><form action={action} className="flex flex-col gap-4">
@@ -291,10 +355,34 @@ function LatePickupPolicyModal({ daycare, policy, onClose }: { daycare: Tables<"
   </form></Modal>;
 }
 
+function SickReturnPolicyModal({ daycare, onClose }: { daycare: Tables<"daycares">; onClose: () => void }) {
+  const [state, action, pending] = useActionState<SettingsActionState, FormData>(updateSickReturnPolicyAction, {});
+  return <Modal onClose={onClose} width={430}>
+    <div><h2 className="text-[19px] font-extrabold text-ink">Sick return rule</h2><p className="mt-0.5 text-[12.5px] text-muted">Families see this guidance when they report a child sick.</p></div>
+    <form action={action} className="flex flex-col gap-4">
+      <Field label="Fever-free hours before returning" name="sick_return_hours" type="number" min={0} max={168} defaultValue={daycare.sick_return_hours} required />
+      <p className="rounded-[13px] bg-canvas px-3.5 py-3 text-[12px] leading-relaxed text-muted">The updated rule appears on new illness reports. Follow your local licensing and health guidance when setting it.</p>
+      {state.ok && <Notice tone="success">Return rule saved and logged.</Notice>}{state.error && <Notice tone="error">{state.error}</Notice>}
+      <div className="flex gap-2.5"><Button type="button" variant="secondary" className="flex-1 py-3 text-sm" onClick={onClose}>{state.ok ? "Close" : "Cancel"}</Button><Button type="submit" className="flex-1 py-3 text-sm" disabled={pending}>{pending ? "Saving…" : "Save rule"}</Button></div>
+    </form>
+  </Modal>;
+}
+
 function preferenceOn(preferences: NotificationPreferenceRow[], kind: string, channel: "push" | "email", fallback: boolean): boolean { const preference = preferences.find((item) => item.kind === kind); return preference ? preference[channel] : fallback; }
 function auditGroup(entity: string): Exclude<AuditCategory, "all"> { if (MONEY_ENTITIES.has(entity)) return "money"; if (SECURITY_ENTITIES.has(entity)) return "security"; return "records"; }
 function auditVerb(action: string): string { if (action === "insert") return "created"; if (action === "delete") return "cancelled / removed"; if (action.includes("export")) return "exported"; return "changed"; }
-function auditChanges(entry: AuditEntry): string { const before = isRecord(entry.before) ? entry.before : {}; const after = isRecord(entry.after) ? entry.after : {}; const keys = [...new Set([...Object.keys(before), ...Object.keys(after)])].filter((key) => SAFE_CHANGE_KEYS.has(key) && JSON.stringify(before[key]) !== JSON.stringify(after[key])); return keys.slice(0, 5).map((key) => `${humanize(key)}: ${displayAuditValue(before[key])} → ${displayAuditValue(after[key])}`).join(" · "); }
+function auditChanges(entry: AuditEntry): string {
+  const before = isRecord(entry.before) ? entry.before : {};
+  const after = isRecord(entry.after) ? entry.after : {};
+  if (entry.action === "session_ended") {
+    const ip = typeof after.ip_address === "string" ? after.ip_address.replace(/\/(32|128)$/, "") : "unknown";
+    const agent = typeof after.user_agent === "string" && !/supabase-js|node|undici/i.test(after.user_agent)
+      ? after.user_agent.slice(0, 100) : "device details unavailable";
+    return `IP ${ip} · ${agent}`;
+  }
+  const keys = [...new Set([...Object.keys(before), ...Object.keys(after)])].filter((key) => SAFE_CHANGE_KEYS.has(key) && JSON.stringify(before[key]) !== JSON.stringify(after[key]));
+  return keys.slice(0, 5).map((key) => `${humanize(key)}: ${displayAuditValue(before[key])} → ${displayAuditValue(after[key])}`).join(" · ");
+}
 function isRecord(value: unknown): value is Record<string, unknown> { return Boolean(value && typeof value === "object" && !Array.isArray(value)); }
 function displayAuditValue(value: unknown): string { if (value == null || value === "") return "—"; if (Array.isArray(value)) return value.join(", "); if (typeof value === "boolean") return value ? "on" : "off"; if (typeof value === "number") return String(value); if (typeof value === "string") return value.length > 45 ? `${value.slice(0, 42)}…` : value; return "updated"; }
 function humanize(value: string): string { return value.replaceAll("_", " "); }

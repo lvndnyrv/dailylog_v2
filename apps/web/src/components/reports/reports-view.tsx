@@ -36,8 +36,7 @@ function scheduleDescription(schedule: ReportSchedule, admins: ReportAdmin[]) {
     .filter(Boolean)
     .join(" + ");
   const cadence = schedule.cadence[0].toUpperCase() + schedule.cadence.slice(1);
-  const formats = schedule.formats.map((format) => format.toUpperCase()).join(" + ");
-  return `${cadence} · ${recipients || "Administrators"} · ${formats}`;
+  return `${cadence} · ${recipients || "Administrators"} · email reminder`;
 }
 
 export function ReportsView({
@@ -46,14 +45,16 @@ export function ReportsView({
   admins,
   canEdit,
   profileId,
+  initialScheduleKind = null,
 }: {
   schedules: ReportSchedule[];
   exports: ReportExport[];
   admins: ReportAdmin[];
   canEdit: boolean;
   profileId: string;
+  initialScheduleKind?: ReportKind | null;
 }) {
-  const [scheduleKind, setScheduleKind] = useState<ReportKind | null>(null);
+  const [scheduleKind, setScheduleKind] = useState<ReportKind | null>(initialScheduleKind);
   const [editing, setEditing] = useState<ReportSchedule | null>(null);
   const [manage, setManage] = useState(false);
   const schedulesByKind = useMemo(
@@ -172,24 +173,30 @@ export function ReportsView({
               <Download size={18} className="text-primary" />
             </div>
             {recentExports.length ? (
-              recentExports.slice(0, 5).map((item) => (
-                <Link
-                  href={`/reports/${item.report_kind}?from=${item.starts_on ?? ""}&to=${item.ends_on ?? ""}`}
-                  key={item.id}
-                  className="flex items-center justify-between gap-3 border-t border-[#EDF3FB] pt-3 first:border-0 first:pt-0"
-                >
+              recentExports.slice(0, 5).map((item) => {
+                const saved = (item.format === "csv" || item.format === "pdf") && Boolean(item.storage_path);
+                const content = <>
                   <span className="min-w-0">
                     <span className="block truncate text-[12px] font-semibold text-ink">{item.title}</span>
                     <span className="block text-[10.5px] text-faint">
                       {shortDate(item.generated_at)} · {item.row_count ?? 0} rows
                     </span>
                   </span>
-                  <span className="text-[11px] font-bold text-primary">{item.format.toUpperCase()}</span>
-                </Link>
-              ))
+                  <span className="text-[11px] font-bold text-primary">{saved ? `Download ${item.format.toUpperCase()}` : "View period"}</span>
+                </>;
+                const className = "flex items-center justify-between gap-3 border-t border-[#EDF3FB] pt-3 first:border-0 first:pt-0";
+                return saved
+                  ? <a href={`/reports/files/${item.id}`} key={item.id} className={className}>{content}</a>
+                  : <Link href={`/reports/${item.report_kind}?from=${item.starts_on ?? ""}&to=${item.ends_on ?? ""}`} key={item.id} className={className}>{content}</Link>;
+              })
             ) : (
               <p className="text-[12px] leading-relaxed text-muted">
-                Downloads and printed PDFs will be recorded here for seven years.
+                Saved PDF/CSV downloads and report runs will appear here.
+              </p>
+            )}
+            {recentExports.length > 0 && (
+              <p className="text-[10.5px] leading-relaxed text-faint">
+                Saved files reopen exactly as downloaded. Older activity-only entries reopen with current data.
               </p>
             )}
           </section>
@@ -205,6 +212,11 @@ export function ReportsView({
           onClose={() => {
             setScheduleKind(null);
             setEditing(null);
+            const url = new URL(window.location.href);
+            if (url.searchParams.has("schedule")) {
+              url.searchParams.delete("schedule");
+              window.history.replaceState(window.history.state, "", url);
+            }
           }}
         />
       )}
@@ -248,7 +260,7 @@ function ScheduleModal({
           Schedule: {REPORT_CATALOG[kind].title}
         </h2>
         <p className="mt-1 text-[12.5px] text-muted">
-          It will run automatically for the selected administrators.
+          This schedule queues an email reminder for selected administrators when the report period is ready. Delivery requires the center&apos;s email service to be configured.
         </p>
       </div>
       <form
@@ -342,7 +354,7 @@ function ScheduleModal({
             </div>
           </div>
           <div>
-            <p className={label}>Format (required)</p>
+            <p className={label}>Preferred format (required)</p>
             <div className="mt-2 flex gap-3">
               {["pdf", "csv"].map((format) => (
                 <label key={format} className="flex flex-1 items-center gap-2 rounded-xl border border-[#D6E1F0] p-3 text-[12px] font-bold uppercase text-ink">
@@ -357,6 +369,9 @@ function ScheduleModal({
                 </label>
               ))}
             </div>
+            <p className="mt-2 text-[11px] leading-relaxed text-muted">
+              Once scheduled file delivery is configured, the selected files are generated and attached. Until then, emails contain a reminder and report link only.
+            </p>
           </div>
           <label className="flex items-center justify-between gap-4 text-[12.5px] text-ink">
             <span>

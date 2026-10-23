@@ -27,6 +27,7 @@ import { mutate } from '../../lib/offlineQueue';
 import { newId } from '../../lib/uuid';
 import { toastError } from '../../components/Toast';
 import { colors, fonts, radius, spacing } from '../../theme';
+import FamilyScreenHeader from '../parent/FamilyScreenHeader';
 
 const QUICK_REPLIES = [
   'Napping now',
@@ -618,7 +619,7 @@ export default function MessagingScreen({ route, navigation }) {
         behavior={Platform.OS === 'ios' ? 'height' : undefined}
         keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top : 0}
       >
-        <View style={styles.header}>
+        {isStaff ? <View style={styles.header}>
           <TouchableOpacity
             onPress={() => navigation.goBack()}
             style={styles.headerIconButton}
@@ -647,7 +648,7 @@ export default function MessagingScreen({ route, navigation }) {
           ) : (
             <View style={styles.headerIconButton} />
           )}
-        </View>
+        </View> : <FamilyScreenHeader navigation={navigation} title={headerTitle} subtitle={headerSubtitle} />}
 
         {loading ? (
           <View style={styles.loadingWrap}>

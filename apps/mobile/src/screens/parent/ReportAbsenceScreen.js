@@ -15,6 +15,7 @@ import {
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import FamilyScreenHeader from './FamilyScreenHeader';
 import { addDays, format, parseISO } from 'date-fns';
 
 import { useParentAbsences } from '../../hooks/useParentAbsences';
@@ -184,13 +185,7 @@ export default function ReportAbsenceScreen({ navigation, route }) {
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
       <KeyboardAvoidingView style={styles.keyboard} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <View style={styles.header}>
-          <TouchableOpacity style={styles.headerButton} onPress={() => navigation.goBack()} accessibilityLabel="Close report absence">
-            <Ionicons name="close" size={23} color={colors.textPrimary} />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>{editingId ? 'Edit absence' : 'Report an absence'}</Text>
-          <View style={styles.headerButton} />
-        </View>
+        <FamilyScreenHeader navigation={navigation} title={editingId ? 'Edit absence' : 'Report an absence'} subtitle={child?.first_name ? `For ${child.first_name}` : 'For your family'} />
 
         <ScrollView
           ref={formRef}
@@ -359,9 +354,6 @@ export default function ReportAbsenceScreen({ navigation, route }) {
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: colors.bg },
   keyboard: { flex: 1 },
-  header: { minHeight: 62, flexDirection: 'row', alignItems: 'center', paddingHorizontal: spacing.lg, borderBottomWidth: 1, borderBottomColor: colors.borderSoft, backgroundColor: colors.surface },
-  headerButton: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
-  headerTitle: { flex: 1, textAlign: 'center', color: colors.textPrimary, fontSize: 17, fontFamily: fonts.bold },
   content: { padding: spacing.lg, paddingBottom: spacing.xl },
   childCard: { flexDirection: 'row', alignItems: 'center', padding: spacing.lg, borderWidth: 1.5, borderColor: colors.border, borderRadius: radius.xl, backgroundColor: colors.surface },
   avatar: { width: 50, height: 50, alignItems: 'center', justifyContent: 'center', borderRadius: 25, backgroundColor: colors.primaryLight },

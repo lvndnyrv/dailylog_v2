@@ -7,6 +7,7 @@ import { SectionHeader } from "@/components/shell/header";
 import {
   SettingsView,
   type AuditEntry,
+  type BillingTaxProfileSummary,
   type ClientErrorReport,
   type ParentDataRequest,
 } from "@/components/settings/settings-view";
@@ -47,12 +48,31 @@ export default async function SettingsPage() {
       .maybeSingle(),
     listMyNotificationPreferences(supabase).catch(() => []),
   ]);
+  const [{ data: taxProfile, error: taxProfileError }, { data: canEditBilling }] = await Promise.all([
+    daycare
+      ? supabase.from("billing_tax_profiles").select("legal_name, statement_address, registration_label, registration_number, license_number, signer_name, signer_title").eq("daycare_id", daycare.id).maybeSingle()
+      : Promise.resolve({ data: null, error: null }),
+    supabase.rpc("has_permission", { p_area: "billing", p_action: "edit" }),
+  ]);
+  if (taxProfileError) throw taxProfileError;
+  const billingTaxProfile: BillingTaxProfileSummary | null = taxProfile ? {
+    legal_name: taxProfile.legal_name,
+    statement_address: taxProfile.statement_address,
+    registration_label: taxProfile.registration_label,
+    registration_number_saved: Boolean(taxProfile.registration_number),
+    registration_number_last4: taxProfile.registration_number?.slice(-4) ?? null,
+    license_number: taxProfile.license_number,
+    signer_name: taxProfile.signer_name,
+    signer_title: taxProfile.signer_title,
+  } : null;
 
   return (
     <>
       <SectionHeader title="Settings" subtitle="Center profile, policies and security — changes are logged" />
       <SettingsView
         daycare={daycare}
+        billingTaxProfile={billingTaxProfile}
+        canEditBillingTaxProfile={Boolean(canEditBilling)}
         closures={closures}
         audit={(auditRes.data ?? []) as unknown as AuditEntry[]}
         dataRequests={[

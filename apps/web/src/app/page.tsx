@@ -27,5 +27,6 @@ export default async function Home() {
 
   const profile = await getMyProfile(supabase);
   if (!profile || profile.archived_at) redirect("/account-issue");
+  if (!profile.daycare_id && user.user_metadata?.center_registration_code) redirect("/start");
   redirect(roleDestination(profile?.role));
 }

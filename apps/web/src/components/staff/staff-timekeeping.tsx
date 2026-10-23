@@ -933,7 +933,7 @@ function PayrollExportModal({
         <Total label="Format" value="Generic payroll CSV" />
       </div>
       <p className="text-[11.5px] leading-normal text-faint">
-        The export contains one row per clock entry with staff name, dates, hours, breaks, room, and approval status.
+        This is a reconciliation CSV, not an ADP or Gusto import file. It contains one row per approved clock entry with stable staff and entry IDs, dates, hours, breaks, and room. Match your payroll provider’s employee IDs and import template before uploading it there.
       </p>
       <div className="flex justify-end gap-2.5">
         <button type="button" onClick={onClose} className="rounded-btn border-[1.5px] border-[#D6E1F0] bg-card px-4 py-2.5 text-[12.5px] font-bold text-ink">Cancel</button>

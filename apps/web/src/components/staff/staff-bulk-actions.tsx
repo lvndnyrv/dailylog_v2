@@ -5,6 +5,7 @@ import { Check, Download, Mail, MapPin, X } from "lucide-react";
 import { useActionState, useEffect, useState } from "react";
 import { Modal } from "@/components/ui/modal";
 import { Notice } from "@/components/ui/notice";
+import { csvCell } from "@/lib/csv";
 import {
   bulkAssignStaffRoomAction,
   bulkMessageStaffAction,
@@ -112,8 +113,4 @@ function BulkRoomModal({ selected, classrooms, onClose, onComplete }: { selected
       </form>
     </Modal>
   );
-}
-
-function csvCell(value: string) {
-  return `"${value.replaceAll('"', '""')}"`;
 }

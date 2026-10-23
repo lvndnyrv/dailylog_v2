@@ -34,6 +34,7 @@ import { ChildAvatar } from '../../components/ChildAvatar';
 import { DatePickerField } from '../../components/DatePickerField';
 import { showToast } from '../../components/Toast';
 import { colors, fonts, radius, spacing } from '../../theme';
+import FamilyScreenHeader from '../parent/FamilyScreenHeader';
 
 const ROUTES = ['Oral', 'Topical', 'Inhaler', 'EpiPen', 'Other'];
 const MEDICATION_TYPES = [
@@ -1030,7 +1031,7 @@ export default function MedicationScreen({ route, navigation }) {
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.header}>
+        {isParent ? <View style={styles.familyHeaderWrap}><FamilyScreenHeader navigation={navigation} title="Medications" subtitle="Care and dose history" /></View> : <View style={styles.header}>
           <TouchableOpacity
             onPress={() => navigation.goBack()}
             style={styles.backButton}
@@ -1041,7 +1042,7 @@ export default function MedicationScreen({ route, navigation }) {
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Medications</Text>
           <View style={styles.headerSpacer} />
-        </View>
+        </View>}
 
         <View style={styles.childPill}>
           <ChildAvatar child={child} size={30} />
@@ -1877,6 +1878,7 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
   },
   headerSpacer: { width: 42 },
+  familyHeaderWrap: { marginHorizontal: -spacing.xxl, marginTop: -spacing.md, marginBottom: spacing.sm },
   childPill: {
     alignSelf: 'center',
     flexDirection: 'row',

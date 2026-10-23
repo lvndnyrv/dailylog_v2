@@ -36,11 +36,12 @@ export default async function ReportPage({
   const endsOn = isDate(query.to) ? query.to : defaults.endsOn;
   const safeStart = startsOn <= endsOn ? startsOn : endsOn;
   const safeEnd = startsOn <= endsOn ? endsOn : startsOn;
-  const preview = await getReportPreview(client, kind, safeStart, safeEnd, timeZone);
+  const preview = await getReportPreview(client, kind, safeStart, safeEnd, timeZone, profile.daycare_id);
+  const canSchedule = await hasPermission(client, "reports", "edit");
   return (
     <>
       <SectionHeader title={preview.title} subtitle={`${safeStart} through ${safeEnd}`} showUtilities={false} />
-      <ReportViewer preview={preview} />
+      <ReportViewer preview={preview} canSchedule={canSchedule} />
     </>
   );
 }

@@ -59,8 +59,8 @@ const ACTIVITIES = [
 const ROUTINE_TYPES = [
   {
     id: 'attendance',
-    title: 'Check in / out',
-    subtitle: 'Arrival & departure',
+    title: 'Check in',
+    subtitle: 'Record classroom arrivals',
     icon: 'checkmark-done-outline',
   },
   {
@@ -338,7 +338,6 @@ export default function BulkLogScreen({ navigation }) {
   const [selectedType, setSelectedType] = useState(null);
   const [success, setSuccess] = useState(null);
 
-  const [attendanceAction, setAttendanceAction] = useState('check-in');
   const [mealName, setMealName] = useState('');
   const [mealAmounts, setMealAmounts] = useState({});
   const [mealMenuItems, setMealMenuItems] = useState([]);
@@ -650,16 +649,12 @@ export default function BulkLogScreen({ navigation }) {
     const childIds = selectedList.map(child => child.id);
     const { data, error } = await supabase.rpc('bulk_set_mobile_attendance', {
       p_child_ids: childIds,
-      p_action: attendanceAction,
+      p_action: 'check-in',
     });
     if (error) throw error;
     const affected = data?.affectedCount || 0;
     const skipped = data?.skippedCount || 0;
-    const verb = attendanceAction === 'check-in' ? 'Checked in' : 'Checked out';
-    const suffix = attendanceAction === 'check-in'
-      ? ` at ${format(new Date(), 'h:mm a')}`
-      : '';
-    return `${verb} ${affected} ${affected === 1 ? 'child' : 'children'}${suffix}${skipped ? `; ${skipped} already had a completed status` : ''}.`;
+    return `Checked in ${affected} ${affected === 1 ? 'child' : 'children'} at ${format(new Date(), 'h:mm a')}${skipped ? `; ${skipped} already had a completed status` : ''}.`;
   }
 
   async function saveMeal() {
@@ -1113,23 +1108,25 @@ export default function BulkLogScreen({ navigation }) {
     if (selectedType.id === 'attendance') {
       return (
         <>
-          <Text style={styles.formLabel}>ACTION</Text>
-          <View style={styles.choiceRow}>
-            <ChoiceChip
-              label="Check in"
-              selected={attendanceAction === 'check-in'}
-              onPress={() => setAttendanceAction('check-in')}
-            />
-            <ChoiceChip
-              label="Check out"
-              selected={attendanceAction === 'check-out'}
-              onPress={() => setAttendanceAction('check-out')}
-            />
-          </View>
           <View style={styles.timeBanner}>
             <Ionicons name="time-outline" size={18} color={colors.primary} />
-            <Text style={styles.timeBannerText}>Now · {format(new Date(), 'h:mm a')}</Text>
+            <Text style={styles.timeBannerText}>Checking in now · {format(new Date(), 'h:mm a')}</Text>
           </View>
+          <TouchableOpacity
+            style={styles.pickupRoute}
+            onPress={() => navigation.navigate('Pickups')}
+            accessibilityRole="button"
+            accessibilityLabel="Open verified pickups for checkout"
+          >
+            <Ionicons name="shield-checkmark-outline" size={20} color={colors.primary} />
+            <View style={styles.pickupRouteCopy}>
+              <Text style={styles.pickupRouteTitle}>Checking a child out?</Text>
+              <Text style={styles.pickupRouteText}>
+                Verify the pickup person before releasing each child.
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={colors.primary} />
+          </TouchableOpacity>
         </>
       );
     }
@@ -2278,6 +2275,18 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontFamily: fonts.bold,
     color: colors.textSecondary,
+  },
+  pickupRoute: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
+    marginTop: spacing.md, padding: spacing.md, borderWidth: 1.5,
+    borderColor: colors.border, borderRadius: radius.md,
+    backgroundColor: colors.surface,
+  },
+  pickupRouteCopy: { flex: 1 },
+  pickupRouteTitle: { fontSize: 13.5, fontFamily: fonts.bold, color: colors.textPrimary },
+  pickupRouteText: {
+    marginTop: 2, fontSize: 12, lineHeight: 17,
+    fontFamily: fonts.regular, color: colors.textMuted,
   },
   textInput: {
     minHeight: 50,

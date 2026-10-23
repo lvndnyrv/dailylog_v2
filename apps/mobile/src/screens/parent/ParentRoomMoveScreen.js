@@ -42,11 +42,12 @@ export default function ParentRoomMoveScreen({ navigation, route }) {
   }, [route.params?.childId, route.params?.transitionId, schedule.hub]);
 
   if (!schedule.hub && schedule.loading) {
-    return <SafeAreaView style={scheduleStyles.safeArea}><ScheduleLoading /></SafeAreaView>;
+    return <SafeAreaView style={scheduleStyles.safeArea}><ScheduleHeader navigation={navigation} title="Room move" /><ScheduleLoading /></SafeAreaView>;
   }
   if (!schedule.hub && schedule.error) {
     return (
       <SafeAreaView style={scheduleStyles.safeArea}>
+        <ScheduleHeader navigation={navigation} title="Room move" />
         <ScheduleError message={schedule.error} onRetry={schedule.refresh} />
       </SafeAreaView>
     );
@@ -54,6 +55,7 @@ export default function ParentRoomMoveScreen({ navigation, route }) {
   if (!plan) {
     return (
       <SafeAreaView style={scheduleStyles.safeArea}>
+        <ScheduleHeader navigation={navigation} title="Room move" />
         <ScheduleEmpty
           icon="school-outline"
           title={route.params?.transitionId ? 'This room move changed' : 'No room move planned'}

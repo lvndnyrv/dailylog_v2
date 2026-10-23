@@ -2,6 +2,7 @@ import React, { useCallback, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Linking,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -13,6 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import {
+  attestMobilePickupIdCheck,
   completeMobilePickup,
   verifyMobilePickupPass,
 } from '../../hooks/usePickupVerification';
@@ -26,6 +28,7 @@ export default function VerifyPickupScreen({ navigation, route }) {
   const [manualMode, setManualMode] = useState(false);
   const [code, setCode] = useState('');
   const [matched, setMatched] = useState(null);
+  const [idChecked, setIdChecked] = useState(false);
   const [error, setError] = useState(null);
   const [verifying, setVerifying] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -42,6 +45,7 @@ export default function VerifyPickupScreen({ navigation, route }) {
         code: manualCode,
         expectedChildId: expectedPickup?.child_id,
       });
+      setIdChecked(false);
       setMatched(result);
       setManualMode(false);
     } catch (verifyError) {
@@ -53,10 +57,13 @@ export default function VerifyPickupScreen({ navigation, route }) {
   }, [expectedPickup?.child_id, verifying]);
 
   async function confirmCheckout() {
-    if (!matched || confirming) return;
+    if (!matched || confirming || (matched.id_check_required && !idChecked)) return;
     setConfirming(true);
     setError(null);
     try {
+      if (matched.id_check_required) {
+        await attestMobilePickupIdCheck(matched.pass_id);
+      }
       const result = latePickup
         ? await completeMobileLatePickup(matched.pass_id, latePickup.notes)
         : await completeMobilePickup(matched.pass_id);
@@ -73,6 +80,7 @@ export default function VerifyPickupScreen({ navigation, route }) {
 
   function resetScanner() {
     setMatched(null);
+    setIdChecked(false);
     setError(null);
     setCode('');
     scanLock.current = false;
@@ -110,7 +118,11 @@ export default function VerifyPickupScreen({ navigation, route }) {
       </View>
 
       {matched ? (
-        <View style={styles.matchedPage}>
+        <ScrollView
+          style={styles.matchedPage}
+          contentContainerStyle={styles.matchedContent}
+          keyboardShouldPersistTaps="handled"
+        >
           <View style={styles.matchIcon}>
             <Ionicons name="shield-checkmark" size={44} color={colors.success} />
           </View>
@@ -146,12 +158,36 @@ export default function VerifyPickupScreen({ navigation, route }) {
             </View>
           </View>
 
+          {matched.id_check_required && (
+            <TouchableOpacity
+              style={styles.idCheckCard}
+              onPress={() => setIdChecked(value => !value)}
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: idChecked }}
+              accessibilityLabel={`I checked a photo ID matching ${matched.presenter_name}`}
+            >
+              <Ionicons
+                name={idChecked ? 'checkbox' : 'square-outline'}
+                size={26}
+                color={idChecked ? colors.primary : colors.textMuted}
+              />
+              <View style={styles.idCheckCopy}>
+                <Text style={styles.idCheckTitle}>Photo ID required for this person</Text>
+                <Text style={styles.idCheckText}>
+                  I checked a photo ID and confirmed it matches {matched.presenter_name}.
+                  Do not release the child if the identity does not match.
+                </Text>
+              </View>
+            </TouchableOpacity>
+          )}
+
           {error && <Text style={styles.errorText}>{error}</Text>}
 
           <TouchableOpacity
-            style={[styles.confirmButton, confirming && styles.disabled]}
+            style={[styles.confirmButton,
+              (confirming || (matched.id_check_required && !idChecked)) && styles.disabled]}
             onPress={confirmCheckout}
-            disabled={confirming}
+            disabled={confirming || (matched.id_check_required && !idChecked)}
             accessibilityRole="button"
           >
             {confirming
@@ -167,7 +203,7 @@ export default function VerifyPickupScreen({ navigation, route }) {
             <Ionicons name="alert-circle-outline" size={18} color={colors.danger} />
             <Text style={styles.unauthorizedLinkText}>Person isn’t on the list?</Text>
           </TouchableOpacity>
-        </View>
+        </ScrollView>
       ) : manualMode ? (
         <View style={styles.manualPage}>
           <View style={styles.manualIcon}>
@@ -348,7 +384,11 @@ const styles = StyleSheet.create({
     fontSize: 29, letterSpacing: 10, fontFamily: fonts.black,
   },
   codeInputError: { borderColor: colors.danger },
-  matchedPage: { flex: 1, alignItems: 'center', paddingHorizontal: spacing.xl, paddingTop: 45 },
+  matchedPage: { flex: 1 },
+  matchedContent: {
+    alignItems: 'center', paddingHorizontal: spacing.xl,
+    paddingTop: 45, paddingBottom: spacing.xxl,
+  },
   matchIcon: {
     width: 82, height: 82, alignItems: 'center', justifyContent: 'center',
     borderRadius: 41, backgroundColor: colors.successLight,
@@ -376,6 +416,18 @@ const styles = StyleSheet.create({
   authorizedTitle: { fontSize: 14.5, fontFamily: fonts.bold, color: colors.success },
   authorizedText: {
     marginTop: 2, fontSize: 12.5, lineHeight: 18,
+    fontFamily: fonts.regular, color: colors.textMuted,
+  },
+  idCheckCard: {
+    alignSelf: 'stretch', flexDirection: 'row', alignItems: 'flex-start',
+    gap: spacing.md, marginTop: spacing.lg, padding: spacing.lg,
+    borderWidth: 1.5, borderColor: colors.borderStrong,
+    borderRadius: radius.lg, backgroundColor: colors.surface,
+  },
+  idCheckCopy: { flex: 1 },
+  idCheckTitle: { fontSize: 14.5, fontFamily: fonts.bold, color: colors.textPrimary },
+  idCheckText: {
+    marginTop: spacing.xs, fontSize: 12.5, lineHeight: 19,
     fontFamily: fonts.regular, color: colors.textMuted,
   },
   lateSummary: {

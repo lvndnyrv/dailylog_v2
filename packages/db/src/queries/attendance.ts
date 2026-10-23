@@ -17,11 +17,6 @@ export interface AttendanceDayRow {
   >;
 }
 
-type AttendanceDayCandidate = AttendanceDayRow & {
-  setup_state: unknown;
-  enrolled_on: string | null;
-};
-
 export interface AttendanceCorrectionRow {
   id: string;
   attendance_id: string;
@@ -78,40 +73,28 @@ export async function listAttendanceDay(
   client: Client,
   date: string,
 ): Promise<AttendanceDayRow[]> {
-  const { data, error } = await client
-    .from('children')
-    .select(
-      `id, first_name, last_name, setup_state, enrolled_on,
-       classroom:classrooms(id, name),
-       attendance:attendance_records(
-         *,
-         checked_in_by_profile:profiles!attendance_records_checked_in_by_fkey(id, full_name),
-         checked_out_by_profile:profiles!attendance_records_checked_out_by_fkey(id, full_name)
-       )`,
-    )
-    .eq('attendance.date', date)
-    .is('archived_at', null)
-    .order('first_name');
+  const [{ data, error }, { data: expected, error: expectedError }] = await Promise.all([
+    client
+      .from('children')
+      .select(
+        `id, first_name, last_name,
+         classroom:classrooms(id, name),
+         attendance:attendance_records(
+           *,
+           checked_in_by_profile:profiles!attendance_records_checked_in_by_fkey(id, full_name),
+           checked_out_by_profile:profiles!attendance_records_checked_out_by_fkey(id, full_name)
+         )`,
+      )
+      .eq('attendance.date', date)
+      .is('archived_at', null)
+      .order('first_name'),
+    client.rpc('get_attendance_expected_children', { p_date: date }),
+  ]);
   if (error) throw error;
-  const weekday = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][
-    new Date(`${date}T12:00:00Z`).getUTCDay()
-  ];
-  return ((data ?? []) as unknown as AttendanceDayCandidate[])
-    .filter((child) => !child.enrolled_on || child.enrolled_on <= date)
-    .filter((child) => child.attendance.length > 0 || isExpectedOn(child.setup_state, weekday))
-    .map(({ setup_state: _setupState, enrolled_on: _enrolledOn, ...child }) => child);
-}
-
-function isExpectedOn(setupState: unknown, weekday: string): boolean {
-  if (!setupState || typeof setupState !== 'object' || Array.isArray(setupState)) {
-    return !['sat', 'sun'].includes(weekday);
-  }
-  const weekly = (setupState as Record<string, unknown>).weekly_schedule;
-  if (!weekly || typeof weekly !== 'object' || Array.isArray(weekly)) {
-    return !['sat', 'sun'].includes(weekday);
-  }
-  const value = (weekly as Record<string, unknown>)[weekday];
-  return value === 'full' || value === 'half';
+  if (expectedError) throw expectedError;
+  const expectedIds = new Set((expected ?? []).map((row) => row.child_id));
+  return ((data ?? []) as unknown as AttendanceDayRow[])
+    .filter((child) => child.attendance.length > 0 || expectedIds.has(child.id));
 }
 
 export async function getAttendanceWeek(client: Client) {

@@ -350,21 +350,15 @@ export async function exportAttendanceCsv({ rows, classroomName, fromStr, toStr 
   return shareCsv(header + body, filename, 'Attendance export');
 }
 
-// ─── PARENT BILLING STATEMENT / TAX RECEIPT → PDF ────────────────────────────
+// ─── PARENT MONTHLY BILLING STATEMENT → PDF ──────────────────────────────────
 export async function exportBillingStatementPdf({
-  kind,
   familyName,
   daycareName,
   billingEmail,
   statement,
 }) {
-  const isTax = kind === 'tax';
-  const title = isTax
-    ? `${statement?.year || ''} Childcare Tax Receipt`
-    : `${format(new Date(`${statement?.period_start}T12:00:00`), 'MMMM yyyy')} Statement`;
-  const period = isTax
-    ? `January 1–December 31, ${statement?.year || ''}`
-    : `${format(new Date(`${statement?.period_start}T12:00:00`), 'PPP')}–${format(new Date(`${statement?.period_end}T12:00:00`), 'PPP')}`;
+  const title = `${format(new Date(`${statement?.period_start}T12:00:00`), 'MMMM yyyy')} Statement`;
+  const period = `${format(new Date(`${statement?.period_start}T12:00:00`), 'PPP')}–${format(new Date(`${statement?.period_end}T12:00:00`), 'PPP')}`;
   const total = new Intl.NumberFormat('en-CA', {
     style: 'currency', currency: 'CAD', minimumFractionDigits: 2,
   }).format((statement?.total_cents || 0) / 100);
@@ -377,7 +371,7 @@ export async function exportBillingStatementPdf({
           <tr><th>Family</th><td>${esc(familyName || 'Family account')}</td></tr>
           <tr><th>Billing email</th><td>${esc(billingEmail || '—')}</td></tr>
           <tr><th>Period</th><td>${esc(period)}</td></tr>
-          <tr><th>${isTax ? 'Eligible childcare payments' : 'Statement total'}</th><td><strong>${esc(total)}</strong></td></tr>
+          <tr><th>Statement total</th><td><strong>${esc(total)}</strong></td></tr>
         </table>
       </div>
       <div class="section">

@@ -1,7 +1,9 @@
 "use client";
 
 import type { InvoiceRow } from "@dailylog/db/queries";
-import { useActionState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useActionState, useEffect } from "react";
 import { recordPaymentAction, type BillingActionState } from "@/lib/billing/actions";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
@@ -23,12 +25,20 @@ export function InvoiceModal({
   onVoid: (formData: FormData) => Promise<void>;
   onClose: () => void;
 }) {
+  const router = useRouter();
   const [state, action, pending] = useActionState<BillingActionState, FormData>(
     recordPaymentAction,
     {},
   );
 
-  const paid = invoice.payments.reduce((sum, payment) => sum + payment.amount_cents, 0);
+  useEffect(() => {
+    if (!state.ok) return;
+    onClose();
+    router.refresh();
+  }, [state.ok, onClose, router]);
+
+  const settledPayments = invoice.payments.filter((payment) => payment.status === "succeeded");
+  const paid = settledPayments.reduce((sum, payment) => sum + payment.amount_cents, 0);
   const remaining = Math.max(0, invoice.total_cents - paid);
 
   return (
@@ -56,6 +66,12 @@ export function InvoiceModal({
         </span>
       </div>
 
+      {invoice.family && (
+        <Link href={`/billing/families/${invoice.family.id}`} className="w-fit text-[12px] font-bold text-primary hover:underline">
+          View family statement →
+        </Link>
+      )}
+
       <div>
         <span className={label}>LINES</span>
         <div className="mt-1 flex flex-col">
@@ -76,11 +92,11 @@ export function InvoiceModal({
         </div>
       </div>
 
-      {invoice.payments.length > 0 && (
+      {settledPayments.length > 0 && (
         <div>
           <span className={label}>PAYMENTS</span>
           <div className="mt-1 flex flex-col gap-1">
-            {invoice.payments.map((payment) => (
+            {settledPayments.map((payment) => (
               <div key={payment.id} className="flex items-baseline justify-between text-[12.5px]">
                 <span className="text-muted">
                   {payment.paid_at
@@ -126,7 +142,7 @@ export function InvoiceModal({
         </div>
       )}
 
-      {invoice.status === "open" && (
+      {(invoice.status === "open" || invoice.status === "overdue") && remaining > 0 && (
         <form action={action} className="flex flex-col gap-3 rounded-[13px] bg-canvas p-3.5">
           <input type="hidden" name="invoice_id" value={invoice.id} />
           <span className="text-[13px] font-extrabold text-ink">
@@ -171,7 +187,7 @@ export function InvoiceModal({
         <Button type="button" variant="secondary" className="flex-1 py-3 text-sm" onClick={onClose}>
           Close
         </Button>
-        {invoice.status === "open" && (
+        {(invoice.status === "open" || invoice.status === "overdue") && settledPayments.length === 0 && (
           <form action={onVoid} className="flex-1">
             <input type="hidden" name="invoice_id" value={invoice.id} />
             <button
@@ -183,6 +199,9 @@ export function InvoiceModal({
           </form>
         )}
       </div>
+      {(invoice.status === "open" || invoice.status === "overdue") && settledPayments.length > 0 && (
+        <p className="text-[11.5px] text-muted">This invoice has a recorded payment and cannot be voided. Reconcile or refund the payment first.</p>
+      )}
     </Modal>
   );
 }

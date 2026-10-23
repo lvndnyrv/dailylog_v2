@@ -1,6 +1,7 @@
 import {
   getMyDaycare,
   getMyProfile,
+  hasPermission,
   listAttendanceCorrections,
   listAttendanceDay,
 } from "@dailylog/db/queries";
@@ -8,6 +9,7 @@ import { isAdminRole } from "@dailylog/shared";
 import { redirect } from "next/navigation";
 import { getServerSupabase } from "@/lib/supabase/server";
 import { PrintButton } from "@/components/attendance/print-button";
+import { dateInTimeZone, isDate } from "@/lib/center-date";
 
 // Daily sign-in sheet 8e — print-friendly export, opened in a new tab from 8a.
 export default async function AttendanceSheetPage({
@@ -16,17 +18,16 @@ export default async function AttendanceSheetPage({
   searchParams: Promise<{ date?: string; room?: string }>;
 }) {
   const params = await searchParams;
-  const today = new Date().toISOString().slice(0, 10);
-  const date = /^\d{4}-\d{2}-\d{2}$/.test(params.date ?? "") ? params.date! : today;
-
   const supabase = await getServerSupabase();
   const profile = await getMyProfile(supabase);
   if (!isAdminRole(profile?.role)) redirect("/use-the-app");
+  if (!(await hasPermission(supabase, "attendance", "view"))) redirect("/dashboard");
 
-  const [daycare, allRows] = await Promise.all([
-    getMyDaycare(supabase),
-    listAttendanceDay(supabase, date),
-  ]);
+  const daycare = await getMyDaycare(supabase);
+  const date = isDate(params.date)
+    ? params.date
+    : dateInTimeZone(new Date(), daycare?.timezone ?? "America/Toronto");
+  const allRows = await listAttendanceDay(supabase, date);
   const rows = params.room
     ? allRows.filter((row) => row.classroom?.id === params.room)
     : allRows;
@@ -68,8 +69,8 @@ export default async function AttendanceSheetPage({
             <th className="py-2 pr-3 font-bold">ROOM</th>
             <th className="py-2 pr-3 font-bold">IN</th>
             <th className="py-2 pr-3 font-bold">OUT</th>
-            <th className="py-2 pr-3 font-bold">BY</th>
-            <th className="py-2 pr-3 font-bold">BY</th>
+            <th className="py-2 pr-3 font-bold">IN BY</th>
+            <th className="py-2 pr-3 font-bold">OUT BY</th>
             <th className="py-2 font-bold">STATUS</th>
           </tr>
         </thead>
@@ -84,8 +85,22 @@ export default async function AttendanceSheetPage({
                 <td className="py-2 pr-3">{row.classroom?.name ?? "—"}</td>
                 <td className="py-2 pr-3">{timeOf(att?.checked_in_at ?? null)}</td>
                 <td className="py-2 pr-3">{timeOf(att?.checked_out_at ?? null)}</td>
-                <td className="py-2 pr-3 text-[12px]">{att?.dropped_off_by || "—"}</td>
-                <td className="py-2 pr-3 text-[12px]">{att?.picked_up_by || "—"}</td>
+                <td className="py-2 pr-3 text-[12px]">
+                  {att?.checked_in_at
+                    ? att.dropped_off_by ||
+                      (att.checked_in_by_profile?.full_name
+                        ? `Recorded by ${att.checked_in_by_profile.full_name}`
+                        : "Adult not recorded")
+                    : "—"}
+                </td>
+                <td className="py-2 pr-3 text-[12px]">
+                  {att?.checked_out_at
+                    ? att.picked_up_by ||
+                      (att.checked_out_by_profile?.full_name
+                        ? `Recorded by ${att.checked_out_by_profile.full_name}`
+                        : "Adult not recorded")
+                    : "—"}
+                </td>
                 <td className="py-2 text-[12px]">
                   {att?.status === "absent" || att?.status === "excused"
                     ? `${att.status}${att.absence_reason ? ` · ${att.absence_reason}` : ""}`

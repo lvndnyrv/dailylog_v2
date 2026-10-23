@@ -32,7 +32,10 @@ interface NotificationCenterValue {
   unreadCount: number;
   preferences: NotificationPreferenceInput[];
   quietHoursEnabled: boolean;
+  hasOlderNotifications: boolean;
+  loadingOlderNotifications: boolean;
   actionError: string | null;
+  loadOlderNotifications: () => Promise<void>;
   markRead: (notificationId: string) => Promise<void>;
   markAllRead: () => Promise<void>;
   openSettings: () => void;
@@ -85,6 +88,8 @@ export function NotificationCenterProvider({
 }) {
   const router = useRouter();
   const [notifications, setNotifications] = useState(initialNotifications);
+  const [hasOlderNotifications, setHasOlderNotifications] = useState(initialNotifications.length >= 100);
+  const [loadingOlderNotifications, setLoadingOlderNotifications] = useState(false);
   const [preferences, setPreferences] = useState(() => normalizedPreferences(initialPreferences));
   const [quietHoursEnabled, setQuietHoursEnabled] = useState(
     initialDeliverySettings?.quiet_hours_enabled ?? true,
@@ -151,21 +156,66 @@ export function NotificationCenterProvider({
   }, [profileId]);
 
   const markRead = useCallback(async (notificationId: string) => {
-    const readAt = new Date().toISOString();
-    setNotifications((current) =>
-      current.map((row) => (row.id === notificationId ? { ...row, read_at: readAt } : row)),
-    );
     setActionError(null);
-    const result = await markNotificationReadAction(notificationId);
-    if (result.error) setActionError(result.error);
+    try {
+      const result = await markNotificationReadAction(notificationId);
+      if (result.error) {
+        setActionError(result.error);
+        return;
+      }
+      const readAt = new Date().toISOString();
+      setNotifications((current) =>
+        current.map((row) => (row.id === notificationId ? { ...row, read_at: readAt } : row)),
+      );
+    } catch {
+      setActionError("Could not mark the notification read. Try again.");
+    }
   }, []);
 
-  const markAllRead = useCallback(async () => {
-    const readAt = new Date().toISOString();
-    setNotifications((current) => current.map((row) => ({ ...row, read_at: readAt })));
+  const loadOlderNotifications = useCallback(async () => {
+    if (loadingOlderNotifications || !hasOlderNotifications) return;
+    const oldest = notifications.at(-1);
+    if (!oldest?.created_at) {
+      setHasOlderNotifications(false);
+      return;
+    }
+    setLoadingOlderNotifications(true);
     setActionError(null);
-    const result = await markAllNotificationsReadAction();
-    if (result.error) setActionError(result.error);
+    try {
+      const { data, error } = await getBrowserSupabase()
+        .from("notifications")
+        .select("*")
+        .eq("profile_id", profileId)
+        .or(`created_at.lt.${oldest.created_at},and(created_at.eq.${oldest.created_at},id.lt.${oldest.id})`)
+        .order("created_at", { ascending: false })
+        .order("id", { ascending: false })
+        .limit(50);
+      if (error) throw error;
+      setNotifications((current) => {
+        const seen = new Set(current.map((row) => row.id));
+        return [...current, ...(data ?? []).filter((row) => !seen.has(row.id))];
+      });
+      setHasOlderNotifications((data?.length ?? 0) === 50);
+    } catch {
+      setActionError("Could not load older notifications. Try again.");
+    } finally {
+      setLoadingOlderNotifications(false);
+    }
+  }, [hasOlderNotifications, loadingOlderNotifications, notifications, profileId]);
+
+  const markAllRead = useCallback(async () => {
+    setActionError(null);
+    try {
+      const result = await markAllNotificationsReadAction();
+      if (result.error) {
+        setActionError(result.error);
+        return;
+      }
+      const readAt = new Date().toISOString();
+      setNotifications((current) => current.map((row) => ({ ...row, read_at: readAt })));
+    } catch {
+      setActionError("Could not mark notifications read. Try again.");
+    }
   }, []);
 
   const updatePreferences = useCallback(
@@ -182,7 +232,10 @@ export function NotificationCenterProvider({
       unreadCount: notifications.filter((notification) => !notification.read_at).length,
       preferences,
       quietHoursEnabled,
+      hasOlderNotifications,
+      loadingOlderNotifications,
       actionError,
+      loadOlderNotifications,
       markRead,
       markAllRead,
       openSettings: () => setSettingsOpen(true),
@@ -192,7 +245,10 @@ export function NotificationCenterProvider({
       notifications,
       preferences,
       quietHoursEnabled,
+      hasOlderNotifications,
+      loadingOlderNotifications,
       actionError,
+      loadOlderNotifications,
       markRead,
       markAllRead,
       updatePreferences,

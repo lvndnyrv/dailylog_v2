@@ -1,4 +1,5 @@
 import { BrandMark } from "@/components/brand";
+import { safeInternalDestination } from "@/lib/auth/destination";
 import { SignInForm } from "./sign-in-form";
 
 // Screen 10a — split layout: 530px form panel + ink brand panel.
@@ -8,7 +9,7 @@ export default async function SignInPage({
   searchParams: Promise<{ reset?: string; next?: string; link?: string }>;
 }) {
   const { reset, next, link } = await searchParams;
-  const destination = next?.startsWith("/") && !next.startsWith("//") ? next : "/dashboard";
+  const destination = safeInternalDestination(next, "/dashboard");
 
   return (
     <main className="flex min-h-screen bg-card">

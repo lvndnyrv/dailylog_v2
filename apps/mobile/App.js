@@ -100,6 +100,7 @@ import IncidentDetailScreen  from './src/screens/parent/IncidentDetailScreen';
 import ParentIncidentsScreen from './src/screens/parent/ParentIncidentsScreen';
 import IncidentAcknowledgedScreen from './src/screens/parent/IncidentAcknowledgedScreen';
 import PickupPassScreen      from './src/screens/parent/PickupPassScreen';
+import FamilyAttendancePassScreen from './src/screens/parent/FamilyAttendancePassScreen';
 import AuthorizedPickupsScreen from './src/screens/parent/AuthorizedPickupsScreen';
 import ReportAbsenceScreen from './src/screens/parent/ReportAbsenceScreen';
 import AbsenceSubmittedScreen from './src/screens/parent/AbsenceSubmittedScreen';
@@ -801,6 +802,7 @@ function RootNavigator() {
           <Stack.Screen name="ParentIncidents" component={ParentIncidentsScreen} options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="IncidentAcknowledged" component={IncidentAcknowledgedScreen} options={{ animation: 'fade' }} />
           <Stack.Screen name="PickupPass"       component={PickupPassScreen}       options={{ animation: 'slide_from_bottom' }} />
+          <Stack.Screen name="FamilyAttendancePass" component={FamilyAttendancePassScreen} options={{ animation: 'slide_from_bottom' }} />
           <Stack.Screen name="AuthorizedPickups" component={AuthorizedPickupsScreen} options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="ReportAbsence" component={ReportAbsenceScreen} options={{ animation: 'slide_from_bottom', presentation: 'modal' }} />
           <Stack.Screen name="AbsenceSubmitted" component={AbsenceSubmittedScreen} options={{ animation: 'fade' }} />

@@ -39,10 +39,10 @@ export function InspectionPackView({
   canEdit?: boolean;
 }) {
   const ready = complianceReadiness(pack);
-  const observedRatioPercent = pack.ratio_ledger.observed_minutes
+  const occupiedRatioPercent = pack.ratio_ledger.occupied_minutes
     ? Math.round(
-        (pack.ratio_ledger.compliant_minutes /
-          pack.ratio_ledger.observed_minutes) *
+        (pack.ratio_ledger.occupied_compliant_minutes /
+          pack.ratio_ledger.occupied_minutes) *
           100,
       )
     : null;
@@ -103,8 +103,8 @@ export function InspectionPackView({
           {[
             [`${ready.score}%`, "record checks complete"],
             [
-              observedRatioPercent === null ? "—" : `${observedRatioPercent}%`,
-              "observed ratio-compliant minutes · 30 days",
+              occupiedRatioPercent === null ? "—" : `${occupiedRatioPercent}%`,
+              `of ${pack.ratio_ledger.occupied_minutes} recorded occupied min · 30 days`,
             ],
             [String(ready.unsigned), "unsigned incidents"],
           ].map(([v, t]) => (
@@ -131,7 +131,9 @@ export function InspectionPackView({
         </div>
         <p className="mt-4 border-t border-hairline pt-3 text-xs leading-relaxed text-muted">
           This is a live record summary, not a certification of regulatory
-          readiness. Ratio history begins at the capture date shown below;
+          readiness. The ratio percentage covers only recorded occupied-room
+          time; it cannot assess attendance that was never logged. Ratio history
+          begins at the capture date shown below;
           earlier records contain only known exceptions.
           Staff originals and full incident narratives remain in their
           authorized workflows; the pack includes only the necessary register
@@ -164,15 +166,15 @@ export function InspectionPackView({
         title="Ratio coverage ledger"
         note={
           pack.ratio_ledger.captured_since
-            ? `Ledger activated ${time(pack.ratio_ledger.captured_since, pack.timezone)} Continuous capture runs during configured center hours (${pack.ratio_ledger.opens_at}–${pack.ratio_ledger.closes_at}); planned closures and overnight hours are excluded. Pre-activation legacy rows are known exceptions only and are excluded from observed-minute totals.`
+            ? `Ledger activated ${time(pack.ratio_ledger.captured_since, pack.timezone)} Continuous capture runs during configured center hours (${pack.ratio_ledger.opens_at}–${pack.ratio_ledger.closes_at}); planned closures and overnight hours are excluded. Empty-room time is retained in the ledger but excluded from the occupied-room percentage. Pre-activation legacy rows are known exceptions only and are excluded from observed-minute totals.`
             : "Ratio coverage capture has not started yet. Historical exception records may still appear below."
         }
       >
         <div className="mb-4 grid grid-cols-3 gap-3">
           {[
-            [String(pack.ratio_ledger.observed_minutes), "observed min · 30 days"],
-            [String(pack.ratio_ledger.compliant_minutes), "compliant min"],
-            [String(pack.ratio_ledger.over_minutes), "over-ratio min"],
+            [String(pack.ratio_ledger.observed_minutes), "all observed min · 30 days"],
+            [String(pack.ratio_ledger.occupied_minutes), "occupied-room min"],
+            [String(pack.ratio_ledger.occupied_over_minutes), "occupied over-ratio min"],
           ].map(([value, caption]) => (
             <div key={caption} className="rounded-xl bg-canvas p-3">
               <strong className="block text-lg text-primary">{value}</strong>
@@ -180,6 +182,12 @@ export function InspectionPackView({
             </div>
           ))}
         </div>
+        {pack.ratio_ledger.occupied_minutes === 0 && (
+          <p className="mb-4 rounded-xl bg-warning-bg p-3 text-xs text-warning-text">
+            No occupied-room intervals were captured in this period. Verify that
+            child attendance was recorded before using this pack to assess ratios.
+          </p>
+        )}
         <PackTable
           headers={["Room", "From", "To", "Children", "Staff / required", "Result"]}
           rows={pack.ratio_ledger.intervals.map((interval) => [
@@ -188,7 +196,9 @@ export function InspectionPackView({
             interval.ends_at ? time(interval.ends_at, pack.timezone) : "Current",
             String(interval.present_count),
             `${interval.staff_count} / ${interval.required_staff}`,
-            interval.staff_count >= interval.required_staff
+            interval.present_count === 0
+              ? "No children present"
+              : interval.staff_count >= interval.required_staff
               ? "In ratio"
               : interval.source === "legacy_event"
                 ? "Over ratio · legacy event"

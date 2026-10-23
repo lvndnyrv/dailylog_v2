@@ -7,7 +7,7 @@ import { Field } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
 import { RuleHint } from "@/components/ui/rule-hint";
 
-export function StartForm() {
+export function StartForm({ signedInEmail }: { signedInEmail?: string }) {
   const [state, action, pending] = useActionState<ActionState, FormData>(
     startCenterAction,
     {},
@@ -16,19 +16,21 @@ export function StartForm() {
   return (
     <form action={action} className="flex flex-col gap-4">
       <Field label="Center name" name="center_name" required />
-      <Field label="Your name" name="full_name" autoComplete="name" required />
-      <Field label="Work email" name="email" type="email" autoComplete="email" required />
+      {!signedInEmail && <Field label="Your name" name="full_name" autoComplete="name" required />}
+      <Field label="Work email" name="email" type="email" autoComplete="email" defaultValue={signedInEmail} readOnly={Boolean(signedInEmail)} required />
       <Field label="Center address" name="address" autoComplete="street-address" required />
       <Field label="Center phone" name="phone" type="tel" autoComplete="tel" required />
-      <Field
-        label="Create a password"
-        name="password"
-        type="password"
-        autoComplete="new-password"
-        minLength={12}
-        required
-      />
-      <RuleHint />
+      {!signedInEmail && <>
+        <Field
+          label="Create a password"
+          name="password"
+          type="password"
+          autoComplete="new-password"
+          minLength={12}
+          required
+        />
+        <RuleHint />
+      </>}
       <Field
         label="DailyLog registration code"
         name="registration_code"

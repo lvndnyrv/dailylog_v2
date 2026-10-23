@@ -19,29 +19,115 @@ export interface InvoiceRow {
   issued_on: string | null;
   due_on: string | null;
   total_cents: number;
+  currency: string;
   family: { id: string; display_name: string } | null;
   child: { id: string; first_name: string; last_name: string } | null;
   billed_to_profile: { id: string; full_name: string; email: string } | null;
   lines: { id: string; description: string; quantity: number; amount_cents: number }[];
-  payments: { id: string; amount_cents: number; method: string | null; paid_at: string | null }[];
+  payments: { id: string; amount_cents: number; method: string | null; paid_at: string | null; status: string }[];
   reminders: { id: string; sent_at: string; tone: string; status: string }[];
 }
 
-const INVOICE_SELECT = `id, number, status, issued_on, due_on, total_cents,
+const INVOICE_SELECT = `id, number, status, issued_on, due_on, total_cents, currency,
   family:families(id, display_name),
   child:children(id, first_name, last_name),
   billed_to_profile:profiles!invoices_billed_to_fkey(id, full_name, email),
   lines:invoice_lines(id, description, quantity, amount_cents),
-  payments:payments!payments_invoice_id_fkey(id, amount_cents, method, paid_at),
+  payments:payments!payments_invoice_id_fkey(id, amount_cents, method, paid_at, status),
   reminders:invoice_reminder_events(id, sent_at, tone, status)`;
 
 export async function listInvoices(client: Client): Promise<InvoiceRow[]> {
-  const { data, error } = await client
-    .from('invoices')
-    .select(INVOICE_SELECT)
-    .order('issued_on', { ascending: false });
-  if (error) throw error;
-  return (data ?? []) as unknown as InvoiceRow[];
+  const invoices: InvoiceRow[] = [];
+  const pageSize = 500;
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await client
+      .from('invoices')
+      .select(INVOICE_SELECT)
+      .order('issued_on', { ascending: false })
+      .order('id', { ascending: false })
+      .range(from, from + pageSize - 1);
+    if (error) throw error;
+    invoices.push(...((data ?? []) as unknown as InvoiceRow[]));
+    if (!data || data.length < pageSize) return invoices;
+  }
+}
+
+export async function listInvoicesByIds(client: Client, ids: string[]): Promise<InvoiceRow[]> {
+  if (ids.length === 0) return [];
+  const invoices: InvoiceRow[] = [];
+  const uniqueIds = [...new Set(ids)];
+  const idBatchSize = 100;
+  const pageSize = 500;
+  for (let index = 0; index < uniqueIds.length; index += idBatchSize) {
+    const batch = uniqueIds.slice(index, index + idBatchSize);
+    for (let from = 0; ; from += pageSize) {
+      const { data, error } = await client
+        .from('invoices')
+        .select(INVOICE_SELECT)
+        .in('id', batch)
+        .order('issued_on', { ascending: false })
+        .order('id', { ascending: false })
+        .range(from, from + pageSize - 1);
+      if (error) throw error;
+      invoices.push(...((data ?? []) as unknown as InvoiceRow[]));
+      if (!data || data.length < pageSize) break;
+    }
+  }
+  return invoices.sort((left, right) =>
+    (right.issued_on ?? '').localeCompare(left.issued_on ?? '') || right.id.localeCompare(left.id));
+}
+
+export async function listFamilyInvoices(client: Client, familyId: string): Promise<InvoiceRow[]> {
+  const invoices: InvoiceRow[] = [];
+  const pageSize = 500;
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await client
+      .from('invoices')
+      .select(INVOICE_SELECT)
+      .eq('family_id', familyId)
+      .order('issued_on', { ascending: false })
+      .order('id', { ascending: false })
+      .range(from, from + pageSize - 1);
+    if (error) throw error;
+    invoices.push(...((data ?? []) as unknown as InvoiceRow[]));
+    if (!data || data.length < pageSize) return invoices;
+  }
+}
+
+export interface FamilyPaymentReviewRow {
+  id: string;
+  amount_cents: number;
+  currency: string;
+  status: string;
+  paid_at: string | null;
+  refunded_at: string | null;
+  invoice: {
+    id: string;
+    number: string | null;
+    child: { id: string; first_name: string; last_name: string } | null;
+  } | null;
+}
+
+export async function listFamilyPaymentsForReview(
+  client: Client,
+  familyId: string,
+): Promise<FamilyPaymentReviewRow[]> {
+  const payments: FamilyPaymentReviewRow[] = [];
+  const pageSize = 500;
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await client
+      .from('payments')
+      .select(`id, amount_cents, currency, status, paid_at, refunded_at,
+        invoice:invoices!payments_invoice_id_fkey(id, number,
+          child:children(id, first_name, last_name))`)
+      .eq('family_id', familyId)
+      .in('status', ['succeeded', 'refunded'])
+      .order('id', { ascending: true })
+      .range(from, from + pageSize - 1);
+    if (error) throw error;
+    payments.push(...((data ?? []) as unknown as FamilyPaymentReviewRow[]));
+    if (!data || data.length < pageSize) return payments;
+  }
 }
 
 export async function getBillingSummary(client: Client): Promise<BillingSummary | null> {

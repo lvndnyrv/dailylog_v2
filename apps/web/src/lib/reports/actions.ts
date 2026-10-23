@@ -3,7 +3,7 @@
 import { getMyProfile, hasPermission } from "@dailylog/db/queries";
 import { revalidatePath } from "next/cache";
 import { getServerSupabase } from "@/lib/supabase/server";
-import { isReportKind, REPORT_CATALOG, type ReportKind } from "./catalog";
+import { isReportKind } from "./catalog";
 
 export interface ReportActionResult {
   ok?: boolean;
@@ -16,7 +16,7 @@ const errorMessage = (error: unknown) =>
     ? String(error.message)
     : "The report setting could not be saved.";
 
-async function reportClient(action: "view" | "edit") {
+async function reportClient(action: "edit") {
   const client = await getServerSupabase();
   const profile = await getMyProfile(client);
   if (
@@ -62,11 +62,11 @@ export async function saveReportSchedule(form: FormData): Promise<ReportActionRe
       active: true,
     };
     const id = text(form, "id");
-    const query = id
-      ? client.from("report_schedules").update(values).eq("id", id)
-      : client.from("report_schedules").insert(values);
-    const { error } = await query;
+    const { error, count } = id
+      ? await client.from("report_schedules").update(values, { count: "exact" }).eq("id", id).eq("daycare_id", daycareId)
+      : await client.from("report_schedules").insert(values, { count: "exact" });
     if (error) throw error;
+    if (count !== 1) return { error: "The report schedule was not saved. Refresh and try again." };
     revalidatePath("/reports", "layout");
     return { ok: true };
   } catch (error) {
@@ -79,9 +79,10 @@ export async function setReportScheduleActive(
   active: boolean,
 ): Promise<ReportActionResult> {
   try {
-    const { client } = await reportClient("edit");
-    const { error } = await client.from("report_schedules").update({ active }).eq("id", id);
+    const { client, daycareId } = await reportClient("edit");
+    const { error, count } = await client.from("report_schedules").update({ active }, { count: "exact" }).eq("id", id).eq("daycare_id", daycareId);
     if (error) throw error;
+    if (count !== 1) return { error: "The report schedule was not found. Refresh and try again." };
     revalidatePath("/reports", "layout");
     return { ok: true };
   } catch (error) {
@@ -91,38 +92,11 @@ export async function setReportScheduleActive(
 
 export async function deleteReportSchedule(id: string): Promise<ReportActionResult> {
   try {
-    const { client } = await reportClient("edit");
-    const { error } = await client.from("report_schedules").delete().eq("id", id);
+    const { client, daycareId } = await reportClient("edit");
+    const { error, count } = await client.from("report_schedules").delete({ count: "exact" }).eq("id", id).eq("daycare_id", daycareId);
     if (error) throw error;
+    if (count !== 1) return { error: "The report schedule was not found. Refresh and try again." };
     revalidatePath("/reports", "layout");
-    return { ok: true };
-  } catch (error) {
-    return { error: errorMessage(error) };
-  }
-}
-
-export async function recordReportExport(
-  kind: ReportKind,
-  format: "pdf" | "csv",
-  startsOn: string,
-  endsOn: string,
-  rowCount: number,
-): Promise<ReportActionResult> {
-  try {
-    const { client, profile, daycareId } = await reportClient("view");
-    const { error } = await client.from("report_exports").insert({
-      daycare_id: daycareId,
-      created_by: profile.id,
-      report_kind: kind,
-      title: REPORT_CATALOG[kind].title,
-      starts_on: startsOn,
-      ends_on: endsOn,
-      format,
-      row_count: rowCount,
-      parameters: { starts_on: startsOn, ends_on: endsOn },
-    });
-    if (error) throw error;
-    revalidatePath("/reports");
     return { ok: true };
   } catch (error) {
     return { error: errorMessage(error) };

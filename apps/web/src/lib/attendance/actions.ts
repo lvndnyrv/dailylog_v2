@@ -58,22 +58,6 @@ export async function checkInAction(
   return { ok: true };
 }
 
-export async function checkOutAction(formData: FormData): Promise<void> {
-  const supabase = await getServerSupabase();
-  const profile = await getMyProfile(supabase);
-
-  const { error } = await supabase
-    .from("attendance_records")
-    .update({
-      checked_out_at: new Date().toISOString(),
-      checked_out_by: profile?.id ?? null,
-    })
-    .eq("id", str(formData, "record_id"));
-  if (error) throw error;
-
-  revalidatePath("/attendance");
-}
-
 // Fix check-out 8c — correct a missed or wrong time after the fact.
 export async function fixTimesAction(
   _prev: AttendanceActionState,
@@ -245,6 +229,34 @@ export interface KioskState {
   family?: Awaited<ReturnType<typeof kioskLookupPin>>;
   pin?: string;
   result?: { childName: string; direction: string };
+}
+
+export interface KioskQrResult {
+  error?: string;
+  result?: { childName: string; presenterName: string; direction: string };
+}
+
+export async function kioskScanQrAction(payload: string): Promise<KioskQrResult> {
+  if (!/^DL-ATT-1:[0-9a-f]{64}$/.test(payload)) {
+    return { error: "This is not a DailyLog attendance pass." };
+  }
+  const supabase = await getServerSupabase();
+  try {
+    const { data, error } = await supabase.rpc("redeem_family_attendance_pass", {
+      p_qr_payload: payload,
+    });
+    if (error) throw error;
+    const row = data?.[0];
+    if (!row) return { error: "The attendance pass could not be read." };
+    revalidatePath("/attendance");
+    return { result: {
+      childName: row.child_name,
+      presenterName: row.presenter_name,
+      direction: row.direction === "checked_in" ? "checked in" : "checked out",
+    } };
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : "This pass could not be used." };
+  }
 }
 
 export async function kioskLookupAction(

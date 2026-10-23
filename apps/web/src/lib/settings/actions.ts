@@ -18,6 +18,76 @@ function str(formData: FormData, key: string): string {
   return String(formData.get(key) ?? "").trim();
 }
 
+export async function saveBillingTaxProfileAction(
+  _prev: SettingsActionState,
+  formData: FormData,
+): Promise<SettingsActionState> {
+  const legalName = str(formData, "legal_name");
+  const address = str(formData, "statement_address");
+  const registrationLabel = str(formData, "registration_label");
+  const newRegistrationNumber = str(formData, "registration_number");
+  const clearRegistrationNumber = formData.get("clear_registration_number") === "on";
+  const licenseNumber = str(formData, "license_number");
+  const signerName = str(formData, "signer_name");
+  const signerTitle = str(formData, "signer_title");
+
+  if (!legalName || !address || !signerName || !signerTitle) {
+    return { error: "Legal name, statement address, signer name and signer title are required." };
+  }
+  if (clearRegistrationNumber && newRegistrationNumber) {
+    return { error: "Enter a new registration number or select Remove saved number, not both." };
+  }
+  if (legalName.length > 200 || address.length > 500 || registrationLabel.length > 80
+    || newRegistrationNumber.length > 100 || licenseNumber.length > 100
+    || signerName.length > 150 || signerTitle.length > 100) {
+    return { error: "One or more fields are too long." };
+  }
+
+  try {
+    const supabase = await getServerSupabase();
+    const profile = await getMyProfile(supabase);
+    if (!profile?.daycare_id || !["owner_admin", "admin"].includes(profile.role)) {
+      return { error: "Only a center admin can update provider details." };
+    }
+    const { data: hasPermission, error: permissionError } = await supabase.rpc("has_permission", {
+      p_area: "billing", p_action: "edit",
+    });
+    if (permissionError || !hasPermission) {
+      return { error: "Billing edit access is required." };
+    }
+    const { data: existing, error: readError } = await supabase
+      .from("billing_tax_profiles")
+      .select("registration_number")
+      .eq("daycare_id", profile.daycare_id)
+      .maybeSingle();
+    if (readError) throw readError;
+    const registrationNumber = clearRegistrationNumber
+      ? null
+      : newRegistrationNumber || existing?.registration_number || null;
+    if (registrationNumber && !registrationLabel) {
+      return { error: "Give the registration number a label, such as the identifier type used by your jurisdiction." };
+    }
+
+    const { error } = await supabase.from("billing_tax_profiles").upsert({
+      daycare_id: profile.daycare_id,
+      legal_name: legalName,
+      statement_address: address,
+      registration_label: registrationLabel,
+      registration_number: registrationNumber,
+      license_number: licenseNumber,
+      signer_name: signerName,
+      signer_title: signerTitle,
+      updated_by: profile.id,
+    }, { onConflict: "daycare_id" });
+    if (error) throw error;
+  } catch {
+    return { error: "Could not save provider details. Please try again." };
+  }
+
+  revalidatePath("/settings");
+  return { ok: true };
+}
+
 export async function updateCenterAction(
   _prev: SettingsActionState,
   formData: FormData,
@@ -49,6 +119,24 @@ export async function updateCenterAction(
   }
 
   revalidatePath("/", "layout");
+  return { ok: true };
+}
+
+export async function updateSickReturnPolicyAction(
+  _prev: SettingsActionState,
+  formData: FormData,
+): Promise<SettingsActionState> {
+  const hours = Number(str(formData, "sick_return_hours"));
+  if (!Number.isInteger(hours) || hours < 0 || hours > 168) {
+    return { error: "Enter a whole number of hours between 0 and 168." };
+  }
+  try {
+    const supabase = await getServerSupabase();
+    await updateMyDaycare(supabase, { sick_return_hours: hours });
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : "Could not save the return rule." };
+  }
+  revalidatePath("/settings");
   return { ok: true };
 }
 

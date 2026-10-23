@@ -47,10 +47,18 @@ begin
        and forecast.expected_children = 1
        and forecast.unknown_bookings = 0
   ) then raise exception 'FAIL: recurring booking did not drive forecast'; end if;
+  if not exists (
+    select 1 from public.get_attendance_expected_children(booked_day) expected
+     where expected.child_id = v_child_id and expected.chase_after = time '09:30'
+  ) then raise exception 'FAIL: recurring booking did not reach attendance'; end if;
   if exists (
     select 1 from public.get_room_demand_forecast(off_day) forecast
      where forecast.room_id = v_room_id and forecast.expected_children > 0
   ) then raise exception 'FAIL: child was expected on a non-booked weekday'; end if;
+  if exists (
+    select 1 from public.get_attendance_expected_children(off_day) expected
+     where expected.child_id = v_child_id
+  ) then raise exception 'FAIL: attendance expected a child outside recurring weekdays'; end if;
 
   perform public.save_attendance_bookings(off_day, jsonb_build_array(
     jsonb_build_object('child_id', v_child_id, 'state', 'expected', 'arrives_at', '09:00', 'leaves_at', '15:00')
@@ -62,6 +70,10 @@ begin
        and forecast.expected_children = 1
        and forecast.unknown_bookings = 0
   ) then raise exception 'FAIL: dated expected override did not replace recurring pattern'; end if;
+  if not exists (
+    select 1 from public.get_attendance_expected_children(off_day) expected
+     where expected.child_id = v_child_id and expected.chase_after = time '09:30'
+  ) then raise exception 'FAIL: dated expected override did not reach attendance'; end if;
 
   perform public.save_attendance_bookings(booked_day, jsonb_build_array(
     jsonb_build_object('child_id', v_child_id, 'state', 'not_scheduled', 'arrives_at', '', 'leaves_at', '')
@@ -70,6 +82,10 @@ begin
     select 1 from public.get_room_demand_forecast(booked_day) forecast
      where forecast.room_id = v_room_id and forecast.expected_children > 0
   ) then raise exception 'FAIL: dated not-scheduled override did not replace recurring pattern'; end if;
+  if exists (
+    select 1 from public.get_attendance_expected_children(booked_day) expected
+     where expected.child_id = v_child_id
+  ) then raise exception 'FAIL: attendance ignored dated not-scheduled override'; end if;
 
   begin
     perform public.save_child_attendance_booking_pattern(v_child_id, array[weekday], '06:30', '16:00', booked_day, null);
